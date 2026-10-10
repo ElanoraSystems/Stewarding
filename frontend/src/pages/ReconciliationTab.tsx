@@ -27,7 +27,7 @@ interface Row {
 export function ReconciliationTab() {
   const [locationId, setLocationId] = useState<number | null>(null)
   const [kind, setKind] = useState('crockery')
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const { data } = useApi<{ rows: Row[]; total_closing: number }>(
     locationId && month ? `/stock/reconciliation${qs({ location_id: locationId, kind, month })}` : null,
   )

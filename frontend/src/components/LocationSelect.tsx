@@ -13,9 +13,10 @@ export function LocationSelect({ value, onChange, allowAll = false, className = 
   const { me } = useAuth()
   const locations = me?.locations ?? []
 
+  const firstId = locations[0]?.id
   useEffect(() => {
-    if (value === null && !allowAll && locations.length > 0) onChange(locations[0].id)
-  }, [value, allowAll, locations, onChange])
+    if (value === null && !allowAll && firstId !== undefined) onChange(firstId)
+  }, [value, allowAll, firstId, onChange])
 
   return (
     <Select

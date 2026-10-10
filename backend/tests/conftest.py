@@ -3,7 +3,7 @@ import tempfile
 
 # Settings are read at import time, so configure the environment first.
 _tmp = tempfile.mkdtemp()
-os.environ["STW_DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
+os.environ["STW_DATABASE_URL"] = os.environ.get("STW_TEST_DATABASE_URL", f"sqlite:///{_tmp}/test.db")
 os.environ["STW_SECRET_KEY"] = "test-only-secret-key-not-for-production-use"
 os.environ["STW_SCHEDULER_ENABLED"] = "false"
 os.environ["STW_BCRYPT_ROUNDS"] = "4"

@@ -1,30 +1,48 @@
 # Stewarding Operations Management System
 
-Multi-location stewarding operations: attendance, checklists, dishwasher/glasswasher temperature
-monitoring, crockery and smallware inventory, breakage, notifications and reports.
+Multi-location stewarding operations: attendance, daily and weekly checklists, dishwasher and glasswasher temperature
+monitoring, crockery and smallware inventory, breakage, notifications, dashboards and reports. Three roles (Back of House
+Manager, Stewarding Supervisor, Steward) are enforced on the server, including per-location access.
 
-See [docs/PLAN.md](docs/PLAN.md) for architecture, phases and items needing management approval.
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) - run it with Docker, create the first manager, back up, upgrade.
+- [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) - rules that need management sign-off, assumptions, known limits.
+- [docs/PLAN.md](docs/PLAN.md) - architecture and phases.
 
-## Backend
+## Run with Docker
+```bash
+cp .env.example .env     # set POSTGRES_PASSWORD and STW_SECRET_KEY
+docker compose up -d --build
+docker compose run --rm backend python -m app.bootstrap --email you@company.com --name "Your Name" --code E001
+```
+Open http://localhost:8080. See the deployment guide for details.
 
+## Develop locally
+Backend (Python 3.11):
 ```bash
 cd backend
 uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
-cp .env.example .env            # then set STW_SECRET_KEY
+cp .env.example .env            # set STW_SECRET_KEY (32+ characters)
 .venv/bin/alembic upgrade head
-.venv/bin/python -m app.seed
-.venv/bin/uvicorn app.main:app --reload
-.venv/bin/python -m pytest
+STW_SEED_PASSWORD=choose-one .venv/bin/python -m app.seed      # demo users and data
+.venv/bin/uvicorn app.main:app --reload --port 8100
 ```
-
-Seeded users (all `@example.test`): `manager`, `sup.mk`, `sup.rb`, `steward.mk`, `steward.bq`, `steward.rb`.
-The password is `STW_SEED_PASSWORD`, or the random value the seed command prints.
-
-## Frontend
-
+Frontend (Node 20):
 ```bash
 cd frontend
 npm install
-npm run dev
+VITE_API_TARGET=http://localhost:8100 npm run dev
 ```
+
+## Tests
+```bash
+cd backend && .venv/bin/python -m pytest                       # SQLite
+STW_TEST_DATABASE_URL=postgresql+psycopg://user:pass@host/db .venv/bin/python -m pytest   # PostgreSQL (disposable DB)
+cd frontend && npm run lint && npm run build
+```
+The suite covers permissions on every route, cross-location isolation, attendance and time zones, daylight saving,
+checklist generation, temperature failures and retests, inventory ledger integrity, breakage approval, alerts, reports
+and exports.
+
+## Dependencies worth knowing
+`openpyxl` and `reportlab` write the Excel and PDF exports (nothing else installed does); `psycopg` is the PostgreSQL driver.

@@ -13,3 +13,4 @@ pytest
 httpx
 openpyxl
 reportlab
+psycopg[binary]

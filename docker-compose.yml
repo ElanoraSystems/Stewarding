@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stewarding
+      POSTGRES_DB: stewarding
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stewarding -d stewarding"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      STW_DATABASE_URL: postgresql+psycopg://stewarding:${POSTGRES_PASSWORD}@db:5432/stewarding
+      STW_SECRET_KEY: ${STW_SECRET_KEY:?set STW_SECRET_KEY in .env (32+ random characters)}
+      STW_CORS_ORIGINS: ${STW_CORS_ORIGINS:-http://localhost:8080}
+      STW_TOKEN_MINUTES: ${STW_TOKEN_MINUTES:-600}
+    volumes:
+      - uploads:/data/uploads
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  dbdata:
+  uploads:
