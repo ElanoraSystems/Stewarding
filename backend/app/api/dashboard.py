@@ -217,10 +217,10 @@ def dashboard(location_id: int | None = None, date_from: date | None = None, dat
               task_status: str | None = None, user: User = Depends(require("dashboard.view")),
               db: Session = Depends(get_db)):
     now = timeutil.utc_now()
-    if user.role.name == STEWARD:
-        return _steward_view(db, user, now)
     if location_id is not None:
         check_location(user, db, location_id)
+    if user.role.name == STEWARD:
+        return _steward_view(db, user, now)
     try:
         view = _manager_view(db, user, now, location_id, date_from, date_to, employee_id, equipment_id, task_status)
     except ValueError as exc:

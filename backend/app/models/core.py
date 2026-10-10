@@ -112,7 +112,7 @@ class AttendanceRecord(Base):
     local_date: Mapped[date] = mapped_column(Date, index=True)
     check_in_at: Mapped[datetime] = ts()
     check_out_at: Mapped[datetime | None] = mapped_column(DateTime)
-    open_flag: Mapped[int | None] = mapped_column(Integer, default=1)
+    open_flag: Mapped[int | None] = mapped_column(Integer)
     late_minutes: Mapped[int] = mapped_column(Integer, default=0)
     payable_minutes: Mapped[int | None] = mapped_column(Integer)
     overtime_minutes: Mapped[int | None] = mapped_column(Integer)

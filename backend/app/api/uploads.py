@@ -39,7 +39,7 @@ def is_valid_evidence(name: str | None) -> bool:
 async def upload(file: UploadFile, user: User = Depends(current_user)):
     data = await file.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File exceeds 5 MB")
+        raise HTTPException(413, "File exceeds 5 MB")
     kind = _kind(data[:16])
     if not kind:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Only JPEG, PNG, WebP or PDF files are accepted")

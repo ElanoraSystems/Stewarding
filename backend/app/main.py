@@ -11,6 +11,8 @@ from .config import settings
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if len(settings.secret_key) < 32:
+        raise RuntimeError("STW_SECRET_KEY must be set to a random value of at least 32 characters")
     if settings.scheduler_enabled:
         scheduler.start_background()
     yield
