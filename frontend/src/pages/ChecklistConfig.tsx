@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
+import { useLookup } from '@/lib/useLookups'
 import { qs, useApi } from '@/lib/useApi'
 
 interface Task {
@@ -40,14 +41,16 @@ interface ConfigProps {
 export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
   const run = useRun()
   const { data, reload } = useApi<Template[]>(locationId ? `/checklists/templates${qs({ location_id: locationId })}` : null)
+  const categories = useLookup('checklist_category')
   const [name, setName] = useState('')
+  const [category, setCategory] = useState('')
   const [frequency, setFrequency] = useState('daily')
   const [taskText, setTaskText] = useState<Record<number, string>>({})
   const [removing, setRemoving] = useState<Task | null>(null)
 
   async function addTemplate(event: FormEvent) {
     event.preventDefault()
-    const ok = await run(() => api('/checklists/templates', { body: { name, category: 'Cleaning', location_id: locationId, frequency } }), 'Template added')
+    const ok = await run(() => api('/checklists/templates', { body: { name, category: category || categories[0] || 'General', location_id: locationId, frequency } }), 'Template added')
     if (ok) {
       setName('')
       reload()
@@ -85,6 +88,11 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
 
       <form onSubmit={addTemplate} className="flex flex-wrap items-end gap-3">
         <Field label="New template name"><Input required value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="Category">
+          <Select value={category || categories[0] || ''} onChange={(e) => setCategory(e.target.value)}>
+            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+        </Field>
         <Field label="Frequency">
           <Select value={frequency} onChange={(e) => setFrequency(e.target.value)}>
             <option value="daily">Daily</option>

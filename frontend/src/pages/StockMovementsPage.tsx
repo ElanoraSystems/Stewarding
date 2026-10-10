@@ -9,6 +9,7 @@ import { fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { CountsTab } from '@/pages/CountsTab'
+import { ReceivingTab } from '@/pages/ReceivingTab'
 import { ReconciliationTab } from '@/pages/ReconciliationTab'
 import { TransfersTab } from '@/pages/TransfersTab'
 
@@ -23,7 +24,7 @@ interface Txn {
   user: string | null
 }
 
-const TABS = [['transactions', 'Transactions'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation']] as const
+const TABS = [['transactions', 'Transactions'], ['receiving', 'Receiving & invoices'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation']] as const
 const SIZE = 15
 
 function Transactions() {
@@ -82,6 +83,7 @@ export function StockMovementsPage() {
         ))}
       </div>
       {tab === 'transactions' && <Transactions />}
+      {tab === 'receiving' && <ReceivingTab />}
       {tab === 'transfers' && <TransfersTab />}
       {tab === 'counts' && <CountsTab />}
       {tab === 'reconciliation' && <ReconciliationTab />}

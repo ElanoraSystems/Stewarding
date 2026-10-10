@@ -12,7 +12,10 @@
 - **Payable hours.** Elapsed time minus the shift's break. Overtime is payable time beyond the scheduled shift length, or beyond the shift's own overtime limit if set.
 - **Daylight saving.** A wall-clock time that does not exist (spring forward) resolves to the next valid instant; an ambiguous one (fall back) resolves to the first occurrence.
 - **Compliance percentages.** Numerator is completed, pending-verification and verified work. Denominator adds failed and overdue work. Waived and future tasks are excluded and reported separately.
-- **Stock.** Balances are per item and per location and are derived from an append-only ledger. Opening stock needs a location. There is no per-location item master.
+- **Stock.** Balances are per item and per location and are derived from an append-only ledger. Opening stock needs a location. There is one item master shared by all locations.
+- **Item master.** An item is unique by code and, within crockery or smallware, by name ignoring case and spacing. Items are retired, never deleted. Categories, units, suppliers and dropdown values are retired the same way.
+- **Receiving.** A goods receipt adds stock through ledger entries that reference the document and supplier invoice number. A supplier invoice number can be posted once per supplier; a voided document frees it for correct re-entry. Voiding reverses stock with new entries and may take a balance negative if the goods were already used. Updating item costs from an invoice is optional and audited.
+- **Suppliers and costs.** Only managers and supervisors can see suppliers, costs and receiving documents; stewards cannot.
 - **Permissions.** Supervisors can verify others' work but not their own, and managers cannot approve a transfer or corrective action they raised themselves.
 - **Evidence uploads.** JPEG, PNG, WebP and PDF up to 5 MB, checked by file signature. Any signed-in user can fetch an uploaded file if they know its random name.
 

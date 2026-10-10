@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select'
 import { api, uploadFile } from '@/lib/api'
 import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
+import { useLookup } from '@/lib/useLookups'
 
 export interface Schedule {
   id: number
@@ -58,6 +59,7 @@ function verdict(value: string, schedule?: Schedule): 'pass' | 'fail' | null {
 
 export function TemperatureRecordForm({ equipment, prefill, onSaved, onClearRetest }: RecordFormProps) {
   const run = useRun()
+  const standardActions = useLookup('corrective_action')
   const [equipmentId, setEquipmentId] = useState('')
   const [scheduleId, setScheduleId] = useState('')
   const [temp, setTemp] = useState('')
@@ -141,8 +143,9 @@ export function TemperatureRecordForm({ equipment, prefill, onSaved, onClearRete
       {result === 'fail' && (
         <div className="space-y-2 rounded-md border border-danger/40 bg-danger-soft p-3">
           <p className="text-sm font-medium text-danger">This reading will be recorded as failed and your supervisor alerted.</p>
-          <Field label="Corrective action taken" hint="You can also add it afterwards from the open actions list.">
-            <Input value={action} onChange={(e) => setAction(e.target.value)} />
+          <Field label="Corrective action taken" hint="Pick a standard action or type your own. You can also add it afterwards from the open actions list.">
+            <Input list="standard-actions" value={action} onChange={(e) => setAction(e.target.value)} />
+            <datalist id="standard-actions">{standardActions.map((a) => <option key={a} value={a} />)}</datalist>
           </Field>
         </div>
       )}

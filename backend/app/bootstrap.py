@@ -10,7 +10,7 @@ from .db import SessionLocal
 from .models import Employee, EmployeeLocation, Location, User
 from .permissions import MANAGER
 from .security import hash_password
-from .seed import sync_roles
+from .seed import ensure_lookups, sync_roles
 
 MIN_PASSWORD = 12
 
@@ -23,6 +23,7 @@ def create_manager(db: Session, email: str, password: str, name: str, code: str)
     if db.scalar(select(User.id).where(User.email == email)) or db.scalar(select(Employee.id).where(Employee.employee_code == code)):
         raise ValueError("A user with that email or employee ID already exists")
     roles = sync_roles(db)
+    ensure_lookups(db)
     user = User(email=email, password_hash=hash_password(password), role_id=roles[MANAGER].id)
     db.add(user)
     db.flush()

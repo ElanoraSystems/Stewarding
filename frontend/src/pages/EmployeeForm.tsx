@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useRun } from '@/lib/toast'
+import { useLookup } from '@/lib/useLookups'
 
 export interface EmployeeRow {
   id: number
@@ -34,6 +35,7 @@ interface EmployeeFormProps {
 export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: EmployeeFormProps) {
   const { me } = useAuth()
   const run = useRun()
+  const titles = useLookup('job_title')
   const editing = employee !== null
   const [form, setForm] = useState({
     employee_code: employee?.employee_code ?? '',
@@ -97,7 +99,8 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Job title">
-            <Input required value={form.job_title} onChange={(e) => set('job_title', e.target.value)} />
+            <Input required list="job-titles" value={form.job_title} onChange={(e) => set('job_title', e.target.value)} />
+            <datalist id="job-titles">{titles.map((t) => <option key={t} value={t} />)}</datalist>
           </Field>
           <Field label="Role">
             <Select value={form.role} onChange={(e) => set('role', e.target.value)}>

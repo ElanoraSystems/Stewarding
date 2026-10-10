@@ -12,15 +12,15 @@ from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryUnit, StockTransaction,
-                      TrackedAsset, User)
+                      Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
-from ..services.inventory import StockError, post_txn
+from ..services.inventory import StockError, norm, post_txn
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 Kind = Literal["crockery", "smallware"]
 ITEM_FIELDS = ("id", "kind", "code", "name", "category_id", "unit_id", "description", "image_path",
-               "storage_location", "min_level", "target_level", "opening_qty", "supplier", "is_tracked_asset", "active")
+               "storage_location", "min_level", "target_level", "opening_qty", "supplier_id", "is_tracked_asset", "active")
 
 
 class CategoryIn(BaseModel):
@@ -43,7 +43,7 @@ class ItemIn(BaseModel):
     min_level: int = Field(default=0, ge=0)
     target_level: int | None = Field(default=None, ge=0)
     unit_cost: Decimal | None = Field(default=None, ge=0)
-    supplier: str | None = Field(default=None, max_length=120)
+    supplier_id: int | None = None
     is_tracked_asset: bool = False
     opening_qty: int = Field(default=0, ge=0)
     opening_location_id: int | None = None
@@ -58,7 +58,7 @@ class ItemUpdate(BaseModel):
     min_level: int | None = Field(default=None, ge=0)
     target_level: int | None = Field(default=None, ge=0)
     unit_cost: Decimal | None = Field(default=None, ge=0)
-    supplier: str | None = None
+    supplier_id: int | None = None
     active: bool | None = None
 
 
@@ -88,46 +88,92 @@ def _can_see_cost(user: User) -> bool:
     return bool({"inventory.manage", "stock.transfer"} & permissions_of(user))
 
 
+class NameUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    active: bool | None = None
+
+
 @router.get("/categories")
-def list_categories(kind: Kind | None = None, user: User = Depends(require("inventory.view")),
-                    db: Session = Depends(get_db)):
+def list_categories(kind: Kind | None = None, include_inactive: bool = False,
+                    user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
     stmt = select(InventoryCategory).order_by(InventoryCategory.kind, InventoryCategory.name)
     if kind:
         stmt = stmt.where(InventoryCategory.kind == kind)
-    return [row(c, "id", "kind", "name") for c in db.scalars(stmt)]
+    if not include_inactive:
+        stmt = stmt.where(InventoryCategory.active.is_(True))
+    return [row(c, "id", "kind", "name", "active") for c in db.scalars(stmt)]
+
+
+def _name_taken(db: Session, model, name: str, exclude_id: int | None = None, **scope) -> bool:
+    stmt = select(model).where(*(getattr(model, k) == v for k, v in scope.items()))
+    return any(norm(o.name) == norm(name) and o.id != exclude_id for o in db.scalars(stmt))
 
 
 @router.post("/categories", status_code=201)
 def create_category(body: CategoryIn, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
-    category = InventoryCategory(**body.model_dump())
-    try:
-        db.add(category)
-        db.flush()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Category already exists") from None
+    if _name_taken(db, InventoryCategory, body.name, kind=body.kind):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Category already exists")
+    category = InventoryCategory(kind=body.kind, name=" ".join(body.name.split()))
+    db.add(category)
+    db.flush()
     audit(db, user, "inventory.category_create", "inventory_category", category.id, None, body.model_dump())
     db.commit()
-    return row(category, "id", "kind", "name")
+    return row(category, "id", "kind", "name", "active")
+
+
+@router.put("/categories/{category_id}")
+def update_category(category_id: int, body: NameUpdate, user: User = Depends(require("inventory.manage")),
+                    db: Session = Depends(get_db)):
+    category = db.get(InventoryCategory, category_id)
+    if not category:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
+    data = body.model_dump(exclude_unset=True)
+    if "name" in data and _name_taken(db, InventoryCategory, data["name"], category.id, kind=category.kind):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Category already exists")
+    before = {k: getattr(category, k) for k in data}
+    for key, value in data.items():
+        setattr(category, key, " ".join(value.split()) if key == "name" else value)
+    audit(db, user, "inventory.category_update", "inventory_category", category.id, before, data)
+    db.commit()
+    return row(category, "id", "kind", "name", "active")
 
 
 @router.get("/units")
-def list_units(user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
-    return [row(u, "id", "name") for u in db.scalars(select(InventoryUnit).order_by(InventoryUnit.name))]
+def list_units(include_inactive: bool = False, user: User = Depends(require("inventory.view")),
+               db: Session = Depends(get_db)):
+    stmt = select(InventoryUnit).order_by(InventoryUnit.name)
+    if not include_inactive:
+        stmt = stmt.where(InventoryUnit.active.is_(True))
+    return [row(u, "id", "name", "active") for u in db.scalars(stmt)]
 
 
 @router.post("/units", status_code=201)
 def create_unit(body: UnitIn, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
-    unit = InventoryUnit(name=body.name)
-    try:
-        db.add(unit)
-        db.flush()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Unit already exists") from None
+    if _name_taken(db, InventoryUnit, body.name):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Unit already exists")
+    unit = InventoryUnit(name=" ".join(body.name.split()))
+    db.add(unit)
+    db.flush()
     audit(db, user, "inventory.unit_create", "inventory_unit", unit.id, None, {"name": body.name})
     db.commit()
-    return row(unit, "id", "name")
+    return row(unit, "id", "name", "active")
+
+
+@router.put("/units/{unit_id}")
+def update_unit(unit_id: int, body: NameUpdate, user: User = Depends(require("inventory.manage")),
+                db: Session = Depends(get_db)):
+    unit = db.get(InventoryUnit, unit_id)
+    if not unit:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unit not found")
+    data = body.model_dump(exclude_unset=True)
+    if "name" in data and _name_taken(db, InventoryUnit, data["name"], unit.id):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Unit already exists")
+    before = {k: getattr(unit, k) for k in data}
+    for key, value in data.items():
+        setattr(unit, key, " ".join(value.split()) if key == "name" else value)
+    audit(db, user, "inventory.unit_update", "inventory_unit", unit.id, before, data)
+    db.commit()
+    return row(unit, "id", "name", "active")
 
 
 def _scope(db: Session, user: User, location_id: int | None) -> set[int] | None:
@@ -148,12 +194,14 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
         by_item.setdefault(bal.item_id, {})[bal.location_id] = bal.qty
     categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
     units = {u.id: u.name for u in db.scalars(select(InventoryUnit))}
+    suppliers = {s.id: s.name for s in db.scalars(select(Supplier))}
     show_cost = _can_see_cost(user)
     out = []
     for item in items:
         per_location = by_item.get(item.id, {})
         qty = sum(per_location.values())
         entry = {**row(item, *ITEM_FIELDS), "category": categories.get(item.category_id), "unit": units.get(item.unit_id),
+                 "supplier": suppliers.get(item.supplier_id) if show_cost else None,
                  "qty": qty, "by_location": per_location, "low": qty < item.min_level}
         if show_cost:
             entry["unit_cost"] = float(item.unit_cost) if item.unit_cost is not None else None
@@ -190,17 +238,59 @@ def list_items(kind: Kind, search: str | None = None, location_id: int | None = 
     return result
 
 
+def _check_links(db: Session, kind: str, category_id: int | None, unit_id: int | None, supplier_id: int | None) -> None:
+    """Category, unit and supplier must exist, be active, and the category must match the item type."""
+    if category_id is not None:
+        category = db.get(InventoryCategory, category_id)
+        if not category or category.kind != kind or not category.active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inactive category for this inventory type")
+    if unit_id is not None:
+        unit = db.get(InventoryUnit, unit_id)
+        if not unit or not unit.active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inactive unit")
+    if supplier_id is not None:
+        supplier = db.get(Supplier, supplier_id)
+        if not supplier or not supplier.active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inactive supplier")
+
+
+def _check_duplicate(db: Session, kind: str, code: str | None, name: str | None, exclude_id: int | None = None) -> None:
+    """One item master entry per code, and per normalised name within an inventory type."""
+    if code is not None:
+        clash = db.scalar(select(InventoryItem).where(InventoryItem.code == code, InventoryItem.id != (exclude_id or 0)))
+        if clash:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"Item code {code} is already used by {clash.name}")
+    if name is not None:
+        clash = db.scalar(select(InventoryItem).where(InventoryItem.kind == kind, InventoryItem.name_key == norm(name),
+                                                      InventoryItem.id != (exclude_id or 0)))
+        if clash:
+            state = "" if clash.active else " (inactive - reactivate it instead)"
+            raise HTTPException(status.HTTP_409_CONFLICT, f"{clash.name} ({clash.code}) already exists{state}")
+
+
+@router.get("/items/lookup")
+def similar_items(q: str, kind: Kind | None = None, user: User = Depends(require("inventory.view")),
+                  db: Session = Depends(get_db)):
+    """Existing items whose name contains the typed text, so a duplicate is noticed before it is created."""
+    key = norm(q)
+    if len(key) < 3:
+        return []
+    stmt = select(InventoryItem).where(InventoryItem.name_key.contains(key)).order_by(InventoryItem.name).limit(8)
+    if kind:
+        stmt = stmt.where(InventoryItem.kind == kind)
+    return [row(i, "id", "kind", "code", "name", "active") for i in db.scalars(stmt)]
+
+
 @router.post("/items", status_code=201)
 def create_item(body: ItemIn, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
-    category = db.get(InventoryCategory, body.category_id)
-    if not category or category.kind != body.kind or not db.get(InventoryUnit, body.unit_id):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown category for this inventory type, or unknown unit")
+    _check_links(db, body.kind, body.category_id, body.unit_id, body.supplier_id)
     if body.opening_qty and body.opening_location_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Opening stock needs a location")
-    if db.scalar(select(InventoryItem.id).where(InventoryItem.code == body.code)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Item code already exists")
-    data = body.model_dump(exclude={"opening_location_id"})
-    item = InventoryItem(**data)
+    code = body.code.strip().upper()
+    name = " ".join(body.name.split())
+    _check_duplicate(db, body.kind, code, name)
+    data = body.model_dump(exclude={"opening_location_id", "code", "name"})
+    item = InventoryItem(code=code, name=name, name_key=norm(name), **data)
     db.add(item)
     db.flush()
     if body.opening_qty:
@@ -218,9 +308,15 @@ def update_item(item_id: int, body: ItemUpdate, user: User = Depends(require("in
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     data = body.model_dump(exclude_unset=True)
+    _check_links(db, item.kind, data.get("category_id"), data.get("unit_id"), data.get("supplier_id"))
+    if "name" in data:
+        data["name"] = " ".join(data["name"].split())
+        _check_duplicate(db, item.kind, None, data["name"], item.id)
     before = {k: str(getattr(item, k)) for k in data}
     for key, value in data.items():
         setattr(item, key, value)
+    if "name" in data:
+        item.name_key = norm(data["name"])
     audit(db, user, "inventory.item_update", "inventory_item", item.id, before,
           {k: str(v) for k, v in data.items()})
     db.commit()

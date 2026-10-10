@@ -25,10 +25,15 @@ function messageOf(detail: unknown): string {
 
 async function send<T>(path: string, init: RequestInit): Promise<T> {
   const token = tokenStore.get()
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    headers: { ...(init.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  })
+  let response: Response
+  try {
+    response = await fetch(`/api${path}`, {
+      ...init,
+      headers: { ...(init.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    })
+  } catch {
+    throw new ApiError(0, 'Cannot reach the server. Check that the backend is running and that the dev proxy points at it (VITE_API_TARGET).')
+  }
   if (!response.ok) {
     const detail = await response.json().then((d) => d.detail).catch(() => undefined)
     throw new ApiError(response.status, messageOf(detail), detail)

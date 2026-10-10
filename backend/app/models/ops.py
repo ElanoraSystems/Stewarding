@@ -75,3 +75,15 @@ class AuditLog(Base):
     entity_id: Mapped[int | None] = mapped_column(Integer)
     before: Mapped[dict | None] = mapped_column(JSON)
     after: Mapped[dict | None] = mapped_column(JSON)
+
+
+class LookupValue(Base):
+    """Managed dropdown values (job titles, checklist categories, breakage reasons, standard corrective actions)."""
+
+    __tablename__ = "lookup_value"
+    __table_args__ = (UniqueConstraint("kind", "value_key"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30), index=True)
+    value: Mapped[str] = mapped_column(String(120))
+    value_key: Mapped[str] = mapped_column(String(120))  # lower-cased value, blocks case-only duplicates
+    active: Mapped[bool] = mapped_column(Boolean, default=True)

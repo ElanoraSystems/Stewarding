@@ -16,6 +16,11 @@ docker compose run --rm backend python -m app.bootstrap --email you@company.com 
 ```
 Open http://localhost:8080. See the deployment guide for details.
 
+## Where things are configured
+Managers open **Settings**: locations, shifts, monitoring schedules (stages, timing and temperature limits per machine),
+item master, categories and units, suppliers, alert rules and dropdown lists. Deliveries and supplier invoices are posted
+under **Stock Movements, Receiving & invoices** and update stock through the ledger.
+
 ## Develop locally
 Backend (Python 3.11):
 ```bash
@@ -31,8 +36,9 @@ Frontend (Node 20):
 ```bash
 cd frontend
 npm install
-VITE_API_TARGET=http://localhost:8100 npm run dev
+npm run dev            # proxies /api to http://localhost:8100; override with VITE_API_TARGET
 ```
+If the app shows "Cannot reach the server", the API is not running on that port.
 
 ## Tests
 ```bash

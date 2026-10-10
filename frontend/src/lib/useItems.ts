@@ -13,6 +13,7 @@ export interface Item {
   storage_location: string | null
   min_level: number
   target_level: number | null
+  supplier_id: number | null
   supplier: string | null
   is_tracked_asset: boolean
   active: boolean

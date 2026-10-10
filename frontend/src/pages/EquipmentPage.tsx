@@ -30,7 +30,7 @@ interface ScheduleForm {
 
 const EMPTY: ScheduleForm = { id: null, stage: '', source: 'machine_display', timing: 'startup', time_of_day: '', interval_minutes: '', min_temp_c: '', max_temp_c: '' }
 
-export function EquipmentPage() {
+export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const { me } = useAuth()
   const run = useRun()
   const canManage = me?.permissions.includes('equipment.manage') ?? false
@@ -85,14 +85,17 @@ export function EquipmentPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Equipment Management</h1>
+        {embedded ? <h2 className="text-lg font-semibold">Equipment and monitoring schedules</h2> : <h1 className="text-2xl font-semibold">Equipment Management</h1>}
         <div className="flex gap-3">
           <LocationSelect value={locationId} onChange={setLocationId} />
           {canManage && <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add equipment</Button>}
         </div>
       </div>
       <p className="text-sm text-ink-muted">
-        Temperature limits are set per machine and stage. They must come from the manufacturer's instructions and the approved food-safety procedure.
+        Each machine has one or more monitoring stages. A stage sets what is measured (machine display or independent probe),
+        when it is checked (at startup, every N minutes, or at a shift checkpoint) and the acceptable temperature range.
+        Limits must come from the manufacturer's instructions and the approved food-safety procedure.
+        {!embedded && canManage && ' Managers can also edit these under Settings, Monitoring schedules.'}
       </p>
 
       {data?.length === 0 && <EmptyState title="No equipment at this location" />}

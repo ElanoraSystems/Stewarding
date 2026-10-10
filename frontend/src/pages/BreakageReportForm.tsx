@@ -7,6 +7,9 @@ import { Select } from '@/components/ui/select'
 import { api, uploadFile } from '@/lib/api'
 import { useRun } from '@/lib/toast'
 import { useAllItems } from '@/lib/useItems'
+import { useLookup } from '@/lib/useLookups'
+
+const OTHER = '__other__'
 
 export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
   const run = useRun()
@@ -15,6 +18,8 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
   const [itemId, setItemId] = useState('')
   const [qty, setQty] = useState('1')
   const [type, setType] = useState('breakage')
+  const reasons = useLookup('breakage_reason')
+  const [reasonChoice, setReasonChoice] = useState('')
   const [reason, setReason] = useState('')
   const [description, setDescription] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -31,6 +36,7 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
     if (ok) {
       setItemId('')
       setQty('1')
+      setReasonChoice('')
       setReason('')
       setDescription('')
       setFile(null)
@@ -58,7 +64,14 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
         </Field>
         <Field label="Quantity"><Input required type="number" min={1} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
       </div>
-      <Field label="What happened? (cause, if known)"><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+      <Field label="What happened?">
+        <Select value={reasonChoice} onChange={(e) => { setReasonChoice(e.target.value); if (e.target.value !== OTHER) setReason(e.target.value) }}>
+          <option value="">Select a reason</option>
+          {reasons.map((r) => <option key={r} value={r}>{r}</option>)}
+          <option value={OTHER}>Other (describe)</option>
+        </Select>
+      </Field>
+      {reasonChoice === OTHER && <Field label="Describe the cause"><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>}
       <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       <Field label="Photo (optional)"><Input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
       <Button type="submit" className="w-full sm:w-auto" disabled={!locationId || !itemId || Number(qty) < 1}>Report incident</Button>

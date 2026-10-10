@@ -54,6 +54,9 @@ MANAGER_ONLY = [
     ("POST", "/api/inventory/units", {}), ("POST", "/api/inventory/assets", {}), ("POST", "/api/stock/transfers/1/decision", {}),
     ("POST", "/api/breakage/1/approve", {}), ("GET", "/api/settings", None), ("PUT", "/api/settings", {}),
     ("POST", "/api/settings/locations", {}), ("GET", "/api/audit", None), ("GET", "/api/reports/daily/export", None),
+    ("POST", "/api/suppliers", {}), ("PUT", "/api/suppliers/1", {}), ("PUT", "/api/inventory/categories/1", {}),
+    ("PUT", "/api/inventory/units/1", {}), ("POST", "/api/lookups", {}), ("PUT", "/api/lookups/1", {}),
+    ("POST", "/api/receipts/1/void", {"reason": "Entered by mistake"}),
 ]
 
 SUPERVISOR_UP = [
@@ -63,6 +66,8 @@ SUPERVISOR_UP = [
     ("POST", "/api/breakage/1/review", {"qty": 1}), ("POST", "/api/checklists/instances/1/verify", {"approve": True}),
     ("POST", "/api/checklists/instances/1/assign", {"employee_id": 1}), ("POST", "/api/inventory/transactions", {}),
     ("POST", "/api/temperature/readings/1/review", None), ("GET", "/api/equipment", None),
+    ("POST", "/api/receipts", {}), ("GET", "/api/receipts", None), ("GET", "/api/receipts/1", None),
+    ("GET", "/api/suppliers", None),
 ]
 
 

@@ -19,6 +19,11 @@ class StockError(Exception):
     pass
 
 
+def norm(text: str) -> str:
+    """Case- and spacing-insensitive key used to stop near-duplicate names."""
+    return " ".join(text.lower().split())
+
+
 def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn_type: str, qty: int,
              reason: str | None = None, ref_type: str | None = None, ref_id: int | None = None,
              allow_negative: bool = False) -> StockTransaction:

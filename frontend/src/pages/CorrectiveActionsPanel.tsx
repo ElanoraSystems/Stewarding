@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth'
 import { fmtDateTime, label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
+import { useLookup } from '@/lib/useLookups'
 import type { EquipmentItem } from '@/pages/TemperatureRecordForm'
 
 interface ActionRow {
@@ -42,6 +43,7 @@ export function CorrectiveActionsPanel({ locationId, equipment, refreshKey, onRe
   const run = useRun()
   const can = (p: string) => me?.permissions.includes(p) ?? false
   const { data, reload } = useApi<ActionRow[]>(`/temperature/corrective-actions${qs({ location_id: locationId, k: refreshKey })}`)
+  const standardActions = useLookup('corrective_action')
   const [dialog, setDialog] = useState<Dialog>(null)
   const [text, setText] = useState('')
   const names = new Map(equipment.map((e) => [e.id, e.name]))
@@ -94,7 +96,8 @@ export function CorrectiveActionsPanel({ locationId, equipment, refreshKey, onRe
       <Modal open={dialog !== null} title={dialog?.kind === 'action' ? 'Record corrective action' : 'Reject corrective action'} onClose={() => setDialog(null)}>
         <div className="space-y-3">
           <Field label={dialog?.kind === 'action' ? 'What was done?' : 'Why is it rejected?'}>
-            <Input value={text} onChange={(e) => setText(e.target.value)} />
+            <Input list={dialog?.kind === 'action' ? 'panel-standard-actions' : undefined} value={text} onChange={(e) => setText(e.target.value)} />
+            <datalist id="panel-standard-actions">{standardActions.map((a) => <option key={a} value={a} />)}</datalist>
           </Field>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>

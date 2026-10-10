@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import SessionLocal
 from .models import (Employee, EmployeeLocation, Equipment, EquipmentSchedule, InventoryCategory, InventoryItem,
-                     InventoryUnit, Location, Role, RolePermission, Shift, ShiftAssignment, TrackedAsset, User)
+                     InventoryUnit, Location, LookupValue, Role, RolePermission, Shift, ShiftAssignment, Supplier,
+                     TrackedAsset, User)
 from .permissions import MANAGER, ROLE_PERMISSIONS, STEWARD, SUPERVISOR
 from .security import hash_password
-from .services.inventory import post_txn
+from .services.inventory import norm, post_txn
 from .services.starter import apply_starter
 
 LOCATIONS = [
@@ -95,6 +96,7 @@ def seed(db: Session, password: str) -> None:
             db.add(EquipmentSchedule(equipment_id=eq.id, stage="final_rinse", timing="interval", interval_minutes=240,
                                      min_temp_c=Decimal("80.0"), max_temp_c=Decimal("90.0")))
     seed_inventory(db, db.scalar(select(User).where(User.email == PEOPLE[0][0])), locs)
+    ensure_lookups(db)
     db.commit()
 
 
@@ -115,6 +117,26 @@ CATEGORIES = {"crockery": ["Plates", "Bowls", "Cups & Saucers", "Platters"],
               "smallware": ["Knives", "Utensils", "Pots & Pans", "Trays & Containers"]}
 
 
+LOOKUPS = {
+    "job_title": ["Steward", "Senior Steward", "Stewarding Supervisor", "Back of House Manager"],
+    "checklist_category": ["Cleaning", "Safety", "Equipment", "Storage", "Waste"],
+    "breakage_reason": ["Dropped while carrying", "Slipped while stacking", "Chipped in dishwasher", "Thermal shock",
+                        "Defective item", "Cause unknown"],
+    "corrective_action": ["Re-ran the wash cycle", "Cleaned spray arms and filters", "Descaled the machine",
+                          "Refilled chemical", "Called the engineer"],
+}
+SUPPLIERS = ["Gulf Catering Supplies", "Hotel Ware Trading"]
+
+
+def ensure_lookups(db: Session) -> None:
+    """Default dropdown values; safe to run repeatedly."""
+    for kind, values in LOOKUPS.items():
+        for value in values:
+            if not db.scalar(select(LookupValue.id).where(LookupValue.kind == kind, LookupValue.value_key == norm(value))):
+                db.add(LookupValue(kind=kind, value=value, value_key=norm(value)))
+    db.flush()
+
+
 def seed_inventory(db: Session, manager: User, locs: dict[str, Location]) -> None:
     if db.scalar(select(InventoryItem.id).limit(1)):
         return
@@ -122,11 +144,14 @@ def seed_inventory(db: Session, manager: User, locs: dict[str, Location]) -> Non
     db.add_all(units.values())
     cats = {(kind, name): InventoryCategory(kind=kind, name=name) for kind, names in CATEGORIES.items() for name in names}
     db.add_all(cats.values())
+    suppliers = {name: Supplier(name=name, name_key=norm(name)) for name in SUPPLIERS}
+    db.add_all(suppliers.values())
     db.flush()
     for kind, code, name, cat, unit, low, target, cost, tracked, opening in ITEMS:
-        item = InventoryItem(kind=kind, code=code, name=name, category_id=cats[(kind, cat)].id, unit_id=units[unit].id,
-                             min_level=low, target_level=target, unit_cost=Decimal(cost), is_tracked_asset=tracked,
-                             opening_qty=sum(opening.values()), storage_location="Dry store")
+        item = InventoryItem(kind=kind, code=code, name=name, name_key=norm(name), category_id=cats[(kind, cat)].id,
+                             unit_id=units[unit].id, min_level=low, target_level=target, unit_cost=Decimal(cost),
+                             is_tracked_asset=tracked, opening_qty=sum(opening.values()), storage_location="Dry store",
+                             supplier_id=suppliers[SUPPLIERS[0 if kind == "crockery" else 1]].id)
         db.add(item)
         db.flush()
         for loc_code, qty in opening.items():

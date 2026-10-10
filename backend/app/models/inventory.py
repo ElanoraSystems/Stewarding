@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, event
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -14,16 +14,31 @@ class InventoryCategory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(20))  # crockery | smallware
     name: Mapped[str] = mapped_column(String(80))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class InventoryUnit(Base):
     __tablename__ = "inventory_unit"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(30), unique=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Supplier(Base):
+    __tablename__ = "supplier"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    name_key: Mapped[str] = mapped_column(String(120), unique=True)  # lower-cased name, blocks case-only duplicates
+    contact: Mapped[str | None] = mapped_column(String(120))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    email: Mapped[str | None] = mapped_column(String(200))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class InventoryItem(Base):
     __tablename__ = "inventory_item"
+    # one item master entry per normalised name within a kind
+    __table_args__ = (UniqueConstraint("kind", "name_key"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(20), index=True)
     code: Mapped[str] = mapped_column(String(30), unique=True)
@@ -37,7 +52,8 @@ class InventoryItem(Base):
     target_level: Mapped[int | None] = mapped_column(Integer)
     opening_qty: Mapped[int] = mapped_column(Integer, default=0)
     unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    supplier: Mapped[str | None] = mapped_column(String(120))
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey("supplier.id"), index=True)
+    name_key: Mapped[str] = mapped_column(String(120), default="", index=True)  # normalised name per kind for duplicate checks
     is_tracked_asset: Mapped[bool] = mapped_column(Boolean, default=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -123,3 +139,36 @@ class TrackedAsset(Base):
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"))
     condition: Mapped[str] = mapped_column(String(20), default="good")
     custodian_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employee.id"))
+
+
+class Receipt(Base):
+    """A goods receipt or return-to-supplier document; posting it writes ledger rows referencing it."""
+
+    __tablename__ = "receipt"
+    # the same supplier invoice cannot be posted twice; a voided receipt frees its number for correct re-entry
+    __table_args__ = (Index("uq_receipt_supplier_invoice", "supplier_id", "invoice_number", unique=True,
+                            sqlite_where=text("status = 'posted'"), postgresql_where=text("status = 'posted'")),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    doc_type: Mapped[str] = mapped_column(String(20), default="receipt")  # receipt | supplier_return
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("supplier.id"), index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
+    invoice_number: Mapped[str] = mapped_column(String(60))
+    invoice_date: Mapped[datetime | None] = mapped_column(DateTime)
+    received_at: Mapped[datetime] = ts(index=True)
+    received_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    note: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="posted")  # posted | void
+    total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    voided_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime)
+    void_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class ReceiptLine(Base):
+    __tablename__ = "receipt_line"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    receipt_id: Mapped[int] = mapped_column(ForeignKey("receipt.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), index=True)
+    qty: Mapped[int] = mapped_column(Integer)
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    transaction_id: Mapped[int | None] = mapped_column(ForeignKey("stock_transaction.id"), unique=True)

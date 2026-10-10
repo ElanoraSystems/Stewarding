@@ -28,6 +28,7 @@ interface Shift {
   start_time: string
   end_time: string
   grace_minutes: number
+  active: boolean
 }
 interface Assignment {
   id: number
@@ -128,7 +129,7 @@ export function RosterPage() {
               <Field label="Shift">
                 <Select required value={shiftId} onChange={(e) => setShiftId(e.target.value)}>
                   <option value="">Select</option>
-                  {shifts.data?.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)})</option>)}
+                  {shifts.data?.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)})</option>)}
                 </Select>
               </Field>
               <Field label="Valid from"><Input required type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></Field>
