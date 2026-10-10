@@ -11,3 +11,5 @@ tzdata
 email-validator
 pytest
 httpx
+openpyxl
+reportlab

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { NotificationBell } from '@/components/NotificationBell'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
@@ -81,6 +82,7 @@ export function AppLayout() {
             <Menu className="h-5 w-5" />
           </Button>
           <div className="ml-auto flex items-center gap-3">
+            <NotificationBell />
             <div className="text-right text-sm leading-tight">
               <div className="font-medium">{me.employee?.name ?? me.email}</div>
               <Badge>{ROLE_LABEL[me.role]}</Badge>

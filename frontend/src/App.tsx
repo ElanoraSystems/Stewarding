@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/lib/auth'
 import { AttendancePage } from '@/pages/AttendancePage'
+import { AuditPage } from '@/pages/AuditPage'
 import { BreakagePage } from '@/pages/BreakagePage'
 import { ChecklistsPage } from '@/pages/ChecklistsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
@@ -10,7 +11,10 @@ import { EquipmentPage } from '@/pages/EquipmentPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ModulePage } from '@/pages/ModulePage'
+import { ReportsPage } from '@/pages/ReportsPage'
 import { RosterPage } from '@/pages/RosterPage'
+import { SettingsPage } from '@/pages/SettingsPage'
+import { TasksPage } from '@/pages/TasksPage'
 import { StockMovementsPage } from '@/pages/StockMovementsPage'
 import { TemperaturePage } from '@/pages/TemperaturePage'
 
@@ -34,6 +38,10 @@ export default function App() {
         <Route path="smallware" element={<InventoryPage kind="smallware" />} />
         <Route path="stock-movements" element={<StockMovementsPage />} />
         <Route path="breakage" element={<BreakagePage />} />
+        <Route path="tasks" element={<TasksPage />} />
+        <Route path="reports" element={<ReportsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="audit" element={<AuditPage />} />
         <Route path=":key" element={<ModulePage />} />
       </Route>
     </Routes>

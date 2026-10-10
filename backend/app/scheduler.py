@@ -9,6 +9,7 @@ from . import timeutil
 from .db import SessionLocal
 from .models import Location
 from .services import checklists
+from .services.alerts import run_alerts
 
 log = logging.getLogger("stewarding.scheduler")
 INTERVAL_SECONDS = 60
@@ -21,8 +22,9 @@ def run_cycle(db: Session, now=None) -> dict:
     for location in db.scalars(select(Location).where(Location.active.is_(True))):
         created += checklists.generate_for_location(db, location, now)
     overdue = checklists.mark_overdue(db, now)
+    alerts = run_alerts(db, now)
     db.commit()
-    return {"created": created, "overdue": overdue}
+    return {"created": created, "overdue": overdue, "alerts": alerts}
 
 
 def _loop() -> None:
