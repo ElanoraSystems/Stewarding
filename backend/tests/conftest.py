@@ -24,7 +24,7 @@ PASSWORD = "test-pass-123"
 
 
 @pytest.fixture(autouse=True)
-def fresh_db():
+def fresh_db(clock):
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     auth._failures.clear()

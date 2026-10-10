@@ -1,0 +1,97 @@
+import { Plus, Search } from 'lucide-react'
+import { useState } from 'react'
+import { LocationSelect } from '@/components/LocationSelect'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Pagination } from '@/components/ui/pagination'
+import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
+import { useAuth } from '@/lib/auth'
+import { qs, useApi } from '@/lib/useApi'
+import type { Item } from '@/lib/useItems'
+import { AssetsPanel } from '@/pages/AssetsPanel'
+import { ItemForm } from '@/pages/ItemForm'
+import { StockPostModal } from '@/pages/StockPostModal'
+
+interface Listing {
+  total: number
+  total_value?: number
+  items: Item[]
+}
+
+const SIZE = 15
+
+export function InventoryPage({ kind }: { kind: 'crockery' | 'smallware' }) {
+  const { me } = useAuth()
+  const can = (p: string) => me?.permissions.includes(p) ?? false
+  const [locationId, setLocationId] = useState<number | null>(null)
+  const [search, setSearch] = useState('')
+  const [lowOnly, setLowOnly] = useState(false)
+  const [page, setPage] = useState(1)
+  const [formItem, setFormItem] = useState<Item | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [posting, setPosting] = useState<Item | null>(null)
+  const title = kind === 'crockery' ? 'Crockery Inventory' : 'Kitchen Smallware Inventory'
+
+  const { data, loading, reload } = useApi<Listing>(
+    `/inventory/items${qs({ kind, search, location_id: locationId, low_only: lowOnly, page, size: SIZE })}`,
+  )
+  const showCost = data?.items.some((i) => i.unit_cost !== undefined)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">{title}</h1>
+        {can('inventory.manage') && <Button onClick={() => { setFormItem(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Add item</Button>}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-52 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted" aria-hidden />
+          <Input aria-label="Search items" className="pl-9" placeholder="Search name or code" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
+        </div>
+        <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={lowOnly} onChange={(e) => { setLowOnly(e.target.checked); setPage(1) }} /> Low stock only
+        </label>
+        {data?.total_value !== undefined && <Badge>Stock value {data.total_value.toFixed(2)}</Badge>}
+      </div>
+
+      <Table>
+        <thead>
+          <tr><Th>Code</Th><Th>Item</Th><Th>Category</Th><Th>Unit</Th><Th className="text-right">In stock</Th><Th className="text-right">Minimum</Th>{showCost && <Th className="text-right">Value</Th>}<Th>Status</Th><Th /></tr>
+        </thead>
+        <tbody>
+          {loading && !data ? <SkeletonRows cols={showCost ? 9 : 8} /> : data?.items.map((i) => (
+            <tr key={i.id}>
+              <Td>{i.code}</Td>
+              <Td className="font-medium">{i.name}</Td>
+              <Td>{i.category}</Td>
+              <Td>{i.unit}</Td>
+              <Td className="text-right tabular-nums">{i.qty}</Td>
+              <Td className="text-right tabular-nums">{i.min_level}</Td>
+              {showCost && <Td className="text-right tabular-nums">{i.value != null ? i.value.toFixed(2) : '-'}</Td>}
+              <Td>{i.low ? <Badge tone="critical">Low stock</Badge> : <Badge tone="ok">OK</Badge>}</Td>
+              <Td className="space-x-2 text-right">
+                {can('stock.transfer') && <Button size="sm" variant="outline" onClick={() => setPosting(i)}>Stock</Button>}
+                {can('inventory.manage') && <Button size="sm" variant="outline" onClick={() => { setFormItem(i); setFormOpen(true) }}>Edit</Button>}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+      {data?.items.length === 0 && <EmptyState title="No items found" hint="Try clearing the search or the low-stock filter." />}
+      {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
+
+      {kind === 'smallware' && (
+        <>
+          <h2 className="pt-2 text-lg font-semibold">Tracked assets</h2>
+          <AssetsPanel locationId={locationId} items={data?.items ?? []} />
+        </>
+      )}
+
+      {formOpen && <ItemForm kind={kind} item={formItem} open onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />}
+      <StockPostModal item={posting} defaultLocation={locationId} onClose={() => setPosting(null)} onPosted={() => { setPosting(null); reload() }} />
+    </div>
+  )
+}

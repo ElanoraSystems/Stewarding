@@ -7,10 +7,11 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import SessionLocal
-from .models import (Employee, EmployeeLocation, Equipment, EquipmentSchedule, Location, Role, RolePermission,
-                     Shift, ShiftAssignment, User)
+from .models import (Employee, EmployeeLocation, Equipment, EquipmentSchedule, InventoryCategory, InventoryItem,
+                     InventoryUnit, Location, Role, RolePermission, Shift, ShiftAssignment, TrackedAsset, User)
 from .permissions import MANAGER, ROLE_PERMISSIONS, STEWARD, SUPERVISOR
 from .security import hash_password
+from .services.inventory import post_txn
 from .services.starter import apply_starter
 
 LOCATIONS = [
@@ -93,7 +94,47 @@ def seed(db: Session, password: str) -> None:
                                      min_temp_c=Decimal("55.0"), max_temp_c=Decimal("65.0")))
             db.add(EquipmentSchedule(equipment_id=eq.id, stage="final_rinse", timing="interval", interval_minutes=240,
                                      min_temp_c=Decimal("80.0"), max_temp_c=Decimal("90.0")))
+    seed_inventory(db, db.scalar(select(User).where(User.email == PEOPLE[0][0])), locs)
     db.commit()
+
+
+# kind, code, name, category, unit, min, target, cost, tracked, opening stock by location code
+ITEMS = [
+    ("crockery", "PL-001", "Dinner Plate 27cm", "Plates", "Each", 60, 300, "2.50", False, {"MK": 200, "BQ": 150, "RB": 40}),
+    ("crockery", "PL-002", "Side Plate 18cm", "Plates", "Each", 40, 200, "1.60", False, {"MK": 120, "BQ": 100}),
+    ("crockery", "BW-001", "Soup Bowl", "Bowls", "Each", 40, 150, "2.10", False, {"MK": 90, "BQ": 80}),
+    ("crockery", "CP-001", "Coffee Cup", "Cups & Saucers", "Each", 30, 120, "1.40", False, {"MK": 70, "BQ": 60, "RB": 50}),
+    ("crockery", "PT-001", "Serving Platter 40cm", "Platters", "Each", 6, 24, "14.00", False, {"BQ": 20, "MK": 10}),
+    ("smallware", "KN-001", "Chef Knife 20cm", "Knives", "Each", 3, 10, "22.00", True, {"MK": 8, "BQ": 4}),
+    ("smallware", "UT-001", "Ladle", "Utensils", "Each", 5, 15, "4.50", False, {"MK": 12, "BQ": 8, "RB": 3}),
+    ("smallware", "UT-002", "Tongs", "Utensils", "Each", 8, 25, "3.20", False, {"MK": 20, "BQ": 15, "RB": 6}),
+    ("smallware", "PN-001", "Stock Pot 20L", "Pots & Pans", "Each", 2, 8, "48.00", False, {"MK": 6, "BQ": 3}),
+    ("smallware", "TR-001", "Gastronorm Pan 1/1", "Trays & Containers", "Each", 10, 40, "18.00", False, {"MK": 30, "BQ": 24}),
+]
+CATEGORIES = {"crockery": ["Plates", "Bowls", "Cups & Saucers", "Platters"],
+              "smallware": ["Knives", "Utensils", "Pots & Pans", "Trays & Containers"]}
+
+
+def seed_inventory(db: Session, manager: User, locs: dict[str, Location]) -> None:
+    if db.scalar(select(InventoryItem.id).limit(1)):
+        return
+    units = {name: InventoryUnit(name=name) for name in ("Each", "Dozen", "Set")}
+    db.add_all(units.values())
+    cats = {(kind, name): InventoryCategory(kind=kind, name=name) for kind, names in CATEGORIES.items() for name in names}
+    db.add_all(cats.values())
+    db.flush()
+    for kind, code, name, cat, unit, low, target, cost, tracked, opening in ITEMS:
+        item = InventoryItem(kind=kind, code=code, name=name, category_id=cats[(kind, cat)].id, unit_id=units[unit].id,
+                             min_level=low, target_level=target, unit_cost=Decimal(cost), is_tracked_asset=tracked,
+                             opening_qty=sum(opening.values()), storage_location="Dry store")
+        db.add(item)
+        db.flush()
+        for loc_code, qty in opening.items():
+            post_txn(db, manager, item, locs[loc_code].id, "opening", qty, "Opening stock")
+        if tracked:
+            for loc_code, qty in opening.items():
+                for n in range(1, min(qty, 3) + 1):
+                    db.add(TrackedAsset(item_id=item.id, asset_tag=f"{code}-{loc_code}-{n:02d}", location_id=locs[loc_code].id))
 
 
 def main() -> None:

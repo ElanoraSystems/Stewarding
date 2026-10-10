@@ -84,7 +84,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
           </>
         ) : (
           <div className="flex flex-wrap items-end gap-3">
-            <Field label="Work location"><LocationSelect value={locationId} onChange={setLocationId} /></Field>
+            <Field label="Work location"><LocationSelect className="w-full min-w-44" value={locationId} onChange={setLocationId} /></Field>
             <Field label="Location PIN" hint="Only if your location requires one.">
               <Input type="password" inputMode="numeric" autoComplete="off" className="w-40" value={pin} onChange={(e) => setPin(e.target.value)} />
             </Field>

@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import scheduler
-from .api import attendance, auth, checklists, employees, equipment, roster, temperature, uploads
+from .api import (attendance, auth, breakage, checklists, employees, equipment, inventory, roster, stock, temperature,
+                  uploads)
 from .config import settings
 
 
@@ -22,7 +23,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for module in (auth, employees, attendance, roster, checklists, uploads, equipment, temperature):
+for module in (auth, employees, attendance, roster, checklists, uploads, equipment, temperature, inventory, stock,
+               breakage):
     app.include_router(module.router)
 
 

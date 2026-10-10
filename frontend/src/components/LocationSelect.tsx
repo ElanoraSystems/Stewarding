@@ -6,9 +6,10 @@ interface LocationSelectProps {
   value: number | null
   onChange: (id: number | null) => void
   allowAll?: boolean
+  className?: string
 }
 
-export function LocationSelect({ value, onChange, allowAll = false }: LocationSelectProps) {
+export function LocationSelect({ value, onChange, allowAll = false, className = 'w-auto min-w-44' }: LocationSelectProps) {
   const { me } = useAuth()
   const locations = me?.locations ?? []
 
@@ -19,7 +20,7 @@ export function LocationSelect({ value, onChange, allowAll = false }: LocationSe
   return (
     <Select
       aria-label="Location"
-      className="w-auto min-w-44"
+      className={className}
       value={value ?? ''}
       onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
     >
