@@ -10,9 +10,8 @@ from .core import ts
 
 class InventoryCategory(Base):
     __tablename__ = "inventory_category"
-    __table_args__ = (UniqueConstraint("kind", "name"),)
+    __table_args__ = (UniqueConstraint("name", name="uq_inventory_category_name"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(20))  # crockery | smallware
     name: Mapped[str] = mapped_column(String(80))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -37,10 +36,9 @@ class Supplier(Base):
 
 class InventoryItem(Base):
     __tablename__ = "inventory_item"
-    # one item master entry per normalised name within a kind
-    __table_args__ = (UniqueConstraint("kind", "name_key"),)
+    # one item master entry per normalised name
+    __table_args__ = (UniqueConstraint("name_key", name="uq_inventory_item_name_key"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(20), index=True)
     code: Mapped[str] = mapped_column(String(30), unique=True)
     name: Mapped[str] = mapped_column(String(120), index=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("inventory_category.id"))
@@ -53,7 +51,7 @@ class InventoryItem(Base):
     opening_qty: Mapped[int] = mapped_column(Integer, default=0)
     unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("supplier.id"), index=True)
-    name_key: Mapped[str] = mapped_column(String(120), default="", index=True)  # normalised name per kind for duplicate checks
+    name_key: Mapped[str] = mapped_column(String(120), default="", index=True)  # normalised name for duplicate checks
     is_tracked_asset: Mapped[bool] = mapped_column(Boolean, default=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -92,7 +90,6 @@ class InventoryCount(Base):
     __tablename__ = "inventory_count"
     id: Mapped[int] = mapped_column(primary_key=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(20))
     counted_at: Mapped[datetime] = ts()
     counted_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | posted
@@ -158,7 +155,12 @@ class Receipt(Base):
     received_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     note: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="posted")  # posted | void
-    total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    subtotal: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # quantity x unit cost before any discount
+    line_discount_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    discount_type: Mapped[str | None] = mapped_column(String(10))  # amount | percent, as entered for the whole document
+    discount_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # document discount in money
+    total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # subtotal less every discount
     voided_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     voided_at: Mapped[datetime | None] = mapped_column(DateTime)
     void_reason: Mapped[str | None] = mapped_column(Text)
@@ -171,4 +173,8 @@ class ReceiptLine(Base):
     item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), index=True)
     qty: Mapped[int] = mapped_column(Integer)
     unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    discount_type: Mapped[str | None] = mapped_column(String(10))
+    discount_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    line_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # quantity x unit cost less the line discount
     transaction_id: Mapped[int | None] = mapped_column(ForeignKey("stock_transaction.id"), unique=True)

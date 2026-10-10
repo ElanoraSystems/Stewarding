@@ -30,7 +30,7 @@ def generate_for_location(db: Session, location: Location, now: datetime) -> int
     tz = location.timezone
     today = timeutil.local_date(now, tz)
     weekday = str(today.weekday())
-    shifts = {s.id: s for s in db.scalars(select(Shift).where(Shift.active.is_(True)))}
+    shifts = {s.id: s for s in db.scalars(select(Shift).where(Shift.active.is_(True), Shift.kind == "work"))}
     rows = db.execute(
         select(ChecklistTask, ChecklistTemplate)
         .join(ChecklistTemplate, ChecklistTask.template_id == ChecklistTemplate.id)

@@ -111,7 +111,7 @@ def test_costs_update_only_when_asked_and_the_change_is_audited(client, login, d
     assert float(db.scalar(select(InventoryItem.unit_cost).where(InventoryItem.code == "PL-001"))) == 3.10
     log = db.scalar(select(AuditLog).where(AuditLog.action == "receipt.post").order_by(AuditLog.id.desc()))
     assert log.after["cost_updates"] == {"PL-001": {"from": "2.50", "to": "3.10"}}
-    assert client.get("/api/inventory/items?kind=crockery", headers=m).json()["total_value"] > 0
+    assert client.get("/api/inventory/items", headers=m).json()["total_value"] > 0
 
 
 def test_a_failed_document_posts_nothing_and_the_invoice_can_be_retried(client, login, db):
@@ -179,6 +179,40 @@ def test_receipts_appear_in_reports_and_reconciliation(client, login, db, clock)
     daily = client.get(f"/api/reports/daily?anchor=2026-03-02&location_id={loc_id(db, 'MK')}", headers=m).json()
     section = next(s for s in daily["sections"] if s["id"] == "inventory")
     assert any("Goods receipt" in (r["reason"] or "") and r["qty"] == 24 for r in section["rows"])
-    recon = client.get(f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}&kind=crockery&month=2026-03", headers=m).json()
+    recon = client.get(f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}&month=2026-03", headers=m).json()
     row_ = next(r for r in recon["rows"] if r["code"] == "PL-001")
     assert row_["receipts"] == 24 and row_["closing"] == 224
+
+
+def test_line_and_invoice_discounts_roll_up_to_the_total(client, login, db):
+    lines = [{"item_id": item_id(db, "PL-001"), "qty": 10, "unit_cost": 5, "discount_type": "percent", "discount": 10},
+             {"item_id": item_id(db, "BW-001"), "qty": 4, "unit_cost": 2.5, "discount_type": "amount", "discount": 1}]
+    r = receive(client, login(SUP), db, lines, invoice="DISC-1", discount_type="percent", discount=5)
+    assert r.status_code == 201
+    doc = r.json()
+    assert [ln["line_total"] for ln in doc["lines"]] == [45, 9]  # 50 less 10 percent, 10 less 1
+    assert [ln["discount_amount"] for ln in doc["lines"]] == [5, 1]
+    assert (doc["subtotal"], doc["line_discount_total"]) == (60, 6)
+    assert doc["discount_amount"] == 2.7  # 5 percent of the 54 left after line discounts
+    assert doc["total_discount"] == 8.7 and doc["total"] == 51.3
+
+
+def test_discount_rules_are_enforced(client, login, db):
+    h, pl = login(SUP), item_id(db, "PL-001")
+
+    def bad(invoice, line, **doc):
+        return receive(client, h, db, [{"item_id": pl, "qty": 2, **line}], invoice=invoice, **doc).status_code
+
+    assert bad("D-1", {"unit_cost": 5, "discount_type": "percent", "discount": 101}) == 400
+    assert bad("D-2", {"unit_cost": 5, "discount_type": "amount", "discount": 11}) == 400  # more than the 10 line value
+    assert bad("D-3", {"discount_type": "amount", "discount": 1}) == 400  # a discount needs a unit cost
+    assert bad("D-4", {"unit_cost": 5}, discount_type="amount", discount=11) == 400  # more than the invoice value
+    assert balance(db, "PL-001", "MK") == 200  # nothing was posted
+    assert bad("D-5", {"unit_cost": 5, "discount_type": "amount", "discount": 10}) == 201  # a full discount is allowed
+
+
+def test_item_cost_follows_the_net_price_after_the_line_discount(client, login, db):
+    lines = [{"item_id": item_id(db, "PL-001"), "qty": 10, "unit_cost": 5, "discount_type": "percent", "discount": 20}]
+    assert receive(client, login(MGR), db, lines, invoice="NET-1", update_costs=True).status_code == 201
+    item = client.get("/api/inventory/items?search=dinner", headers=login(MGR)).json()["items"][0]
+    assert item["unit_cost"] == 4

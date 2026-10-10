@@ -16,14 +16,15 @@ const SIZE = 15
 
 export function SettingsItems() {
   const run = useRun()
-  const [kind, setKind] = useState<'crockery' | 'smallware'>('crockery')
+  const [categoryId, setCategoryId] = useState('')
   const [search, setSearch] = useState('')
   const [active, setActive] = useState('true')
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<Item | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const categories = useApi<{ id: number; name: string }[]>('/inventory/categories')
   const { data, loading, reload } = useApi<{ total: number; items: Item[] }>(
-    `/inventory/items${qs({ kind, search, active, page, size: SIZE })}`,
+    `/inventory/items${qs({ category_id: categoryId, search, active, page, size: SIZE })}`,
   )
 
   async function toggle(item: Item) {
@@ -38,15 +39,15 @@ export function SettingsItems() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm text-ink-muted">
-          One master entry per item. Codes and names are checked for duplicates, and every stock movement, receipt, count and
+          One master entry per item, with an automatically generated ID. Names are checked for duplicates, and every stock movement, receipt, count and
           breakage report picks from this list. Retire an item instead of deleting it so history stays intact.
         </p>
         <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Add item</Button>
       </div>
       <div className="flex flex-wrap gap-3">
-        <Select aria-label="Inventory type" className="w-auto" value={kind} onChange={(e) => reset(setKind)(e.target.value as typeof kind)}>
-          <option value="crockery">Crockery</option>
-          <option value="smallware">Kitchen smallware</option>
+        <Select aria-label="Category" className="w-auto" value={categoryId} onChange={(e) => reset(setCategoryId)(e.target.value)}>
+          <option value="">All categories</option>
+          {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
         <div className="relative min-w-52 flex-1">
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted" aria-hidden />
@@ -59,7 +60,7 @@ export function SettingsItems() {
       </div>
       <Table>
         <thead>
-          <tr><Th>Code</Th><Th>Name</Th><Th>Category</Th><Th>Unit</Th><Th>Supplier</Th><Th className="text-right">Cost</Th><Th className="text-right">Min / target</Th><Th /></tr>
+          <tr><Th>Item ID</Th><Th>Name</Th><Th>Category</Th><Th>Unit</Th><Th>Supplier</Th><Th className="text-right">Cost</Th><Th className="text-right">Min / target</Th><Th /></tr>
         </thead>
         <tbody>
           {loading && !data ? <SkeletonRows cols={8} /> : data?.items.map((i) => (

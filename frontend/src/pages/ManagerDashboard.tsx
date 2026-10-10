@@ -33,8 +33,8 @@ interface Dashboard {
     temperature_checks: { done: number; due: number }
     failed_temperature_checks: number
     equipment_attention: number
-    crockery: { qty: number; value: number }
-    smallware: { qty: number; value: number }
+    inventory: { qty: number; value: number }
+    off_today: number
     low_stock_items: number
     breakage_today: number
     breakage_month: number
@@ -122,15 +122,14 @@ export function ManagerDashboard() {
         <section aria-label="Key figures" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard label="Scheduled today" value={k.scheduled_today} />
           <KpiCard label="Checked in" value={k.checked_in} hint={`${k.on_duty} on duty now`} tone="ok" />
-          <KpiCard label="Not checked in" value={k.not_checked_in} hint={`${k.absent} absent`} tone={k.absent ? 'warn' : 'default'} />
+          <KpiCard label="Not checked in" value={k.not_checked_in} hint={`${k.absent} absent, ${k.off_today} off today`} tone={k.absent ? 'warn' : 'default'} />
           <KpiCard label="Daily checklists" value={pct(k.daily_completion)} hint={ratio(k.daily_completion)} />
           <KpiCard label="Weekly checklists" value={pct(k.weekly_completion)} hint={ratio(k.weekly_completion)} />
           <KpiCard label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
           <KpiCard label="Temperature checks" value={`${k.temperature_checks.done} / ${k.temperature_checks.due}`} hint="recorded / due so far today" />
           <KpiCard label="Failed temperature checks" value={k.failed_temperature_checks} tone={k.failed_temperature_checks ? 'critical' : 'default'} />
           <KpiCard label="Equipment needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
-          <KpiCard label="Crockery in stock" value={k.crockery.qty} hint={`Value ${k.crockery.value.toFixed(2)}`} />
-          <KpiCard label="Smallware in stock" value={k.smallware.qty} hint={`Value ${k.smallware.value.toFixed(2)}`} />
+          <KpiCard label="Stock on hand" value={k.inventory.qty} hint={`Value ${k.inventory.value.toFixed(2)}`} />
           <KpiCard label="Low-stock items" value={k.low_stock_items} tone={k.low_stock_items ? 'warn' : 'default'} />
           <KpiCard label="Breakage today" value={k.breakage_today} hint={`${k.breakage_month} this month`} />
         </section>

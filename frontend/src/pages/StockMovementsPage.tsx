@@ -24,7 +24,7 @@ interface Txn {
   user: string | null
 }
 
-const TABS = [['transactions', 'Transactions'], ['receiving', 'Receiving & invoices'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation']] as const
+const TABS = [['transactions', 'Transactions'], ['receiving', 'Receiving'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation']] as const
 const SIZE = 15
 
 function Transactions() {

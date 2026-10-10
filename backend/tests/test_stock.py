@@ -70,8 +70,8 @@ def test_supervisor_sees_transfers_touching_their_locations_only(client, login, 
     assert len(client.get("/api/stock/transfers", headers=login(SUP)).json()) == 1  # BQ is theirs
 
 
-def count(client, h, db, counted, code="PL-001", loc="MK", kind="crockery"):
-    body = {"location_id": loc_id(db, loc), "kind": kind, "lines": [{"item_id": item_id(db, code), "counted_qty": counted}]}
+def count(client, h, db, counted, code="PL-001", loc="MK"):
+    body = {"location_id": loc_id(db, loc), "lines": [{"item_id": item_id(db, code), "counted_qty": counted}]}
     return client.post("/api/stock/counts", json=body, headers=h)
 
 
@@ -95,10 +95,8 @@ def test_count_without_variance_can_be_posted_by_supervisor(client, login, db):
 def test_count_validation_and_scope(client, login, db):
     assert count(client, login(STEWARD), db, 5).status_code == 403
     assert count(client, login(SUP_RB), db, 5).status_code == 403
-    assert count(client, login(SUP), db, 5, code="KN-001", kind="crockery").status_code == 400
     assert count(client, login(SUP), db, -1).status_code == 422
-    dup = {"location_id": loc_id(db, "MK"), "kind": "crockery",
-           "lines": [{"item_id": item_id(db, "PL-001"), "counted_qty": 1}] * 2}
+    dup = {"location_id": loc_id(db, "MK"), "lines": [{"item_id": item_id(db, "PL-001"), "counted_qty": 1}] * 2}
     assert client.post("/api/stock/counts", json=dup, headers=login(SUP)).status_code == 400
 
 
@@ -111,7 +109,7 @@ def test_monthly_reconciliation_adds_up_and_carries_forward(client, login, db, c
     client.post("/api/inventory/transactions", json={**base, "txn_type": "damage", "qty": 4, "reason": "Dropped tray"}, headers=h)
     c = count(client, h, db, 200).json()  # system is 206
     client.post(f"/api/stock/counts/{c['id']}/post", headers=m)
-    url = f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}&kind=crockery&month=2026-03"
+    url = f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}&month=2026-03"
     row_ = next(r for r in client.get(url, headers=h).json()["rows"] if r["code"] == "PL-001")
     assert (row_["opening_stock"], row_["receipts"], row_["issues"], row_["breakage_damage"], row_["adjustments"]) == (200, 30, -20, -4, -6)
     assert row_["closing"] == 200 == balance(db, "PL-001", "MK")
@@ -122,7 +120,36 @@ def test_monthly_reconciliation_adds_up_and_carries_forward(client, login, db, c
 
 
 def test_reconciliation_validation_and_scope(client, login, db):
-    base = f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}&kind=crockery"
+    base = f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}"
     assert client.get(base + "&month=2026-13", headers=login(MGR)).status_code == 400
     assert client.get(base + "&month=2026-03", headers=login(SUP_RB)).status_code == 403
     assert client.get(base + "&month=2026-03", headers=login(STEWARD)).status_code == 200
+
+
+def test_a_count_cannot_exceed_what_was_received_into_the_location(client, login, db):
+    h = login(SUP)
+    over = count(client, h, db, 201)  # 200 plates were received into Main Kitchen
+    assert over.status_code == 400 and "counted 201 is more than the 200 received" in over.json()["detail"]
+    assert client.get(f"/api/stock/counts?location_id={loc_id(db, 'MK')}", headers=h).json() == []  # nothing was saved
+    assert count(client, h, db, 200).status_code == 201
+    assert count(client, h, db, 150).status_code == 201  # counting fewer is a normal shortage
+    never = count(client, h, db, 1, code="PN-001", loc="MK")  # 6 pots were received here
+    assert never.status_code == 201
+    assert count(client, login(MGR), db, 1, code="PN-001", loc="RB").status_code == 400  # none ever reached the rooftop bar
+
+
+def test_the_count_limit_follows_receipts_and_transfers_in(client, login, db):
+    m, h = login(MGR), login(SUP)
+    supplier = client.get("/api/suppliers", headers=m).json()[0]["id"]
+    receipt = {"supplier_id": supplier, "location_id": loc_id(db, "MK"), "invoice_number": "CNT-1",
+               "lines": [{"item_id": item_id(db, "PL-001"), "qty": 10}]}
+    assert count(client, h, db, 205).status_code == 400
+    assert client.post("/api/receipts", json=receipt, headers=m).status_code == 201
+    assert count(client, h, db, 205).status_code == 201  # 200 opening + 10 received
+    client.post("/api/inventory/transactions", headers=h, json={"item_id": item_id(db, "PL-001"), "location_id": loc_id(db, "MK"),
+                                                                "txn_type": "issue", "qty": 50})
+    assert count(client, h, db, 210).status_code == 201  # issuing stock does not lower what was received
+    assert count(client, h, db, 211).status_code == 400
+    transfer(client, m, db, qty=20, src="MK", dst="BQ")  # BQ received 150 + 20
+    assert count(client, h, db, 170, loc="BQ").status_code == 201
+    assert count(client, h, db, 171, loc="BQ").status_code == 400

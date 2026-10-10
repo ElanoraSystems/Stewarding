@@ -35,14 +35,14 @@ Sign in as the manager and open **Settings**. Each tab manages one kind of data:
 
 1. **Locations** - kitchens, bars, banquet areas; time zone and optional check-in PIN.
 2. **Shifts** - hours, late-after minutes, break and overtime rules.
-3. **Categories & units** - crockery and smallware categories, units of measure.
+3. **Categories & units** - item categories, units of measure.
 4. **Suppliers** - the companies you receive stock from.
-5. **Item master** - every crockery and smallware item once (codes and names are checked for duplicates), linked to a category, unit and supplier.
+5. **Item master** - every item once (names are checked for duplicates and the item ID is generated automatically), linked to a category, unit and supplier.
 6. **Monitoring schedules** - for each dishwasher and glasswasher: its stages, when each is checked, and the temperature limits. Limits are not pre-filled in production; set them from the manufacturer's instructions and your food-safety procedure.
 7. **Rules & alerts** - reminder, escalation, retest and approval thresholds.
 8. **Dropdown lists** - job titles, checklist categories, breakage reasons and standard corrective actions.
 
-Then add employees and checklist templates (Daily Checklists, Configure) and receive opening stock under **Stock Movements, Receiving & invoices**.
+Then add employees and checklist templates (Daily Checklists, Configure) and receive opening stock under **Stock Movements, Receiving**.
 
 ## Demo data (non-production only)
 ```bash

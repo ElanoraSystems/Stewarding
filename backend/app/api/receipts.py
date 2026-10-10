@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,10 +24,16 @@ FIELDS = ("id", "doc_type", "supplier_id", "location_id", "invoice_number", "rec
           "status", "voided_by", "voided_at", "void_reason")
 
 
+DiscountType = Literal["amount", "percent"]
+TWO_PLACES = Decimal("0.01")
+
+
 class LineIn(BaseModel):
     item_id: int
     qty: int = Field(gt=0, le=100000)
     unit_cost: Decimal | None = Field(default=None, ge=0)
+    discount_type: DiscountType | None = None
+    discount: Decimal | None = Field(default=None, ge=0)
 
 
 class ReceiptIn(BaseModel):
@@ -37,6 +43,8 @@ class ReceiptIn(BaseModel):
     invoice_number: str = Field(min_length=1, max_length=60)
     invoice_date: date | None = None
     note: str | None = Field(default=None, max_length=1000)
+    discount_type: DiscountType | None = None
+    discount: Decimal | None = Field(default=None, ge=0)
     update_costs: bool = False
     lines: list[LineIn] = Field(min_length=1, max_length=200)
 
@@ -45,19 +53,47 @@ class VoidIn(BaseModel):
     reason: str = Field(min_length=5, max_length=500)
 
 
+def _num(value: Decimal | None) -> float | None:
+    return float(value) if value is not None else None
+
+
 def _serialize(db: Session, receipt: Receipt, lines: bool = False) -> dict:
     out = row(receipt, *FIELDS)
     out["invoice_date"] = receipt.invoice_date.date().isoformat() if receipt.invoice_date else None
-    out["total"] = float(receipt.total) if receipt.total is not None else None
+    for column in ("subtotal", "line_discount_total", "discount_value", "discount_amount", "total"):
+        out[column] = _num(getattr(receipt, column))
+    out["total_discount"] = _num((receipt.line_discount_total or 0) + (receipt.discount_amount or 0)) if receipt.total is not None else None
     out["supplier"] = db.scalar(select(Supplier.name).where(Supplier.id == receipt.supplier_id))
     out["received_by_name"] = db.scalar(select(Employee.full_name).where(Employee.user_id == receipt.received_by))
     if lines:
         items = {i.id: i for i in db.scalars(select(InventoryItem))}
         out["lines"] = [{"item_id": ln.item_id, "code": items[ln.item_id].code, "name": items[ln.item_id].name,
-                         "qty": ln.qty, "unit_cost": float(ln.unit_cost) if ln.unit_cost is not None else None,
+                         "qty": ln.qty, "unit_cost": _num(ln.unit_cost),
+                         "gross": _num(ln.qty * ln.unit_cost) if ln.unit_cost is not None else None,
+                         "discount_type": ln.discount_type, "discount_value": _num(ln.discount_value),
+                         "discount_amount": _num(ln.discount_amount), "line_total": _num(ln.line_total),
                          "transaction_id": ln.transaction_id}
                         for ln in db.scalars(select(ReceiptLine).where(ReceiptLine.receipt_id == receipt.id).order_by(ReceiptLine.id))]
     return out
+
+
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+
+
+def _discount(kind: str | None, value: Decimal | None, base: Decimal, label: str) -> Decimal:
+    """A discount in money from an amount or a percentage of `base`; it can never exceed `base`."""
+    if not value:
+        return Decimal("0.00")
+    if kind == "percent":
+        if value > 100:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{label}: a percentage discount cannot exceed 100")
+        amount = _money(base * value / 100)
+    else:
+        amount = _money(value)
+    if amount > base:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{label}: the discount ({amount}) is more than the amount it applies to ({base})")
+    return amount
 
 
 def _get(db: Session, user: User, receipt_id: int) -> Receipt:
@@ -87,10 +123,31 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
     if duplicate:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Invoice {invoice} from {supplier.name} was already posted (document #{duplicate.id})")
 
-    costs = [ln.qty * ln.unit_cost for ln in body.lines if ln.unit_cost is not None]
+    # Money: line total = quantity x unit cost less the line discount; subtotal = sum of the undiscounted line amounts;
+    # total = subtotal less every line discount and the invoice discount.
+    priced = []
+    for ln in body.lines:
+        if ln.unit_cost is None:
+            if ln.discount:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{items[ln.item_id].name}: enter a unit cost before a discount")
+            priced.append((None, Decimal("0.00"), None))
+            continue
+        gross = _money(ln.qty * ln.unit_cost)
+        cut = _discount(ln.discount_type, ln.discount, gross, items[ln.item_id].name)
+        priced.append((gross, cut, gross - cut))
+    costed = any(gross is not None for gross, _, _ in priced)
+    if not costed and body.discount:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter unit costs before an invoice discount")
+    subtotal = sum((g for g, _, _ in priced if g is not None), Decimal("0.00")) if costed else None
+    line_discounts = sum((d for _, d, _ in priced), Decimal("0.00")) if costed else None
+    doc_discount = _discount(body.discount_type, body.discount, subtotal - line_discounts, "Invoice") if costed else None
+    total = subtotal - line_discounts - doc_discount if costed else None
+
     receipt = Receipt(doc_type=body.doc_type, supplier_id=supplier.id, location_id=body.location_id, invoice_number=invoice,
                       invoice_date=datetime.combine(body.invoice_date, datetime.min.time()) if body.invoice_date else None,
-                      received_at=timeutil.utc_now(), received_by=user.id, note=body.note, total=sum(costs) if costs else None)
+                      received_at=timeutil.utc_now(), received_by=user.id, note=body.note, subtotal=subtotal,
+                      line_discount_total=line_discounts, discount_type=body.discount_type if body.discount else None,
+                      discount_value=body.discount or None, discount_amount=doc_discount, total=total)
     try:
         db.add(receipt)
         db.flush()
@@ -102,19 +159,23 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
     reason = f"{LABEL[body.doc_type]} #{receipt.id}, invoice {invoice} ({supplier.name})"
     cost_changes = {}
     try:
-        for ln in body.lines:
+        for ln, (gross, cut, net) in zip(body.lines, priced):
             item = items[ln.item_id]
             txn = post_txn(db, user, item, body.location_id, txn_type, ln.qty, reason, "receipt", receipt.id)
-            db.add(ReceiptLine(receipt_id=receipt.id, item_id=item.id, qty=ln.qty, unit_cost=ln.unit_cost, transaction_id=txn.id))
-            if body.update_costs and body.doc_type == "receipt" and ln.unit_cost is not None and item.unit_cost != ln.unit_cost:
+            db.add(ReceiptLine(receipt_id=receipt.id, item_id=item.id, qty=ln.qty, unit_cost=ln.unit_cost,
+                               discount_type=ln.discount_type if ln.discount else None, discount_value=ln.discount or None,
+                               discount_amount=cut if gross is not None else None, line_total=net, transaction_id=txn.id))
+            net_unit = _money(net / ln.qty) if net is not None else None
+            if body.update_costs and body.doc_type == "receipt" and net_unit is not None and item.unit_cost != net_unit:
                 cost_changes[item.code] = {"from": f"{item.unit_cost:.2f}" if item.unit_cost is not None else None,
-                                           "to": f"{ln.unit_cost:.2f}"}
-                item.unit_cost = ln.unit_cost
+                                           "to": f"{net_unit:.2f}"}
+                item.unit_cost = net_unit
     except StockError as exc:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
     audit(db, user, "receipt.post", "receipt", receipt.id, None,
           {"doc_type": body.doc_type, "supplier": supplier.name, "invoice": invoice, "lines": len(body.lines),
+           "subtotal": str(subtotal), "discounts": str((line_discounts or 0) + (doc_discount or 0)), "total": str(total),
            "cost_updates": cost_changes})
     db.commit()
     return _serialize(db, receipt, lines=True)

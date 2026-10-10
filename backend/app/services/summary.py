@@ -79,7 +79,7 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
             .where(InventoryBalance.location_id.in_(locations), InventoryItem.active.is_(True),
                    InventoryBalance.qty < InventoryItem.min_level)).all():
         add("low_stock", balance.location_id, "normal", "Supervisor",
-            f"Low stock: {item.name} ({balance.qty} of minimum {item.min_level})", None, f"/{item.kind}")
+            f"Low stock: {item.name} ({balance.qty} of minimum {item.min_level})", None, "/inventory")
 
     return sorted(items, key=lambda i: (URGENCY_RANK[i["urgency"]], i["location"], -i["overdue_minutes"]))
 

@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { Check, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,7 @@ import { fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { useLineEntry } from '@/lib/useLineEntry'
 
 interface Doc {
   id: number
@@ -29,16 +30,33 @@ interface Doc {
   received_by_name: string | null
   note: string | null
   status: string
+  subtotal: number | null
+  line_discount_total: number | null
+  discount_type: DiscountType | null
+  discount_value: number | null
+  discount_amount: number | null
+  total_discount: number | null
   total: number | null
   void_reason: string | null
-  lines?: { item_id: number; code: string; name: string; qty: number; unit_cost: number | null }[]
+  lines?: { item_id: number; code: string; name: string; qty: number; unit_cost: number | null; gross: number | null; discount_amount: number | null; line_total: number | null }[]
 }
+
+type DiscountType = 'amount' | 'percent'
 
 interface Line {
   item: string
   qty: string
   cost: string
+  discType: DiscountType
+  disc: string
 }
+
+const BLANK_LINE: Line = { item: '', qty: '', cost: '', discType: 'amount', disc: '' }
+
+const money = (n: number) => n.toFixed(2)
+const cut = (type: DiscountType, value: string, base: number) => Math.min(base, type === 'percent' ? (base * Number(value || 0)) / 100 : Number(value || 0))
+const lineGross = (l: Line) => Number(l.qty || 0) * Number(l.cost || 0)
+const lineComplete = (l: Line) => l.item !== '' && Number(l.qty) > 0
 
 const SIZE = 10
 const LABEL = { receipt: 'Goods receipt', supplier_return: 'Return to supplier' }
@@ -65,32 +83,42 @@ export function ReceivingTab() {
   const [invoiceDate, setInvoiceDate] = useState('')
   const [note, setNote] = useState('')
   const [updateCosts, setUpdateCosts] = useState(false)
-  const [lines, setLines] = useState<Line[]>([{ item: '', qty: '', cost: '' }])
+  const [docDiscType, setDocDiscType] = useState<DiscountType>('amount')
+  const [docDisc, setDocDisc] = useState('')
+  const entry = useLineEntry<Line>(BLANK_LINE, lineComplete)
+  const { attachList } = entry
   const [detail, setDetail] = useState<Doc | null>(null)
   const [voiding, setVoiding] = useState(false)
   const [voidReason, setVoidReason] = useState('')
 
-  const setLine = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, n) => (n === i ? { ...l, ...patch } : l)))
   const pickItem = (i: number, id: string) => {
     const cost = items.find((x) => String(x.id) === id)?.unit_cost
-    setLine(i, { item: id, cost: cost != null ? String(cost) : '' })
+    entry.update(i, { item: id, cost: cost != null ? String(cost) : '' })
   }
-  const filled = lines.filter((l) => l.item && Number(l.qty) > 0)
-  const total = filled.reduce((sum, l) => sum + Number(l.qty) * (l.cost === '' ? 0 : Number(l.cost)), 0)
+  const filled = entry.rows.filter(lineComplete)
+  const subtotal = filled.reduce((sum, l) => sum + lineGross(l), 0)
+  const lineDiscounts = filled.reduce((sum, l) => sum + cut(l.discType, l.disc, lineGross(l)), 0)
+  const docDiscount = cut(docDiscType, docDisc, subtotal - lineDiscounts)
+  const total = subtotal - lineDiscounts - docDiscount
   const hasCosts = filled.some((l) => l.cost !== '')
 
   async function post() {
     const ok = await run(() => api('/receipts', { body: {
       doc_type: docType, supplier_id: Number(supplierId), location_id: locationId, invoice_number: invoice,
       invoice_date: invoiceDate || null, note: note || null, update_costs: updateCosts && docType === 'receipt',
-      lines: filled.map((l) => ({ item_id: Number(l.item), qty: Number(l.qty), unit_cost: l.cost === '' ? null : Number(l.cost) })),
+      discount_type: docDisc ? docDiscType : null, discount: docDisc ? Number(docDisc) : null,
+      lines: filled.map((l) => ({
+        item_id: Number(l.item), qty: Number(l.qty), unit_cost: l.cost === '' ? null : Number(l.cost),
+        discount_type: l.disc ? l.discType : null, discount: l.disc ? Number(l.disc) : null,
+      })),
     } }), docType === 'receipt' ? 'Delivery received and stock updated' : 'Return posted and stock reduced')
     if (ok) {
       setInvoice('')
       setInvoiceDate('')
       setNote('')
       setUpdateCosts(false)
-      setLines([{ item: '', qty: '', cost: '' }])
+      setDocDisc('')
+      entry.reset()
       list.reload()
     }
   }
@@ -138,30 +166,68 @@ export function ReceivingTab() {
           </div>
           {suppliers.data?.length === 0 && <p className="text-sm text-warn">No suppliers yet. A manager adds them under Settings, Suppliers.</p>}
 
-          <div className="space-y-2">
-            {lines.map((line, i) => (
-              <div key={i} className="flex flex-wrap items-end gap-2">
+          <div ref={attachList} className="space-y-2">
+            {entry.rows.map((line, i) => (
+              <div key={i} {...entry.rowProps(i)} className="flex flex-wrap items-end gap-2">
                 <div className="min-w-56 flex-1">
                   <Field label={i === 0 ? 'Item' : ''}>
-                    <Select value={line.item} onChange={(e) => pickItem(i, e.target.value)}>
+                    <Select aria-label="Item" value={line.item} onChange={(e) => pickItem(i, e.target.value)}>
                       <option value="">Select item</option>
                       {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
                     </Select>
                   </Field>
                 </div>
-                <Field label={i === 0 ? 'Quantity' : ''}><Input type="number" min={1} className="w-28" value={line.qty} onChange={(e) => setLine(i, { qty: e.target.value })} /></Field>
-                <Field label={i === 0 ? 'Unit cost' : ''}><Input type="number" step="0.01" min={0} className="w-28" value={line.cost} onChange={(e) => setLine(i, { cost: e.target.value })} /></Field>
-                {lines.length > 1 && <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}><Trash2 className="h-4 w-4" /></Button>}
+                <Field label={i === 0 ? 'Quantity' : ''}><Input aria-label="Quantity" type="number" min={1} className="w-24" value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} /></Field>
+                <Field label={i === 0 ? 'Unit cost' : ''}><Input aria-label="Unit cost" type="number" step="0.01" min={0} className="w-24" value={line.cost} onChange={(e) => entry.update(i, { cost: e.target.value })} /></Field>
+                <Field label={i === 0 ? 'Discount' : ''}>
+                  <div className="flex gap-1">
+                    <Select aria-label="Discount type" className="w-20" value={line.discType} onChange={(e) => entry.update(i, { discType: e.target.value as DiscountType })}>
+                      <option value="amount">Amt</option>
+                      <option value="percent">%</option>
+                    </Select>
+                    <Input aria-label="Discount" type="number" step="0.01" min={0} className="w-24" value={line.disc} onChange={(e) => entry.update(i, { disc: e.target.value })} />
+                  </div>
+                </Field>
+                <Field label={i === 0 ? 'Line total' : ''}>
+                  <output aria-label="Line total" className="flex h-10 w-24 items-center justify-end text-sm font-medium tabular-nums">
+                    {line.cost !== '' && lineComplete(line) ? money(lineGross(line) - cut(line.discType, line.disc, lineGross(line))) : '-'}
+                  </output>
+                </Field>
+                <span className="flex h-10 w-5 items-center text-ok" aria-label={line.committed ? 'Line saved' : undefined}>{line.committed && <Check className="h-4 w-4" aria-hidden />}</span>
+                {entry.rows.length > 1 && <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => entry.remove(i)}><Trash2 className="h-4 w-4" /></Button>}
+                {entry.incomplete === i && <p role="alert" className="w-full text-xs text-danger">Choose an item and a quantity, then press Enter.</p>}
               </div>
             ))}
-            <Button variant="outline" size="sm" onClick={() => setLines((ls) => [...ls, { item: '', qty: '', cost: '' }])}><Plus className="h-4 w-4" /> Add line</Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" size="sm" onClick={entry.addRow}><Plus className="h-4 w-4" /> Add line</Button>
+              <span className="text-xs text-ink-muted">Press Enter on a completed line to save it and start the next one.</span>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {docType === 'receipt' ? (
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={updateCosts} onChange={(e) => setUpdateCosts(e.target.checked)} /> Update item costs to these prices</label>
-            ) : <span />}
-            <span className="text-sm font-medium">{hasCosts ? `Total ${total.toFixed(2)}` : 'No costs entered'}</span>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-3">
+              {docType === 'receipt' && (
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={updateCosts} onChange={(e) => setUpdateCosts(e.target.checked)} /> Update item costs to these prices</label>
+              )}
+              <Field label="Invoice discount">
+                <div className="flex gap-1">
+                  <Select aria-label="Invoice discount type" className="w-24" value={docDiscType} onChange={(e) => setDocDiscType(e.target.value as DiscountType)}>
+                    <option value="amount">Amount</option>
+                    <option value="percent">Percent</option>
+                  </Select>
+                  <Input aria-label="Invoice discount" type="number" step="0.01" min={0} className="w-28" value={docDisc} onChange={(e) => setDocDisc(e.target.value)} />
+                </div>
+              </Field>
+            </div>
+            {hasCosts ? (
+              <dl className="grid min-w-60 grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm" aria-label="Totals">
+                <dt>Sub total</dt><dd className="text-right tabular-nums">{money(subtotal)}</dd>
+                <dt>Line discounts</dt><dd className="text-right tabular-nums">-{money(lineDiscounts)}</dd>
+                <dt>Invoice discount</dt><dd className="text-right tabular-nums">-{money(docDiscount)}</dd>
+                <dt>Total discount</dt><dd className="text-right tabular-nums">-{money(lineDiscounts + docDiscount)}</dd>
+                <dt className="border-t border-border pt-1 font-semibold">Total</dt><dd className="border-t border-border pt-1 text-right font-semibold tabular-nums">{money(total)}</dd>
+              </dl>
+            ) : <span className="text-sm text-ink-muted">No costs entered</span>}
           </div>
           <Button disabled={!supplierId || !locationId || !invoice.trim() || filled.length === 0 || new Set(filled.map((l) => l.item)).size !== filled.length} onClick={post}>
             {docType === 'receipt' ? 'Post receipt' : 'Post return'}
@@ -211,14 +277,22 @@ export function ReceivingTab() {
             <p className="text-ink-muted">Posted {fmtDateTime(detail.received_at)} by {detail.received_by_name} at {places.get(detail.location_id)}</p>
             {detail.note && <p>{detail.note}</p>}
             <Table>
-              <thead><tr><Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Unit cost</Th></tr></thead>
+              <thead><tr><Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Unit cost</Th><Th className="text-right">Discount</Th><Th className="text-right">Line total</Th></tr></thead>
               <tbody>
                 {detail.lines?.map((l) => (
-                  <tr key={l.item_id}><Td>{l.code} - {l.name}</Td><Td className="text-right tabular-nums">{l.qty}</Td><Td className="text-right tabular-nums">{l.unit_cost != null ? l.unit_cost.toFixed(2) : '-'}</Td></tr>
+                  <tr key={l.item_id}><Td>{l.code} - {l.name}</Td><Td className="text-right tabular-nums">{l.qty}</Td><Td className="text-right tabular-nums">{l.unit_cost != null ? l.unit_cost.toFixed(2) : '-'}</Td><Td className="text-right tabular-nums">{l.discount_amount ? `-${l.discount_amount.toFixed(2)}` : '-'}</Td><Td className="text-right tabular-nums">{l.line_total != null ? l.line_total.toFixed(2) : '-'}</Td></tr>
                 ))}
               </tbody>
             </Table>
-            {detail.total != null && <p className="text-right font-medium">Total {detail.total.toFixed(2)}</p>}
+            {detail.total != null && (
+              <dl className="ml-auto grid w-60 grid-cols-[1fr_auto] gap-x-6 gap-y-1">
+                <dt>Sub total</dt><dd className="text-right tabular-nums">{detail.subtotal?.toFixed(2)}</dd>
+                <dt>Line discounts</dt><dd className="text-right tabular-nums">-{(detail.line_discount_total ?? 0).toFixed(2)}</dd>
+                <dt>Invoice discount{detail.discount_type === 'percent' ? ` (${detail.discount_value}%)` : ''}</dt><dd className="text-right tabular-nums">-{(detail.discount_amount ?? 0).toFixed(2)}</dd>
+                <dt>Total discount</dt><dd className="text-right tabular-nums">-{(detail.total_discount ?? 0).toFixed(2)}</dd>
+                <dt className="border-t border-border pt-1 font-semibold">Total</dt><dd className="border-t border-border pt-1 text-right font-semibold tabular-nums">{detail.total.toFixed(2)}</dd>
+              </dl>
+            )}
             {detail.status === 'void' && <p className="rounded-md bg-surface-muted p-2">Voided: {detail.void_reason}</p>}
             {detail.status === 'posted' && canVoid && !voiding && <Button variant="danger" onClick={() => setVoiding(true)}>Void this document</Button>}
             {voiding && (

@@ -63,7 +63,8 @@ def _pick_shift(db: Session, emp: Employee, location: Location, now: datetime) -
         select(Shift).join(ShiftAssignment, ShiftAssignment.shift_id == Shift.id)
         .where(ShiftAssignment.employee_id == emp.id, ShiftAssignment.location_id == location.id,
                ShiftAssignment.weekday == day.weekday(), ShiftAssignment.valid_from <= day,
-               or_(ShiftAssignment.valid_to.is_(None), ShiftAssignment.valid_to >= day), Shift.active.is_(True))
+               or_(ShiftAssignment.valid_to.is_(None), ShiftAssignment.valid_to >= day), Shift.active.is_(True),
+               Shift.kind == "work")
     ).all()
     if not candidates:
         return None

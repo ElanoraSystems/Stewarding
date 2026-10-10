@@ -13,7 +13,7 @@
 - **Daylight saving.** A wall-clock time that does not exist (spring forward) resolves to the next valid instant; an ambiguous one (fall back) resolves to the first occurrence.
 - **Compliance percentages.** Numerator is completed, pending-verification and verified work. Denominator adds failed and overdue work. Waived and future tasks are excluded and reported separately.
 - **Stock.** Balances are per item and per location and are derived from an append-only ledger. Opening stock needs a location. There is one item master shared by all locations.
-- **Item master.** An item is unique by code and, within crockery or smallware, by name ignoring case and spacing. Items are retired, never deleted. Categories, units, suppliers and dropdown values are retired the same way.
+- **Item master.** There is one inventory; categories tell items apart. An item is unique by name ignoring case and spacing, and its ID (`ITM-00001` style) is generated automatically. Items are retired, never deleted. Categories, units, suppliers and dropdown values are retired the same way.
 - **Receiving.** A goods receipt adds stock through ledger entries that reference the document and supplier invoice number. A supplier invoice number can be posted once per supplier; a voided document frees it for correct re-entry. Voiding reverses stock with new entries and may take a balance negative if the goods were already used. Updating item costs from an invoice is optional and audited.
 - **Suppliers and costs.** Only managers and supervisors can see suppliers, costs and receiving documents; stewards cannot.
 - **Permissions.** Supervisors can verify others' work but not their own, and managers cannot approve a transfer or corrective action they raised themselves.
@@ -25,3 +25,7 @@
 - Reports are limited to 93 days per request.
 - Email and push notifications are not implemented; notifications are in-app only. The notification model and the single `notify` function are the integration point.
 - Frontend has no automated tests; the backend suite covers business rules and authorization.
+- **Count limit.** A physical count cannot exceed everything received into that location for the item (opening stock, receipts, transfers in, returns and positive adjustments). Issues and breakage do not lower the limit.
+- **Receiving discounts.** Line total = quantity x unit cost less the line discount (amount or percent). Sub total = sum of the undiscounted lines. Total = sub total less every line discount and the invoice discount, which applies to the amount left after line discounts. Item cost updates use the net unit price.
+- **Week off and absence.** A week off is a shift of its own kind that carries no hours; it cannot overlap a working shift on the same weekday. Week off days are not scheduled and are not chased for check-in. An absence or leave (absent, sick, annual, unpaid, other) is recorded by a manager or supervisor, once per employee and day, and can be cancelled with a reason. Leave is excluded from scheduled work; a recorded absence counts as absent.
+- **Role sync.** Roles and their permissions are synchronised to the database on every startup so new permissions reach existing installs.

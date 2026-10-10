@@ -19,7 +19,7 @@ Temperature limits and frequencies (per equipment), late grace minutes, overtime
 1. Foundation: schema, migrations, auth, RBAC + location scoping, nav shell, seed data.
 2. Workforce and tasks: employees, attendance, shifts, checklists.
 3. Equipment compliance: register, temperature logs, corrective actions.
-4. Inventory and incidents: crockery, smallware, transactions, transfers, counts, breakage.
+4. Inventory and incidents: one inventory (categories separate the items), transactions, transfers, counts, breakage.
 5. Notifications and reporting: reminders, escalation, reports, exports, audit views.
 6. Testing and release: test suites, build, Docker deployment docs.
 

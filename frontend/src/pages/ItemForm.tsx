@@ -11,11 +11,7 @@ import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import type { Item } from '@/lib/useItems'
 
-type Kind = 'crockery' | 'smallware'
-
 interface ItemFormProps {
-  /** Fixed inventory type; leave out to let the user choose when creating. */
-  kind?: Kind
   item: Item | null
   open: boolean
   onClose: () => void
@@ -29,17 +25,16 @@ interface Similar {
   active: boolean
 }
 
-export function ItemForm({ kind: fixedKind, item, open, onClose, onSaved }: ItemFormProps) {
+export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
   const { me } = useAuth()
   const run = useRun()
   const editing = item !== null
-  const [kind, setKind] = useState<Kind>(fixedKind ?? item?.kind ?? 'crockery')
-  const categories = useApi<{ id: number; name: string }[]>(`/inventory/categories${qs({ kind })}`)
+  const categories = useApi<{ id: number; name: string }[]>('/inventory/categories')
   const units = useApi<{ id: number; name: string }[]>('/inventory/units')
   const suppliers = useApi<{ id: number; name: string }[]>('/suppliers')
   const [similar, setSimilar] = useState<Similar[]>([])
   const [form, setForm] = useState({
-    code: item?.code ?? '', name: item?.name ?? '', category_id: item ? String(item.category_id) : '',
+    name: item?.name ?? '', category_id: item ? String(item.category_id) : '',
     unit_id: item ? String(item.unit_id) : '', supplier_id: item?.supplier_id ? String(item.supplier_id) : '',
     min_level: String(item?.min_level ?? 0), target_level: item?.target_level != null ? String(item.target_level) : '',
     unit_cost: item?.unit_cost != null ? String(item.unit_cost) : '', storage_location: item?.storage_location ?? '',
@@ -53,7 +48,7 @@ export function ItemForm({ kind: fixedKind, item, open, onClose, onSaved }: Item
     if (text.length < 3) return
     let live = true
     const timer = setTimeout(() => {
-      api<Similar[]>(`/inventory/items/lookup${qs({ q: text, kind })}`)
+      api<Similar[]>(`/inventory/items/lookup${qs({ q: text })}`)
         .then((rows) => live && setSimilar(rows.filter((r) => r.id !== item?.id)))
         .catch(() => live && setSimilar([]))
     }, 250)
@@ -61,7 +56,7 @@ export function ItemForm({ kind: fixedKind, item, open, onClose, onSaved }: Item
       live = false
       clearTimeout(timer)
     }
-  }, [form.name, kind, item?.id])
+  }, [form.name, item?.id])
 
   const shownSimilar = form.name.trim().length >= 3 ? similar : []
 
@@ -75,7 +70,7 @@ export function ItemForm({ kind: fixedKind, item, open, onClose, onSaved }: Item
     }
     const ok = await run(() => editing
       ? api(`/inventory/items/${item.id}`, { method: 'PUT', body: common })
-      : api('/inventory/items', { body: { ...common, kind, code: form.code, is_tracked_asset: form.is_tracked_asset,
+      : api('/inventory/items', { body: { ...common, is_tracked_asset: form.is_tracked_asset,
         opening_qty: Number(form.opening_qty), opening_location_id: Number(form.opening_qty) > 0 ? Number(form.opening_location_id) : null } }),
     editing ? 'Item updated' : 'Item created')
     if (ok) onSaved()
@@ -84,18 +79,9 @@ export function ItemForm({ kind: fixedKind, item, open, onClose, onSaved }: Item
   return (
     <Modal open={open} title={editing ? 'Edit item' : 'Add item to the item master'} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        {!editing && !fixedKind && (
-          <Field label="Inventory type">
-            <Select value={kind} onChange={(e) => { setKind(e.target.value as Kind); set('category_id', '') }}>
-              <option value="crockery">Crockery</option>
-              <option value="smallware">Kitchen smallware</option>
-            </Select>
-          </Field>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          {!editing && <Field label="Item code" hint="Letters and numbers; must be unique."><Input required value={form.code} onChange={(e) => set('code', e.target.value)} /></Field>}
-          <Field label="Name"><Input required value={form.name} onChange={(e) => set('name', e.target.value)} /></Field>
-        </div>
+        <Field label="Name" hint={editing ? `Item ID ${item.code}` : 'The item ID is generated automatically.'}>
+          <Input required value={form.name} onChange={(e) => set('name', e.target.value)} />
+        </Field>
         {shownSimilar.length > 0 && (
           <div role="status" className="rounded-md border border-warn/50 bg-warn-soft px-3 py-2 text-sm text-warn">
             <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> Similar items already exist</p>
@@ -127,7 +113,7 @@ export function ItemForm({ kind: fixedKind, item, open, onClose, onSaved }: Item
           <Field label="Target level"><Input type="number" min={0} value={form.target_level} onChange={(e) => set('target_level', e.target.value)} /></Field>
         </div>
         <Field label="Storage location"><Input value={form.storage_location} onChange={(e) => set('storage_location', e.target.value)} /></Field>
-        {!editing && kind === 'smallware' && (
+        {!editing && (
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.is_tracked_asset} onChange={(e) => set('is_tracked_asset', e.target.checked)} /> Track individual assets</label>
         )}
         {!editing && (

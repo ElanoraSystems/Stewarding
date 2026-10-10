@@ -4,16 +4,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import scheduler
-from .api import (attendance, audit, auth, breakage, checklists, dashboard, employees, equipment, inventory,
+from .api import (absences, attendance, audit, auth, breakage, checklists, dashboard, employees, equipment, inventory,
                   lookups, notifications, receipts, reports, roster, settings as settings_api, stock, suppliers,
                   temperature, uploads)
 from .config import settings
+from .db import SessionLocal
+from .seed import sync_roles
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if len(settings.secret_key) < 32:
         raise RuntimeError("STW_SECRET_KEY must be set to a random value of at least 32 characters")
+    with SessionLocal() as db:
+        sync_roles(db)
+        db.commit()
     if settings.scheduler_enabled:
         scheduler.start_background()
     yield
@@ -27,7 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 for module in (auth, employees, attendance, roster, checklists, uploads, equipment, temperature, inventory, stock,
-               breakage, notifications, dashboard, reports, settings_api, audit, suppliers, receipts, lookups):
+               breakage, notifications, dashboard, reports, settings_api, audit, suppliers, receipts, lookups, absences):
     app.include_router(module.router)
 
 

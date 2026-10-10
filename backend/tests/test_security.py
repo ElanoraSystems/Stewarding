@@ -62,6 +62,7 @@ MANAGER_ONLY = [
 SUPERVISOR_UP = [
     ("GET", "/api/employees", None), ("GET", "/api/attendance", None), ("GET", "/api/roster/today?location_id=1", None),
     ("GET", "/api/reports/daily", None), ("GET", "/api/notifications/pending-summary", None),
+    ("GET", "/api/absences", None), ("POST", "/api/absences", {}), ("POST", "/api/absences/1/void", {"reason": "Entered by mistake"}),
     ("POST", "/api/stock/transfers", {}), ("POST", "/api/stock/counts", {}), ("GET", "/api/breakage", None),
     ("POST", "/api/breakage/1/review", {"qty": 1}), ("POST", "/api/checklists/instances/1/verify", {"approve": True}),
     ("POST", "/api/checklists/instances/1/assign", {"employee_id": 1}), ("POST", "/api/inventory/transactions", {}),
@@ -91,9 +92,9 @@ LOCATION_SCOPED = [
     "/api/checklists/instances?location_id={mk}", "/api/equipment?location_id={mk}",
     "/api/temperature/equipment?location_id={mk}", "/api/temperature/due?location_id={mk}",
     "/api/temperature/readings?location_id={mk}", "/api/temperature/corrective-actions?location_id={mk}",
-    "/api/inventory/items?kind=crockery&location_id={mk}", "/api/inventory/transactions?location_id={mk}",
+    "/api/inventory/items?location_id={mk}", "/api/inventory/transactions?location_id={mk}",
     "/api/inventory/assets?location_id={mk}", "/api/stock/counts?location_id={mk}",
-    "/api/stock/reconciliation?kind=crockery&month=2026-03&location_id={mk}", "/api/breakage?location_id={mk}",
+    "/api/stock/reconciliation?month=2026-03&location_id={mk}", "/api/breakage?location_id={mk}",
     "/api/reports/daily?location_id={mk}", "/api/dashboard?location_id={mk}",
     "/api/notifications/pending-summary?location_id={mk}",
 ]
@@ -155,7 +156,7 @@ def test_user_input_is_never_executed_as_sql(client, login):
     for payload in ("' OR 1=1 --", "'; DROP TABLE employee; --", "%' UNION SELECT password_hash FROM user --"):
         r = client.get("/api/employees", params={"search": payload}, headers=h)
         assert r.status_code == 200 and r.json()["items"] == []
-        assert client.get("/api/inventory/items", params={"kind": "crockery", "search": payload}, headers=h).json()["items"] == []
+        assert client.get("/api/inventory/items", params={"search": payload}, headers=h).json()["items"] == []
     assert client.get("/api/employees", headers=h).json()["total"] == 6
 
 

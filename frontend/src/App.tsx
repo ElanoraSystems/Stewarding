@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/AppLayout'
 import { useAuth } from '@/lib/auth'
 import { AttendancePage } from '@/pages/AttendancePage'
@@ -34,8 +34,9 @@ export default function App() {
         <Route path="weekly-checklists" element={<ChecklistsPage frequency="weekly" />} />
         <Route path="temperature" element={<TemperaturePage />} />
         <Route path="equipment" element={<EquipmentPage />} />
-        <Route path="crockery" element={<InventoryPage kind="crockery" />} />
-        <Route path="smallware" element={<InventoryPage kind="smallware" />} />
+        <Route path="inventory" element={<InventoryPage />} />
+        <Route path="crockery" element={<Navigate to="/inventory" replace />} />
+        <Route path="smallware" element={<Navigate to="/inventory" replace />} />
         <Route path="stock-movements" element={<StockMovementsPage />} />
         <Route path="breakage" element={<BreakagePage />} />
         <Route path="tasks" element={<TasksPage />} />

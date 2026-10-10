@@ -4,6 +4,7 @@ import { LocationSelect } from '@/components/LocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { Pagination } from '@/components/ui/pagination'
 import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth'
@@ -21,27 +22,28 @@ interface Listing {
 
 const SIZE = 15
 
-export function InventoryPage({ kind }: { kind: 'crockery' | 'smallware' }) {
+export function InventoryPage() {
   const { me } = useAuth()
   const can = (p: string) => me?.permissions.includes(p) ?? false
   const [locationId, setLocationId] = useState<number | null>(null)
   const [search, setSearch] = useState('')
+  const [categoryId, setCategoryId] = useState('')
   const [lowOnly, setLowOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [formItem, setFormItem] = useState<Item | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [posting, setPosting] = useState<Item | null>(null)
-  const title = kind === 'crockery' ? 'Crockery Inventory' : 'Kitchen Smallware Inventory'
+  const categories = useApi<{ id: number; name: string }[]>('/inventory/categories')
 
   const { data, loading, reload } = useApi<Listing>(
-    `/inventory/items${qs({ kind, search, location_id: locationId, low_only: lowOnly, page, size: SIZE })}`,
+    `/inventory/items${qs({ search, category_id: categoryId, location_id: locationId, low_only: lowOnly, page, size: SIZE })}`,
   )
   const showCost = data?.items.some((i) => i.unit_cost !== undefined)
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{title}</h1>
+        <h1 className="text-2xl font-semibold">Inventory</h1>
         {can('inventory.manage') && <Button onClick={() => { setFormItem(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Add item</Button>}
       </div>
 
@@ -50,6 +52,10 @@ export function InventoryPage({ kind }: { kind: 'crockery' | 'smallware' }) {
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted" aria-hidden />
           <Input aria-label="Search items" className="pl-9" placeholder="Search name or code" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
         </div>
+        <Select aria-label="Category" className="w-auto" value={categoryId} onChange={(e) => { setCategoryId(e.target.value); setPage(1) }}>
+          <option value="">All categories</option>
+          {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
         <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={lowOnly} onChange={(e) => { setLowOnly(e.target.checked); setPage(1) }} /> Low stock only
@@ -83,14 +89,10 @@ export function InventoryPage({ kind }: { kind: 'crockery' | 'smallware' }) {
       {data?.items.length === 0 && <EmptyState title="No items found" hint="Try clearing the search or the low-stock filter." />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
 
-      {kind === 'smallware' && (
-        <>
-          <h2 className="pt-2 text-lg font-semibold">Tracked assets</h2>
-          <AssetsPanel locationId={locationId} items={data?.items ?? []} />
-        </>
-      )}
+      <h2 className="pt-2 text-lg font-semibold">Tracked assets</h2>
+      <AssetsPanel locationId={locationId} items={data?.items ?? []} />
 
-      {formOpen && <ItemForm kind={kind} item={formItem} open onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />}
+      {formOpen && <ItemForm item={formItem} open onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />}
       <StockPostModal item={posting} defaultLocation={locationId} onClose={() => setPosting(null)} onPosted={() => { setPosting(null); reload() }} />
     </div>
   )

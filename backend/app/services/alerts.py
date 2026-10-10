@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import (AttendanceRecord, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee, Equipment,
+from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee, Equipment,
                       InventoryBalance, InventoryItem, Location, Shift, ShiftAssignment, TemperatureReading)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
@@ -28,7 +28,10 @@ def missing_checkins(db: Session, location: Location, now: datetime) -> int:
         select(ShiftAssignment, Employee, Shift).join(Employee, Employee.id == ShiftAssignment.employee_id)
         .join(Shift, Shift.id == ShiftAssignment.shift_id)
         .where(ShiftAssignment.location_id == location.id, ShiftAssignment.weekday == day.weekday(),
-               ShiftAssignment.valid_from <= day, Employee.status == "active", Shift.active.is_(True))).all()
+               ShiftAssignment.valid_from <= day, Employee.status == "active", Shift.active.is_(True),
+               Shift.kind == "work")).all()
+    away = set(db.scalars(select(AbsenceRecord.employee_id).where(
+        AbsenceRecord.local_date == day, AbsenceRecord.voided_at.is_(None))))
     created = 0
     for assignment, emp, shift in rows:
         if assignment.valid_to and assignment.valid_to < day:
@@ -37,8 +40,8 @@ def missing_checkins(db: Session, location: Location, now: datetime) -> int:
         end = timeutil.shift_end_utc(day, shift.start_time, shift.end_time, tz)
         if not (start + timedelta(minutes=shift.grace_minutes) < now < end):
             continue
-        if db.scalar(select(AttendanceRecord.id).where(AttendanceRecord.employee_id == emp.id,
-                                                       AttendanceRecord.local_date == day)):
+        if emp.id in away or db.scalar(select(AttendanceRecord.id).where(AttendanceRecord.employee_id == emp.id,
+                                                                         AttendanceRecord.local_date == day)):
             continue
         targets = recipients(db, location.id, SUPERVISOR, MANAGER) + ([emp.user_id] if emp.user_id else [])
         created += notify(db, targets, "no_checkin", f"{emp.full_name} has not checked in ({shift.name} started {_hm(start, tz)})",
@@ -159,7 +162,7 @@ def low_stock(db: Session, now: datetime) -> int:
         created += notify(db, recipients(db, balance.location_id, SUPERVISOR, MANAGER), "low_stock",
                           f"Low stock: {item.name} ({balance.qty} left, minimum {item.min_level})",
                           key=f"low:{item.id}:{balance.location_id}:{now.date().isoformat()}", priority="high",
-                          location_id=balance.location_id, link=f"/{item.kind}")
+                          location_id=balance.location_id, link="/inventory")
     return created
 
 

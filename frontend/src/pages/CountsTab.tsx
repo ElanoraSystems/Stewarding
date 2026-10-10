@@ -4,19 +4,17 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
 import { EmptyState, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
-import { useAllItems, type Item } from '@/lib/useItems'
+import { useAllItems } from '@/lib/useItems'
 
 interface Count {
   id: number
   location_id: number
-  kind: string
   counted_at: string
   status: string
   lines: { item_id: number; system_qty: number; counted_qty: number; variance: number }[]
@@ -27,15 +25,15 @@ export function CountsTab() {
   const run = useRun()
   const canApprove = me?.permissions.includes('stock.approve') ?? false
   const [locationId, setLocationId] = useState<number | null>(null)
-  const [kind, setKind] = useState<'crockery' | 'smallware'>('crockery')
   const [entered, setEntered] = useState<Record<number, string>>({})
   const { items, byId } = useAllItems()
   const counts = useApi<Count[]>(locationId ? `/stock/counts${qs({ location_id: locationId })}` : null)
-  const rows = items.filter((i: Item) => i.kind === kind)
+  const receivedAt = (id: number) => (locationId ? (byId.get(id)?.received_by_location[String(locationId)] ?? 0) : 0)
+  const overLimit = Object.entries(entered).some(([id, v]) => v !== '' && Number(v) > receivedAt(Number(id)))
 
   async function submit() {
     const lines = Object.entries(entered).filter(([, v]) => v !== '').map(([id, v]) => ({ item_id: Number(id), counted_qty: Number(v) }))
-    const ok = await run(() => api('/stock/counts', { body: { location_id: locationId, kind, lines } }), 'Count saved - post it to apply variances')
+    const ok = await run(() => api('/stock/counts', { body: { location_id: locationId, lines } }), 'Count saved - post it to apply variances')
     if (ok) {
       setEntered({})
       counts.reload()
@@ -50,28 +48,28 @@ export function CountsTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
         <LocationSelect value={locationId} onChange={setLocationId} />
-        <Select aria-label="Inventory type" className="w-auto" value={kind} onChange={(e) => { setKind(e.target.value as typeof kind); setEntered({}) }}>
-          <option value="crockery">Crockery</option>
-          <option value="smallware">Kitchen smallware</option>
-        </Select>
       </div>
       <Card>
         <CardHeader><CardTitle>Physical count</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-ink-muted">Enter what you counted. Items left blank are not part of this count.</p>
+          <p className="text-sm text-ink-muted">Enter what you counted. Items left blank are not part of this count. A count cannot be higher than the quantity received into the location.</p>
           <Table>
-            <thead><tr><Th>Item</Th><Th className="text-right">System</Th><Th>Counted</Th></tr></thead>
+            <thead><tr><Th>Item</Th><Th className="text-right">System</Th><Th className="text-right">Received to date</Th><Th>Counted</Th></tr></thead>
             <tbody>
-              {rows.map((i) => (
+              {items.map((i) => (
                 <tr key={i.id}>
                   <Td>{i.code} - {i.name}</Td>
                   <Td className="text-right tabular-nums">{locationId ? (i.by_location[String(locationId)] ?? 0) : '-'}</Td>
-                  <Td><Input aria-label={`Counted ${i.name}`} type="number" min={0} className="w-28" value={entered[i.id] ?? ''} onChange={(e) => setEntered((v) => ({ ...v, [i.id]: e.target.value }))} /></Td>
+                  <Td className="text-right tabular-nums">{locationId ? receivedAt(i.id) : '-'}</Td>
+                  <Td>
+                    <Input aria-label={`Counted ${i.name}`} type="number" min={0} max={receivedAt(i.id)} className="w-28" value={entered[i.id] ?? ''} onChange={(e) => setEntered((v) => ({ ...v, [i.id]: e.target.value }))} />
+                    {Number(entered[i.id] ?? 0) > receivedAt(i.id) && <p role="alert" className="mt-1 text-xs text-danger">More than the {receivedAt(i.id)} received here</p>}
+                  </Td>
                 </tr>
               ))}
             </tbody>
           </Table>
-          <Button disabled={!locationId || !Object.values(entered).some((v) => v !== '')} onClick={submit}>Save count</Button>
+          <Button disabled={!locationId || overLimit || !Object.values(entered).some((v) => v !== '')} onClick={submit}>Save count</Button>
         </CardContent>
       </Card>
 
@@ -83,7 +81,7 @@ export function CountsTab() {
           <Card key={c.id}>
             <CardContent className="space-y-2 pt-5 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium">Count #{c.id} - {c.kind} - {fmtDateTime(c.counted_at)}</span>
+                <span className="font-medium">Count #{c.id} - {fmtDateTime(c.counted_at)}</span>
                 <Badge tone={c.status === 'posted' ? 'ok' : 'warn'}>{c.status}</Badge>
               </div>
               <ul className="text-ink-muted">

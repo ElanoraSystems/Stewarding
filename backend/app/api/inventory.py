@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -18,13 +19,11 @@ from ..services.inventory import StockError, norm, post_txn
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
-Kind = Literal["crockery", "smallware"]
-ITEM_FIELDS = ("id", "kind", "code", "name", "category_id", "unit_id", "description", "image_path",
+ITEM_FIELDS = ("id", "code", "name", "category_id", "unit_id", "description", "image_path",
                "storage_location", "min_level", "target_level", "opening_qty", "supplier_id", "is_tracked_asset", "active")
 
 
 class CategoryIn(BaseModel):
-    kind: Kind
     name: str = Field(min_length=2, max_length=80)
 
 
@@ -33,8 +32,6 @@ class UnitIn(BaseModel):
 
 
 class ItemIn(BaseModel):
-    kind: Kind
-    code: str = Field(min_length=2, max_length=30)
     name: str = Field(min_length=2, max_length=120)
     category_id: int
     unit_id: int
@@ -94,14 +91,12 @@ class NameUpdate(BaseModel):
 
 
 @router.get("/categories")
-def list_categories(kind: Kind | None = None, include_inactive: bool = False,
-                    user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
-    stmt = select(InventoryCategory).order_by(InventoryCategory.kind, InventoryCategory.name)
-    if kind:
-        stmt = stmt.where(InventoryCategory.kind == kind)
+def list_categories(include_inactive: bool = False, user: User = Depends(require("inventory.view")),
+                    db: Session = Depends(get_db)):
+    stmt = select(InventoryCategory).order_by(InventoryCategory.name)
     if not include_inactive:
         stmt = stmt.where(InventoryCategory.active.is_(True))
-    return [row(c, "id", "kind", "name", "active") for c in db.scalars(stmt)]
+    return [row(c, "id", "name", "active") for c in db.scalars(stmt)]
 
 
 def _name_taken(db: Session, model, name: str, exclude_id: int | None = None, **scope) -> bool:
@@ -111,14 +106,14 @@ def _name_taken(db: Session, model, name: str, exclude_id: int | None = None, **
 
 @router.post("/categories", status_code=201)
 def create_category(body: CategoryIn, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
-    if _name_taken(db, InventoryCategory, body.name, kind=body.kind):
+    if _name_taken(db, InventoryCategory, body.name):
         raise HTTPException(status.HTTP_409_CONFLICT, "Category already exists")
-    category = InventoryCategory(kind=body.kind, name=" ".join(body.name.split()))
+    category = InventoryCategory(name=" ".join(body.name.split()))
     db.add(category)
     db.flush()
     audit(db, user, "inventory.category_create", "inventory_category", category.id, None, body.model_dump())
     db.commit()
-    return row(category, "id", "kind", "name", "active")
+    return row(category, "id", "name", "active")
 
 
 @router.put("/categories/{category_id}")
@@ -128,14 +123,14 @@ def update_category(category_id: int, body: NameUpdate, user: User = Depends(req
     if not category:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
     data = body.model_dump(exclude_unset=True)
-    if "name" in data and _name_taken(db, InventoryCategory, data["name"], category.id, kind=category.kind):
+    if "name" in data and _name_taken(db, InventoryCategory, data["name"], category.id):
         raise HTTPException(status.HTTP_409_CONFLICT, "Category already exists")
     before = {k: getattr(category, k) for k in data}
     for key, value in data.items():
         setattr(category, key, " ".join(value.split()) if key == "name" else value)
     audit(db, user, "inventory.category_update", "inventory_category", category.id, before, data)
     db.commit()
-    return row(category, "id", "kind", "name", "active")
+    return row(category, "id", "name", "active")
 
 
 @router.get("/units")
@@ -192,6 +187,14 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
     by_item: dict[int, dict[int, int]] = {}
     for bal in (db.scalars(stmt) if stmt is not None else []):
         by_item.setdefault(bal.item_id, {})[bal.location_id] = bal.qty
+    received = select(StockTransaction.item_id, StockTransaction.location_id, func.sum(StockTransaction.qty_delta)).where(
+        StockTransaction.qty_delta > 0, StockTransaction.item_id.in_(ids)).group_by(
+        StockTransaction.item_id, StockTransaction.location_id)
+    if scope is not None:
+        received = received.where(StockTransaction.location_id.in_(scope))
+    received_by_item: dict[int, dict[int, int]] = {}
+    for item_id, location_id, total in (db.execute(received) if ids else []):
+        received_by_item.setdefault(item_id, {})[location_id] = int(total)
     categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
     units = {u.id: u.name for u in db.scalars(select(InventoryUnit))}
     suppliers = {s.id: s.name for s in db.scalars(select(Supplier))}
@@ -202,7 +205,9 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
         qty = sum(per_location.values())
         entry = {**row(item, *ITEM_FIELDS), "category": categories.get(item.category_id), "unit": units.get(item.unit_id),
                  "supplier": suppliers.get(item.supplier_id) if show_cost else None,
-                 "qty": qty, "by_location": per_location, "low": qty < item.min_level}
+                 "qty": qty, "received": sum(received_by_item.get(item.id, {}).values()),
+                 "received_by_location": received_by_item.get(item.id, {}), "by_location": per_location,
+                 "low": qty < item.min_level}
         if show_cost:
             entry["unit_cost"] = float(item.unit_cost) if item.unit_cost is not None else None
             entry["value"] = float(qty * item.unit_cost) if item.unit_cost is not None else None
@@ -211,16 +216,17 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
 
 
 @router.get("/items")
-def list_items(kind: Kind, search: str | None = None, location_id: int | None = None, low_only: bool = False,
-               active: bool | None = True, page: int = 1, size: int = 25,
+def list_items(search: str | None = None, category_id: int | None = None, location_id: int | None = None,
+               low_only: bool = False, active: bool | None = True, page: int = 1, size: int = 25,
                user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
     scope = _scope(db, user, location_id)
     stock = select(InventoryBalance.item_id, func.sum(InventoryBalance.qty).label("qty")).group_by(InventoryBalance.item_id)
     if scope is not None:
         stock = stock.where(InventoryBalance.location_id.in_(scope))
     stock = stock.subquery()
-    stmt = (select(InventoryItem).outerjoin(stock, stock.c.item_id == InventoryItem.id)
-            .where(InventoryItem.kind == kind))
+    stmt = select(InventoryItem).outerjoin(stock, stock.c.item_id == InventoryItem.id)
+    if category_id is not None:
+        stmt = stmt.where(InventoryItem.category_id == category_id)
     if active is not None:
         stmt = stmt.where(InventoryItem.active.is_(active))
     if search:
@@ -233,17 +239,17 @@ def list_items(kind: Kind, search: str | None = None, location_id: int | None = 
     result = {"total": total, "items": _serialize_items(db, user, items, scope)}
     if _can_see_cost(user):
         value = db.scalar(select(func.coalesce(func.sum(stock.c.qty * InventoryItem.unit_cost), 0)).select_from(
-            InventoryItem).outerjoin(stock, stock.c.item_id == InventoryItem.id).where(InventoryItem.kind == kind))
+            InventoryItem).outerjoin(stock, stock.c.item_id == InventoryItem.id))
         result["total_value"] = float(value)
     return result
 
 
-def _check_links(db: Session, kind: str, category_id: int | None, unit_id: int | None, supplier_id: int | None) -> None:
-    """Category, unit and supplier must exist, be active, and the category must match the item type."""
+def _check_links(db: Session, category_id: int | None, unit_id: int | None, supplier_id: int | None) -> None:
+    """Category, unit and supplier must exist and be active."""
     if category_id is not None:
         category = db.get(InventoryCategory, category_id)
-        if not category or category.kind != kind or not category.active:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inactive category for this inventory type")
+        if not category or not category.active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inactive category")
     if unit_id is not None:
         unit = db.get(InventoryUnit, unit_id)
         if not unit or not unit.active:
@@ -254,14 +260,10 @@ def _check_links(db: Session, kind: str, category_id: int | None, unit_id: int |
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inactive supplier")
 
 
-def _check_duplicate(db: Session, kind: str, code: str | None, name: str | None, exclude_id: int | None = None) -> None:
-    """One item master entry per code, and per normalised name within an inventory type."""
-    if code is not None:
-        clash = db.scalar(select(InventoryItem).where(InventoryItem.code == code, InventoryItem.id != (exclude_id or 0)))
-        if clash:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"Item code {code} is already used by {clash.name}")
+def _check_duplicate(db: Session, name: str, exclude_id: int | None = None) -> None:
+    """One item master entry per normalised name."""
     if name is not None:
-        clash = db.scalar(select(InventoryItem).where(InventoryItem.kind == kind, InventoryItem.name_key == norm(name),
+        clash = db.scalar(select(InventoryItem).where(InventoryItem.name_key == norm(name),
                                                       InventoryItem.id != (exclude_id or 0)))
         if clash:
             state = "" if clash.active else " (inactive - reactivate it instead)"
@@ -269,30 +271,30 @@ def _check_duplicate(db: Session, kind: str, code: str | None, name: str | None,
 
 
 @router.get("/items/lookup")
-def similar_items(q: str, kind: Kind | None = None, user: User = Depends(require("inventory.view")),
-                  db: Session = Depends(get_db)):
+def similar_items(q: str, user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
     """Existing items whose name contains the typed text, so a duplicate is noticed before it is created."""
     key = norm(q)
     if len(key) < 3:
         return []
     stmt = select(InventoryItem).where(InventoryItem.name_key.contains(key)).order_by(InventoryItem.name).limit(8)
-    if kind:
-        stmt = stmt.where(InventoryItem.kind == kind)
-    return [row(i, "id", "kind", "code", "name", "active") for i in db.scalars(stmt)]
+    return [row(i, "id", "code", "name", "active") for i in db.scalars(stmt)]
 
 
 @router.post("/items", status_code=201)
 def create_item(body: ItemIn, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
-    _check_links(db, body.kind, body.category_id, body.unit_id, body.supplier_id)
+    _check_links(db, body.category_id, body.unit_id, body.supplier_id)
     if body.opening_qty and body.opening_location_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Opening stock needs a location")
-    code = body.code.strip().upper()
     name = " ".join(body.name.split())
-    _check_duplicate(db, body.kind, code, name)
-    data = body.model_dump(exclude={"opening_location_id", "code", "name"})
-    item = InventoryItem(code=code, name=name, name_key=norm(name), **data)
+    _check_duplicate(db, name)
+    data = body.model_dump(exclude={"opening_location_id", "name"})
+    item = InventoryItem(code=f"NEW-{uuid.uuid4().hex[:24]}", name=name, name_key=norm(name), **data)
     db.add(item)
     db.flush()
+    number = item.id
+    while db.scalar(select(InventoryItem.id).where(InventoryItem.code == f"ITM-{number:05d}")):
+        number += 1
+    item.code = f"ITM-{number:05d}"  # every item gets its own generated ID
     if body.opening_qty:
         check_location(user, db, body.opening_location_id)
         post_txn(db, user, item, body.opening_location_id, "opening", body.opening_qty, "Opening stock")
@@ -308,10 +310,10 @@ def update_item(item_id: int, body: ItemUpdate, user: User = Depends(require("in
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     data = body.model_dump(exclude_unset=True)
-    _check_links(db, item.kind, data.get("category_id"), data.get("unit_id"), data.get("supplier_id"))
+    _check_links(db, data.get("category_id"), data.get("unit_id"), data.get("supplier_id"))
     if "name" in data:
         data["name"] = " ".join(data["name"].split())
-        _check_duplicate(db, item.kind, None, data["name"], item.id)
+        _check_duplicate(db, data["name"], item.id)
     before = {k: str(getattr(item, k)) for k in data}
     for key, value in data.items():
         setattr(item, key, value)

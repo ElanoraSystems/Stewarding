@@ -5,7 +5,7 @@ STEWARD = "steward"
 ALL_PERMISSIONS = [
     "dashboard.view",
     "employee.view", "employee.manage",
-    "attendance.self", "attendance.view", "attendance.correct",
+    "attendance.self", "attendance.view", "attendance.correct", "attendance.absence",
     "roster.view", "roster.manage",
     "checklist.view", "checklist.complete", "checklist.verify", "checklist.configure",
     "task.assign",
@@ -21,7 +21,7 @@ ALL_PERMISSIONS = [
 ]
 
 SUPERVISOR_PERMISSIONS = [
-    "dashboard.view", "employee.view", "attendance.self", "attendance.view", "roster.view",
+    "dashboard.view", "employee.view", "attendance.self", "attendance.view", "attendance.absence", "roster.view",
     "checklist.view", "checklist.complete", "checklist.verify", "task.assign",
     "temp.view", "temp.record", "temp.review", "equipment.view",
     "inventory.view", "inventory.count", "stock.transfer",
@@ -50,8 +50,7 @@ MODULES = [
     ("weekly-checklists", "Weekly Checklists", "checklist.view"),
     ("temperature", "Temperature Monitoring", "temp.view"),
     ("equipment", "Equipment Management", "equipment.view"),
-    ("crockery", "Crockery Inventory", "inventory.view"),
-    ("smallware", "Kitchen Smallware Inventory", "inventory.view"),
+    ("inventory", "Inventory", "inventory.view"),
     ("stock-movements", "Stock Movements & Transfers", "stock.transfer"),
     ("breakage", "Breakage & Damage Logs", "breakage.report"),
     ("tasks", "Tasks & Notifications", "notification.view"),

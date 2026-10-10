@@ -48,7 +48,7 @@ def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn
         notify(db, recipients(db, location_id, SUPERVISOR, MANAGER), "low_stock",
                f"Low stock: {item.name} ({balance.qty} left, minimum {item.min_level})",
                key=f"low:{item.id}:{location_id}:{timeutil.utc_now().date().isoformat()}", priority="high",
-               location_id=location_id, link=f"/{item.kind}")
+               location_id=location_id, link="/inventory")
     return txn
 
 
@@ -59,10 +59,20 @@ def _month_bounds(tz: str, month: str) -> tuple[datetime, datetime]:
     return timeutil.local_to_utc(first, time(0), tz), timeutil.local_to_utc(following, time(0), tz)
 
 
-def reconcile(db: Session, location: Location, kind: str, month: str) -> list[dict]:
+def received_to_date(db: Session, location_id: int, item_ids: list[int]) -> dict[int, int]:
+    """Everything that ever came into a location for each item: opening stock, receipts, returns, transfers in, increases."""
+    if not item_ids:
+        return {}
+    rows = db.execute(select(StockTransaction.item_id, func.sum(StockTransaction.qty_delta)).where(
+        StockTransaction.location_id == location_id, StockTransaction.qty_delta > 0,
+        StockTransaction.item_id.in_(item_ids)).group_by(StockTransaction.item_id)).all()
+    return {item_id: int(total) for item_id, total in rows}
+
+
+def reconcile(db: Session, location: Location, month: str) -> list[dict]:
     """Per item: opening + movements = closing, plus the latest posted physical count in the month."""
     start, end = _month_bounds(location.timezone, month)
-    items = db.scalars(select(InventoryItem).where(InventoryItem.kind == kind).order_by(InventoryItem.code)).all()
+    items = db.scalars(select(InventoryItem).order_by(InventoryItem.code)).all()
     txns = db.scalars(select(StockTransaction).where(StockTransaction.location_id == location.id,
                                                      StockTransaction.occurred_at < end)).all()
     counts = db.execute(

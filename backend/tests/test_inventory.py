@@ -16,20 +16,22 @@ def test_seed_balances_match_the_ledger(db):
         assert balance(db, code, loc) == ledger_sum(db, code, loc) > 0
 
 
-def test_manager_creates_item_with_opening_stock_posted_to_the_ledger(client, login, db):
+def test_manager_creates_item_with_generated_id_and_opening_stock_posted_to_the_ledger(client, login, db):
     m = login(MGR)
-    cats = client.get("/api/inventory/categories?kind=crockery", headers=m).json()
-    units = client.get("/api/inventory/units", headers=m).json()
-    body = {"kind": "crockery", "code": "SC-001", "name": "Saucer", "category_id": cats[0]["id"], "unit_id": units[0]["id"],
-            "min_level": 10, "unit_cost": 1.2, "opening_qty": 80, "opening_location_id": loc_id(db, "MK")}
+    cat = client.get("/api/inventory/categories", headers=m).json()[0]["id"]
+    unit = client.get("/api/inventory/units", headers=m).json()[0]["id"]
+    body = {"code": "MY-OWN-CODE", "name": "Saucer", "category_id": cat, "unit_id": unit, "min_level": 10,
+            "unit_cost": 1.2, "opening_qty": 80, "opening_location_id": loc_id(db, "MK")}
     r = client.post("/api/inventory/items", json=body, headers=m)
     assert r.status_code == 201 and r.json()["qty"] == 80
-    assert balance(db, "SC-001", "MK") == ledger_sum(db, "SC-001", "MK") == 80
-    assert client.post("/api/inventory/items", json=body, headers=m).status_code == 409
-    wrong_kind = {**body, "code": "SC-002", "kind": "smallware"}
-    assert client.post("/api/inventory/items", json=wrong_kind, headers=m).status_code == 400
-    no_location = {**body, "code": "SC-003", "opening_location_id": None}
-    assert client.post("/api/inventory/items", json=no_location, headers=m).status_code == 400
+    code = r.json()["code"]
+    assert code.startswith("ITM-") and code != "MY-OWN-CODE"  # the ID is generated, never typed
+    assert balance(db, code, "MK") == ledger_sum(db, code, "MK") == 80
+    assert client.post("/api/inventory/items", json=body, headers=m).status_code == 409  # same name
+    assert client.post("/api/inventory/items", json={**body, "name": "Other saucer", "opening_location_id": None},
+                       headers=m).status_code == 400  # opening stock needs a location
+    assert client.post("/api/inventory/items", json={**body, "name": "Third saucer", "category_id": 9999},
+                       headers=m).status_code == 400
 
 
 @pytest.mark.parametrize("email", [SUP, STEWARD])
@@ -37,14 +39,14 @@ def test_only_manager_edits_master_data(client, login, db, email):
     h = login(email)
     assert client.post("/api/inventory/items", json={}, headers=h).status_code in (403, 422)
     assert client.put(f"/api/inventory/items/{item_id(db, 'PL-001')}", json={"min_level": 1}, headers=h).status_code == 403
-    assert client.post("/api/inventory/categories", json={"kind": "crockery", "name": "Jugs"}, headers=h).status_code == 403
+    assert client.post("/api/inventory/categories", json={"name": "Jugs"}, headers=h).status_code == 403
     assert client.post("/api/inventory/units", json={"name": "Box"}, headers=h).status_code == 403
 
 
 def test_manager_can_configure_categories_units_and_items(client, login, db):
     m = login(MGR)
-    assert client.post("/api/inventory/categories", json={"kind": "crockery", "name": "Jugs"}, headers=m).status_code == 201
-    assert client.post("/api/inventory/categories", json={"kind": "crockery", "name": "Jugs"}, headers=m).status_code == 409
+    assert client.post("/api/inventory/categories", json={"name": "Jugs"}, headers=m).status_code == 201
+    assert client.post("/api/inventory/categories", json={"name": "Jugs"}, headers=m).status_code == 409
     assert client.post("/api/inventory/units", json={"name": "Box"}, headers=m).status_code == 201
     r = client.put(f"/api/inventory/items/{item_id(db, 'PL-001')}", json={"min_level": 99}, headers=m)
     assert r.json()["min_level"] == 99
@@ -52,10 +54,10 @@ def test_manager_can_configure_categories_units_and_items(client, login, db):
 
 
 def test_steward_can_view_items_but_not_costs(client, login):
-    steward = client.get("/api/inventory/items?kind=crockery", headers=login(STEWARD)).json()
+    steward = client.get("/api/inventory/items", headers=login(STEWARD)).json()
     assert steward["items"] and all("unit_cost" not in i and "value" not in i for i in steward["items"])
     assert "total_value" not in steward
-    manager = client.get("/api/inventory/items?kind=crockery", headers=login(MGR)).json()
+    manager = client.get("/api/inventory/items", headers=login(MGR)).json()
     assert manager["items"][0]["unit_cost"] and manager["total_value"] > 0
 
 
@@ -121,22 +123,24 @@ def test_low_stock_alert_fires_once_per_day(client, login, db):
 
 
 def test_balances_are_scoped_to_the_callers_locations(client, login, db):
-    sup_rb = client.get("/api/inventory/items?kind=crockery", headers=login(SUP_RB)).json()["items"]
+    sup_rb = client.get("/api/inventory/items", headers=login(SUP_RB)).json()["items"]
     plate = next(i for i in sup_rb if i["code"] == "PL-001")
     assert plate["qty"] == 40 and set(plate["by_location"]) == {str(loc_id(db, "RB"))}
-    manager = next(i for i in client.get("/api/inventory/items?kind=crockery", headers=login(MGR)).json()["items"]
+    manager = next(i for i in client.get("/api/inventory/items", headers=login(MGR)).json()["items"]
                    if i["code"] == "PL-001")
     assert manager["qty"] == 390
-    assert client.get(f"/api/inventory/items?kind=crockery&location_id={loc_id(db, 'MK')}", headers=login(SUP_RB)).status_code == 403
+    assert client.get(f"/api/inventory/items?location_id={loc_id(db, 'MK')}", headers=login(SUP_RB)).status_code == 403
 
 
-def test_search_low_only_and_pagination(client, login, db):
+def test_search_category_low_only_and_pagination(client, login, db):
     m = login(MGR)
-    assert [i["code"] for i in client.get("/api/inventory/items?kind=smallware&search=knife", headers=m).json()["items"]] == ["KN-001"]
-    rb_low = client.get(f"/api/inventory/items?kind=crockery&low_only=true&location_id={loc_id(db, 'RB')}", headers=m).json()
-    assert "PL-001" in {i["code"] for i in rb_low["items"]}
-    page = client.get("/api/inventory/items?kind=crockery&size=2&page=2", headers=m).json()
-    assert page["total"] == 5 and len(page["items"]) == 2
+    assert [i["code"] for i in client.get("/api/inventory/items?search=knife", headers=m).json()["items"]] == ["KN-001"]
+    knives = next(c["id"] for c in client.get("/api/inventory/categories", headers=m).json() if c["name"] == "Knives")
+    assert [i["code"] for i in client.get(f"/api/inventory/items?category_id={knives}", headers=m).json()["items"]] == ["KN-001"]
+    rb_low = client.get(f"/api/inventory/items?low_only=true&location_id={loc_id(db, 'RB')}", headers=m).json()
+    assert {"PL-001", "UT-001", "UT-002"} <= {i["code"] for i in rb_low["items"]}
+    page = client.get("/api/inventory/items?size=3&page=2", headers=m).json()
+    assert page["total"] == 10 and len(page["items"]) == 3
 
 
 def test_transaction_history_is_scoped_and_filterable(client, login, db):

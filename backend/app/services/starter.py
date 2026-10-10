@@ -38,7 +38,7 @@ WEEKLY = [
 
 def apply_starter(db: Session, location_id: int) -> int:
     """Adds the starter daily and weekly templates to a location; skips ones that already exist."""
-    morning = db.scalar(select(Shift).where(Shift.active.is_(True)).order_by(Shift.start_time))
+    morning = db.scalar(select(Shift).where(Shift.active.is_(True), Shift.kind == "work").order_by(Shift.start_time))
     added = 0
     for name, frequency in (("Daily Stewarding Checklist", "daily"), ("Weekly Stewarding Checklist", "weekly")):
         if db.scalar(select(ChecklistTemplate.id).where(ChecklistTemplate.location_id == location_id,

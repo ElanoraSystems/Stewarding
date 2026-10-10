@@ -56,6 +56,8 @@ def seed(db: Session, password: str) -> None:
         shift = db.scalar(select(Shift).where(Shift.name == name)) or Shift(name=name, start_time=start, end_time=end)
         db.add(shift)
         shifts[name] = shift
+    if not db.scalar(select(Shift).where(Shift.kind == "weekoff")):
+        db.add(Shift(name="Week Off", kind="weekoff", start_time=time(0), end_time=time(0), grace_minutes=0))
     db.flush()
 
     emps: dict[str, Employee] = {}
@@ -100,21 +102,21 @@ def seed(db: Session, password: str) -> None:
     db.commit()
 
 
-# kind, code, name, category, unit, min, target, cost, tracked, opening stock by location code
+# code, name, category, unit, min, target, cost, tracked, opening stock by location code
 ITEMS = [
-    ("crockery", "PL-001", "Dinner Plate 27cm", "Plates", "Each", 60, 300, "2.50", False, {"MK": 200, "BQ": 150, "RB": 40}),
-    ("crockery", "PL-002", "Side Plate 18cm", "Plates", "Each", 40, 200, "1.60", False, {"MK": 120, "BQ": 100}),
-    ("crockery", "BW-001", "Soup Bowl", "Bowls", "Each", 40, 150, "2.10", False, {"MK": 90, "BQ": 80}),
-    ("crockery", "CP-001", "Coffee Cup", "Cups & Saucers", "Each", 30, 120, "1.40", False, {"MK": 70, "BQ": 60, "RB": 50}),
-    ("crockery", "PT-001", "Serving Platter 40cm", "Platters", "Each", 6, 24, "14.00", False, {"BQ": 20, "MK": 10}),
-    ("smallware", "KN-001", "Chef Knife 20cm", "Knives", "Each", 3, 10, "22.00", True, {"MK": 8, "BQ": 4}),
-    ("smallware", "UT-001", "Ladle", "Utensils", "Each", 5, 15, "4.50", False, {"MK": 12, "BQ": 8, "RB": 3}),
-    ("smallware", "UT-002", "Tongs", "Utensils", "Each", 8, 25, "3.20", False, {"MK": 20, "BQ": 15, "RB": 6}),
-    ("smallware", "PN-001", "Stock Pot 20L", "Pots & Pans", "Each", 2, 8, "48.00", False, {"MK": 6, "BQ": 3}),
-    ("smallware", "TR-001", "Gastronorm Pan 1/1", "Trays & Containers", "Each", 10, 40, "18.00", False, {"MK": 30, "BQ": 24}),
+    ("PL-001", "Dinner Plate 27cm", "Plates", "Each", 60, 300, "2.50", False, {"MK": 200, "BQ": 150, "RB": 40}),
+    ("PL-002", "Side Plate 18cm", "Plates", "Each", 40, 200, "1.60", False, {"MK": 120, "BQ": 100}),
+    ("BW-001", "Soup Bowl", "Bowls", "Each", 40, 150, "2.10", False, {"MK": 90, "BQ": 80}),
+    ("CP-001", "Coffee Cup", "Cups & Saucers", "Each", 30, 120, "1.40", False, {"MK": 70, "BQ": 60, "RB": 50}),
+    ("PT-001", "Serving Platter 40cm", "Platters", "Each", 6, 24, "14.00", False, {"BQ": 20, "MK": 10}),
+    ("KN-001", "Chef Knife 20cm", "Knives", "Each", 3, 10, "22.00", True, {"MK": 8, "BQ": 4}),
+    ("UT-001", "Ladle", "Utensils", "Each", 5, 15, "4.50", False, {"MK": 12, "BQ": 8, "RB": 3}),
+    ("UT-002", "Tongs", "Utensils", "Each", 8, 25, "3.20", False, {"MK": 20, "BQ": 15, "RB": 6}),
+    ("PN-001", "Stock Pot 20L", "Pots & Pans", "Each", 2, 8, "48.00", False, {"MK": 6, "BQ": 3}),
+    ("TR-001", "Gastronorm Pan 1/1", "Trays & Containers", "Each", 10, 40, "18.00", False, {"MK": 30, "BQ": 24}),
 ]
-CATEGORIES = {"crockery": ["Plates", "Bowls", "Cups & Saucers", "Platters"],
-              "smallware": ["Knives", "Utensils", "Pots & Pans", "Trays & Containers"]}
+CATEGORIES = ["Plates", "Bowls", "Cups & Saucers", "Platters", "Knives", "Utensils", "Pots & Pans", "Trays & Containers"]
+CROCKERY_CATEGORIES = {"Plates", "Bowls", "Cups & Saucers", "Platters"}
 
 
 LOOKUPS = {
@@ -142,16 +144,16 @@ def seed_inventory(db: Session, manager: User, locs: dict[str, Location]) -> Non
         return
     units = {name: InventoryUnit(name=name) for name in ("Each", "Dozen", "Set")}
     db.add_all(units.values())
-    cats = {(kind, name): InventoryCategory(kind=kind, name=name) for kind, names in CATEGORIES.items() for name in names}
+    cats = {name: InventoryCategory(name=name) for name in CATEGORIES}
     db.add_all(cats.values())
     suppliers = {name: Supplier(name=name, name_key=norm(name)) for name in SUPPLIERS}
     db.add_all(suppliers.values())
     db.flush()
-    for kind, code, name, cat, unit, low, target, cost, tracked, opening in ITEMS:
-        item = InventoryItem(kind=kind, code=code, name=name, name_key=norm(name), category_id=cats[(kind, cat)].id,
+    for code, name, cat, unit, low, target, cost, tracked, opening in ITEMS:
+        item = InventoryItem(code=code, name=name, name_key=norm(name), category_id=cats[cat].id,
                              unit_id=units[unit].id, min_level=low, target_level=target, unit_cost=Decimal(cost),
                              is_tracked_asset=tracked, opening_qty=sum(opening.values()), storage_location="Dry store",
-                             supplier_id=suppliers[SUPPLIERS[0 if kind == "crockery" else 1]].id)
+                             supplier_id=suppliers[SUPPLIERS[0 if cat in CROCKERY_CATEGORIES else 1]].id)
         db.add(item)
         db.flush()
         for loc_code, qty in opening.items():

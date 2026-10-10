@@ -1,6 +1,6 @@
 import {
-  ArrowLeftRight, Bell, CalendarDays, ChartColumn, ClipboardCheck, ClipboardList, Clock, CookingPot, LayoutDashboard,
-  LogOut, Menu, ScrollText, Settings, Thermometer, TriangleAlert, UtensilsCrossed, Users, Wrench, X,
+  ArrowLeftRight, Bell, CalendarDays, ChartColumn, ClipboardCheck, ClipboardList, Clock, LayoutDashboard, Package,
+  LogOut, Menu, ScrollText, Settings, Thermometer, TriangleAlert, Users, Wrench, X,
   type LucideIcon,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -20,8 +20,7 @@ const ICONS: Record<string, LucideIcon> = {
   'weekly-checklists': ClipboardList,
   temperature: Thermometer,
   equipment: Wrench,
-  crockery: UtensilsCrossed,
-  smallware: CookingPot,
+  inventory: Package,
   'stock-movements': ArrowLeftRight,
   breakage: TriangleAlert,
   tasks: Bell,

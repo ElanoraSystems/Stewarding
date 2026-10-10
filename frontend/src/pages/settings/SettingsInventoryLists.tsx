@@ -10,9 +10,9 @@ interface Row {
   active: boolean
 }
 
-function CategoryList({ kind, title }: { kind: 'crockery' | 'smallware'; title: string }) {
+function CategoryList() {
   const run = useRun()
-  const { data, reload } = useApi<Row[]>(`/inventory/categories${qs({ kind, include_inactive: true })}`)
+  const { data, reload } = useApi<Row[]>(`/inventory/categories${qs({ include_inactive: true })}`)
   const act = async (call: () => Promise<unknown>, ok: string) => {
     const done = await run(call, ok)
     if (done) reload()
@@ -20,11 +20,11 @@ function CategoryList({ kind, title }: { kind: 'crockery' | 'smallware'; title: 
   }
   return (
     <Card>
-      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Categories</CardTitle></CardHeader>
       <CardContent>
         <ManagedList
           entries={data ?? []} placeholder="New category"
-          onAdd={(name) => act(() => api('/inventory/categories', { body: { kind, name } }), 'Category added')}
+          onAdd={(name) => act(() => api('/inventory/categories', { body: { name } }), 'Category added')}
           onRename={(id, name) => act(() => api(`/inventory/categories/${id}`, { method: 'PUT', body: { name } }), 'Category renamed')}
           onToggle={(id, active) => act(() => api(`/inventory/categories/${id}`, { method: 'PUT', body: { active } }), active ? 'Category restored' : 'Category retired')}
         />
@@ -59,10 +59,9 @@ function UnitList() {
 export function SettingsInventoryLists() {
   return (
     <div className="space-y-4">
-      <p className="text-sm text-ink-muted">Categories and units appear in the item master. Retired values stay on existing items but cannot be chosen for new ones.</p>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <CategoryList kind="crockery" title="Crockery categories" />
-        <CategoryList kind="smallware" title="Smallware categories" />
+      <p className="text-sm text-ink-muted">Categories separate the items in the single inventory. Categories and units appear in the item master. Retired values stay on existing items but cannot be chosen for new ones.</p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <CategoryList />
         <UnitList />
       </div>
     </div>

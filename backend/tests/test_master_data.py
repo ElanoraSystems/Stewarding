@@ -11,15 +11,15 @@ def post(client, h, path, body):
     return client.post(path, json=body, headers=h)
 
 
-def refs(client, h, kind="crockery"):
-    cat = client.get(f"/api/inventory/categories?kind={kind}", headers=h).json()[0]["id"]
+def refs(client, h):
+    cat = client.get("/api/inventory/categories", headers=h).json()[0]["id"]
     unit = client.get("/api/inventory/units", headers=h).json()[0]["id"]
     return cat, unit
 
 
 def new_item(client, h, **over):
-    cat, unit = refs(client, h, over.get("kind", "crockery"))
-    body = {"kind": "crockery", "code": "SC-001", "name": "Saucer", "category_id": cat, "unit_id": unit, **over}
+    cat, unit = refs(client, h)
+    body = {"name": "Saucer", "category_id": cat, "unit_id": unit, **over}
     return client.post("/api/inventory/items", json=body, headers=h)
 
 
@@ -52,23 +52,23 @@ def test_inactive_supplier_is_hidden_and_cannot_be_linked(client, login, db):
     client.put(f"/api/suppliers/{s['id']}", json={"active": False}, headers=m)
     assert s["id"] not in [x["id"] for x in client.get("/api/suppliers", headers=m).json()]
     assert s["id"] in [x["id"] for x in client.get("/api/suppliers?include_inactive=true", headers=m).json()]
-    assert new_item(client, m, code="SC-002", name="Another Saucer", supplier_id=s["id"]).status_code == 400
+    assert new_item(client, m, name="Another Saucer", supplier_id=s["id"]).status_code == 400
 
 
-def test_item_names_are_unique_per_type_ignoring_case_and_spacing(client, login, db):
+def test_item_names_are_unique_across_the_inventory_ignoring_case_and_spacing(client, login, db):
     m = login(MGR)
-    dup = new_item(client, m, code="DP-009", name="  dinner   PLATE 27cm ")
+    dup = new_item(client, m, name="  dinner   PLATE 27cm ")
     assert dup.status_code == 409 and "Dinner Plate 27cm (PL-001)" in dup.json()["detail"]
-    other_kind = new_item(client, m, kind="smallware", code="TY-001", name="Soup Bowl")
-    assert other_kind.status_code == 201  # the same name is fine under a different inventory type
+    assert new_item(client, m, name="Soup Bowl").status_code == 409  # another category does not make it a new item
 
 
-def test_item_codes_are_unique_and_normalised(client, login):
+def test_item_ids_are_generated_in_sequence_and_never_typed(client, login):
     m = login(MGR)
-    dup = new_item(client, m, code=" pl-001 ", name="Brand New Plate")
-    assert dup.status_code == 409 and "PL-001" in dup.json()["detail"]
-    ok = new_item(client, m, code=" nw-001 ", name="Brand New Plate")
-    assert ok.status_code == 201 and ok.json()["code"] == "NW-001"
+    a = new_item(client, m, code="PL-001", name="Brand New Plate")
+    b = new_item(client, m, code="PL-001", name="Another New Plate")
+    assert a.status_code == b.status_code == 201
+    ca, cb = a.json()["code"], b.json()["code"]
+    assert ca.startswith("ITM-") and cb.startswith("ITM-") and int(cb[4:]) == int(ca[4:]) + 1
 
 
 def test_renaming_checks_duplicates_but_allows_recasing_itself(client, login, db):
@@ -76,14 +76,14 @@ def test_renaming_checks_duplicates_but_allows_recasing_itself(client, login, db
     plate = item_id(db, "PL-001")
     assert client.put(f"/api/inventory/items/{plate}", json={"name": "side plate 18cm"}, headers=m).status_code == 409
     assert client.put(f"/api/inventory/items/{plate}", json={"name": "DINNER PLATE 27CM"}, headers=m).status_code == 200
-    again = new_item(client, m, code="DP-010", name="dinner plate 27cm")
+    again = new_item(client, m, name="dinner plate 27cm")
     assert again.status_code == 409
 
 
 def test_inactive_duplicate_points_to_reactivation(client, login, db):
     m = login(MGR)
     client.put(f"/api/inventory/items/{item_id(db, 'PL-002')}", json={"active": False}, headers=m)
-    dup = new_item(client, m, code="SP-009", name="Side Plate 18cm")
+    dup = new_item(client, m, name="Side Plate 18cm")
     assert dup.status_code == 409 and "reactivate" in dup.json()["detail"]
 
 
@@ -92,13 +92,13 @@ def test_similar_name_lookup_warns_before_a_duplicate_is_created(client, login):
     found = client.get("/api/inventory/items/lookup?q=dinner pl", headers=m).json()
     assert [i["code"] for i in found] == ["PL-001"]
     assert client.get("/api/inventory/items/lookup?q=di", headers=m).json() == []
-    assert client.get("/api/inventory/items/lookup?q=bowl&kind=smallware", headers=m).json() == []
+    assert [i["code"] for i in client.get("/api/inventory/items/lookup?q=chef kn", headers=m).json()] == ["KN-001"]
     assert client.get("/api/inventory/items/lookup?q=dinner", headers=login(STEWARD)).status_code == 200
 
 
 def test_database_itself_refuses_duplicate_item_names(db):
     first = db.scalar(select(InventoryItem))
-    db.add(InventoryItem(kind=first.kind, code="ZZ-1", name="Whatever", name_key=first.name_key, category_id=first.category_id,
+    db.add(InventoryItem(code="ZZ-1", name="Whatever", name_key=first.name_key, category_id=first.category_id,
                          unit_id=first.unit_id))
     with pytest.raises(IntegrityError):
         db.commit()
@@ -107,29 +107,29 @@ def test_database_itself_refuses_duplicate_item_names(db):
 def test_item_is_linked_to_its_supplier_and_costs_stay_hidden_from_stewards(client, login):
     m = login(MGR)
     supplier = client.get("/api/suppliers", headers=m).json()[0]
-    item = client.get("/api/inventory/items?kind=crockery", headers=m).json()["items"][0]
+    item = client.get("/api/inventory/items", headers=m).json()["items"][0]
     assert item["supplier"] == "Gulf Catering Supplies" and item["supplier_id"] == supplier["id"]
-    steward_view = client.get("/api/inventory/items?kind=crockery", headers=login(STEWARD)).json()["items"][0]
+    steward_view = client.get("/api/inventory/items", headers=login(STEWARD)).json()["items"][0]
     assert steward_view["supplier"] is None and "unit_cost" not in steward_view
 
 
 def test_categories_and_units_are_unique_renameable_and_can_be_retired(client, login, db):
     m = login(MGR)
-    assert post(client, m, "/api/inventory/categories", {"kind": "crockery", "name": " plates "}).status_code == 409
-    created = post(client, m, "/api/inventory/categories", {"kind": "crockery", "name": "Glass Jugs"}).json()
-    assert post(client, m, "/api/inventory/categories", {"kind": "smallware", "name": "glass jugs"}).status_code == 201
+    assert post(client, m, "/api/inventory/categories", {"name": " plates "}).status_code == 409
+    created = post(client, m, "/api/inventory/categories", {"name": "Glass Jugs"}).json()
+    assert post(client, m, "/api/inventory/categories", {"name": "glass jugs"}).status_code == 409
     assert client.put(f"/api/inventory/categories/{created['id']}", json={"name": "BOWLS"}, headers=m).status_code == 409
     assert client.put(f"/api/inventory/categories/{created['id']}", json={"name": "Glass Carafes"}, headers=m).json()["name"] == "Glass Carafes"
     client.put(f"/api/inventory/categories/{created['id']}", json={"active": False}, headers=m)
-    assert created["id"] not in [c["id"] for c in client.get("/api/inventory/categories?kind=crockery", headers=m).json()]
-    assert created["id"] in [c["id"] for c in client.get("/api/inventory/categories?kind=crockery&include_inactive=true", headers=m).json()]
+    assert created["id"] not in [c["id"] for c in client.get("/api/inventory/categories", headers=m).json()]
+    assert created["id"] in [c["id"] for c in client.get("/api/inventory/categories?include_inactive=true", headers=m).json()]
     unit = client.get("/api/inventory/units", headers=m).json()[0]["id"]
     assert new_item(client, m, category_id=created["id"], unit_id=unit).status_code == 400
 
     assert post(client, m, "/api/inventory/units", {"name": " EACH"}).status_code == 409
     box = post(client, m, "/api/inventory/units", {"name": "Box"}).json()
     client.put(f"/api/inventory/units/{box['id']}", json={"active": False}, headers=m)
-    cat = client.get("/api/inventory/categories?kind=crockery", headers=m).json()[0]["id"]
+    cat = client.get("/api/inventory/categories", headers=m).json()[0]["id"]
     assert new_item(client, m, category_id=cat, unit_id=box["id"]).status_code == 400
     assert db.scalar(select(AuditLog.id).where(AuditLog.action == "inventory.category_update"))
 

@@ -1,6 +1,6 @@
 from datetime import date, datetime, time, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Time, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -82,6 +82,7 @@ class Shift(Base):
     name: Mapped[str] = mapped_column(String(60))
     start_time: Mapped[time] = mapped_column(Time)
     end_time: Mapped[time] = mapped_column(Time)
+    kind: Mapped[str] = mapped_column(String(10), default="work")  # work | weekoff
     grace_minutes: Mapped[int] = mapped_column(Integer, default=10)
     break_minutes: Mapped[int] = mapped_column(Integer, default=0)
     overtime_after_minutes: Mapped[int | None] = mapped_column(Integer)
@@ -136,3 +137,23 @@ class Setting(Base):
     __tablename__ = "setting"
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON)
+
+
+class AbsenceRecord(Base):
+    """A recorded absence or leave day for one employee; voided rows stay for the history."""
+
+    __tablename__ = "absence_record"
+    # one live record per employee and day; a voided one frees the day for correct re-entry
+    __table_args__ = (Index("uq_absence_employee_day", "employee_id", "local_date", unique=True,
+                            sqlite_where=text("voided_at IS NULL"), postgresql_where=text("voided_at IS NULL")),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employee.id"), index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
+    local_date: Mapped[date] = mapped_column(Date, index=True)
+    absence_type: Mapped[str] = mapped_column(String(20))  # absent | sick_leave | annual_leave | unpaid_leave | other_leave
+    note: Mapped[str | None] = mapped_column(Text)
+    recorded_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    created_at: Mapped[datetime] = ts()
+    voided_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime)
+    void_reason: Mapped[str | None] = mapped_column(Text)

@@ -1,6 +1,4 @@
 import re
-from typing import Literal
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
@@ -14,7 +12,7 @@ from ..models import (ApprovalRecord, InventoryBalance, InventoryCount, Inventor
                       InventoryTransfer, InventoryTransferLine, Location, User)
 from ..pagination import row
 from ..permissions import MANAGER
-from ..services.inventory import StockError, post_txn, reconcile
+from ..services.inventory import StockError, post_txn, received_to_date, reconcile
 from ..services.notify import notify, recipients
 from .inventory import get_item_or_404
 
@@ -49,7 +47,6 @@ class CountLineIn(BaseModel):
 
 class CountIn(BaseModel):
     location_id: int
-    kind: Literal["crockery", "smallware"]
     lines: list[CountLineIn] = Field(min_length=1)
 
 
@@ -150,7 +147,7 @@ def decide_transfer(transfer_id: int, body: DecisionIn, user: User = Depends(req
 
 def _count_dict(db: Session, count: InventoryCount) -> dict:
     lines = db.scalars(select(InventoryCountLine).where(InventoryCountLine.count_id == count.id))
-    return {**row(count, "id", "location_id", "kind", "counted_at", "counted_by", "status", "month"),
+    return {**row(count, "id", "location_id", "counted_at", "counted_by", "status", "month"),
             "lines": [{**row(ln, "item_id", "system_qty", "counted_qty", "adjustment_txn_id"),
                        "variance": ln.counted_qty - ln.system_qty} for ln in lines]}
 
@@ -161,15 +158,22 @@ def create_count(body: CountIn, user: User = Depends(require("inventory.count"))
     location = db.get(Location, body.location_id)
     if len({ln.item_id for ln in body.lines}) != len(body.lines):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Each item can be counted once")
+    # A count can find less than the book figure, never more than what was received into this location.
+    received = received_to_date(db, location.id, [ln.item_id for ln in body.lines])
+    items = {}
+    for ln in body.lines:
+        items[ln.item_id] = item = get_item_or_404(db, ln.item_id)
+        if ln.counted_qty > received.get(item.id, 0):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"{item.name}: counted {ln.counted_qty} is more than the {received.get(item.id, 0)} received "
+                                "into this location. Receive the missing stock first.")
     now = timeutil.utc_now()
-    count = InventoryCount(location_id=location.id, kind=body.kind, counted_by=user.id, counted_at=now,
+    count = InventoryCount(location_id=location.id, counted_by=user.id, counted_at=now,
                            month=timeutil.to_local(now, location.timezone).strftime("%Y-%m"))
     db.add(count)
     db.flush()
     for ln in body.lines:
-        item = get_item_or_404(db, ln.item_id)
-        if item.kind != body.kind:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{item.name} is not a {body.kind} item")
+        item = items[ln.item_id]
         balance = db.get(InventoryBalance, (item.id, location.id))
         db.add(InventoryCountLine(count_id=count.id, item_id=item.id, system_qty=balance.qty if balance else 0,
                                   counted_qty=ln.counted_qty))
@@ -215,11 +219,11 @@ def post_count(count_id: int, user: User = Depends(require("inventory.count")), 
 
 
 @router.get("/reconciliation")
-def reconciliation(location_id: int, kind: Literal["crockery", "smallware"], month: str,
+def reconciliation(location_id: int, month: str,
                    user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
     if not MONTH_RE.match(month):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "month must be YYYY-MM")
     check_location(user, db, location_id)
-    rows = reconcile(db, db.get(Location, location_id), kind, month)
-    return {"location_id": location_id, "kind": kind, "month": month, "rows": rows,
+    rows = reconcile(db, db.get(Location, location_id), month)
+    return {"location_id": location_id, "month": month, "rows": rows,
             "total_closing": sum(r["closing"] for r in rows)}

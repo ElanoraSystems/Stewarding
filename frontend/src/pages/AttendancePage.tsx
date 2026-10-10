@@ -13,6 +13,7 @@ import { useAuth } from '@/lib/auth'
 import { fmtDate, fmtTime, hoursMinutes } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
+import { AbsencePanel } from '@/pages/AbsencePanel'
 import { MyShiftCard } from '@/pages/MyShiftCard'
 
 interface Record {
@@ -75,6 +76,7 @@ export function AttendancePage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Attendance</h1>
       <MyShiftCard onChange={reload} />
+      {me?.permissions.includes('attendance.absence') && <AbsencePanel />}
 
       <h2 className="pt-2 text-lg font-semibold">{canView ? 'Attendance records' : 'My attendance history'}</h2>
       {canView && (

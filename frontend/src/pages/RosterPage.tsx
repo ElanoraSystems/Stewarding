@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/select'
 import { EmptyState, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import type { EmployeeRow } from '@/pages/EmployeeForm'
@@ -21,6 +22,8 @@ interface Today {
   checked_in: boolean
   late_minutes: number
   on_duty: boolean
+  day_type: 'work' | 'week_off' | 'absence'
+  absence_type: string | null
 }
 interface Shift {
   id: number
@@ -28,6 +31,7 @@ interface Shift {
   start_time: string
   end_time: string
   grace_minutes: number
+  kind: 'work' | 'weekoff'
   active: boolean
 }
 interface Assignment {
@@ -85,11 +89,13 @@ export function RosterPage() {
               {today.data?.map((p) => (
                 <li key={p.employee_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                   <span className="font-medium">{p.name}</span>
-                  <span className="text-ink-muted">{p.shift} from {p.shift_start.slice(0, 5)}</span>
+                  <span className="text-ink-muted">{p.day_type === 'week_off' ? p.shift : `${p.shift} from ${p.shift_start.slice(0, 5)}`}</span>
                   <span className="space-x-1">
-                    <Badge tone={p.on_duty ? 'ok' : p.checked_in ? 'neutral' : 'warn'}>
-                      {p.on_duty ? 'On duty' : p.checked_in ? 'Checked out' : 'Not checked in'}
-                    </Badge>
+                    {p.day_type === 'work' ? (
+                      <Badge tone={p.on_duty ? 'ok' : p.checked_in ? 'neutral' : 'warn'}>
+                        {p.on_duty ? 'On duty' : p.checked_in ? 'Checked out' : 'Not checked in'}
+                      </Badge>
+                    ) : p.day_type === 'week_off' ? <Badge>Week off</Badge> : <Badge tone={p.absence_type === 'absent' ? 'critical' : 'neutral'}>{label(p.absence_type ?? 'absent')}</Badge>}
                     {p.late_minutes > 0 && <Badge tone="warn">Late {p.late_minutes}m</Badge>}
                   </span>
                 </li>
@@ -129,7 +135,7 @@ export function RosterPage() {
               <Field label="Shift">
                 <Select required value={shiftId} onChange={(e) => setShiftId(e.target.value)}>
                   <option value="">Select</option>
-                  {shifts.data?.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)})</option>)}
+                  {shifts.data?.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.kind === 'weekoff' ? `${s.name} (week off)` : `${s.name} (${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)})`}</option>)}
                 </Select>
               </Field>
               <Field label="Valid from"><Input required type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></Field>

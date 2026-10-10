@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, ChecklistTemplate,
+from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, ChecklistTemplate,
                       CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryItem,
                       Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
 from .settings import get_setting
@@ -109,11 +109,19 @@ def checklist_stats(db: Session, win: Win, now: datetime, employee_id: int | Non
     return {"counts": counts, **compliance(counts), "per_day": per_day, "rows": rows_out}
 
 
+LEAVE_TYPES = ("sick_leave", "annual_leave", "unpaid_leave", "other_leave")
+ATTENDANCE_KEYS = ("scheduled", "present", "late", "absent", "on_leave", "week_off")
+
+
 def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | None = None) -> dict:
-    """Expected employee-days from assignments versus actual records; future days are never counted as absent."""
+    """Expected employee-days from assignments versus actual records; future days are never counted as absent.
+
+    `scheduled` is the days someone was required to attend: week offs and recorded leave are reported separately,
+    a recorded absence counts as absent, and a missing check-in with no record is absent but flagged unrecorded.
+    """
     last = min(win.d_to, win.today)
     tz = win.loc.timezone
-    empty = {"rows": [], "per_day": {}, "scheduled": 0, "present": 0, "late": 0, "absent": 0}
+    empty = {"rows": [], "per_day": {}, **{k: 0 for k in ATTENDANCE_KEYS}}
     if last < win.d_from:
         return empty
     emp_filter = (Employee.id == employee_id,) if employee_id is not None else ()
@@ -124,54 +132,83 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
     records = {}
     for rec in db.scalars(select(AttendanceRecord).where(
             AttendanceRecord.location_id == win.loc.id, AttendanceRecord.local_date >= win.d_from,
-            AttendanceRecord.local_date <= last, *( (AttendanceRecord.employee_id == employee_id,) if employee_id is not None else ()))):
+            AttendanceRecord.local_date <= last, *((AttendanceRecord.employee_id == employee_id,) if employee_id is not None else ()))):
         records.setdefault((rec.employee_id, rec.local_date), rec)
+    absences = {(a.employee_id, a.local_date): a for a in db.scalars(select(AbsenceRecord).where(
+        AbsenceRecord.location_id == win.loc.id, AbsenceRecord.local_date >= win.d_from, AbsenceRecord.local_date <= last,
+        AbsenceRecord.voided_at.is_(None), *((AbsenceRecord.employee_id == employee_id,) if employee_id is not None else ())))}
     names = {e.id: e.full_name for e in db.scalars(select(Employee))}
-    shifts = {s.id: s for s in db.scalars(select(Shift))}
+    shifts = {sh.id: sh for sh in db.scalars(select(Shift))}
     missed_hours = get_setting(db, "attendance.missed_checkout_hours")
     expected: dict[tuple[int, date], tuple[ShiftAssignment, Shift]] = {}
+    off_days: dict[tuple[int, date], Shift] = {}
     for day in daterange(win.d_from, last):
         for a, emp, shift in assigns:
             if a.weekday != day.weekday() or a.valid_from > day or (a.valid_to and a.valid_to < day):
                 continue
+            if shift.kind == "weekoff":
+                off_days[(emp.id, day)] = shift
+                continue
             current = expected.get((emp.id, day))
             if current is None or shift.start_time < current[1].start_time:
                 expected[(emp.id, day)] = (a, shift)
-    rows, per_day = [], defaultdict(lambda: {"scheduled": 0, "present": 0, "late": 0, "absent": 0})
-    totals = {"scheduled": 0, "present": 0, "late": 0, "absent": 0}
+    rows = []
+    per_day: dict[date, dict] = defaultdict(lambda: {k: 0 for k in ATTENDANCE_KEYS})
+    totals = {k: 0 for k in ATTENDANCE_KEYS}
 
-    def row(emp_id, day, shift, rec, status):
+    def count(day, key):
+        per_day[day][key] += 1
+        totals[key] += 1
+
+    def row(emp_id, day, shift, rec, status, recorded=None, note=None):
         return {"employee_id": emp_id, "name": names.get(emp_id), "day": day, "shift": shift.name if shift else None,
-                "status": status, "check_in": rec.check_in_at if rec else None,
-                "check_out": rec.check_out_at if rec else None, "late_minutes": rec.late_minutes if rec else 0,
-                "payable_minutes": rec.payable_minutes if rec else None,
+                "status": status, "recorded": recorded, "note": note,
+                "check_in": rec.check_in_at if rec else None, "check_out": rec.check_out_at if rec else None,
+                "late_minutes": rec.late_minutes if rec else 0, "payable_minutes": rec.payable_minutes if rec else None,
                 "overtime_minutes": rec.overtime_minutes if rec else None}
 
     for (emp_id, day), (_, shift) in sorted(expected.items(), key=lambda kv: (kv[0][1], names.get(kv[0][0], ""))):
         rec = records.get((emp_id, day))
-        per_day[day]["scheduled"] += 1
-        totals["scheduled"] += 1
+        absence = absences.get((emp_id, day))
         if rec:
+            count(day, "scheduled")
             status = "late" if rec.late_minutes > 0 else "present"
             if rec.open_flag == 1:
                 status = "missed_checkout" if (now - rec.check_in_at).total_seconds() > missed_hours * 3600 else "on_duty"
-            per_day[day]["present"] += 1
-            totals["present"] += 1
+            count(day, "present")
             if rec.late_minutes > 0:
-                per_day[day]["late"] += 1
-                totals["late"] += 1
+                count(day, "late")
+            rows.append(row(emp_id, day, shift, rec, status))
+        elif absence and absence.absence_type in LEAVE_TYPES:
+            count(day, "on_leave")
+            rows.append(row(emp_id, day, shift, None, absence.absence_type, True, absence.note))
+        elif absence:
+            count(day, "scheduled")
+            count(day, "absent")
+            rows.append(row(emp_id, day, shift, None, "absent", True, absence.note))
         else:
+            count(day, "scheduled")
             start = timeutil.local_to_utc(day, shift.start_time, tz)
             if day < win.today or now > start + timedelta(minutes=shift.grace_minutes):
-                status = "absent"
-                per_day[day]["absent"] += 1
-                totals["absent"] += 1
+                count(day, "absent")
+                rows.append(row(emp_id, day, shift, None, "absent", False))
             else:
-                status = "not_yet_due"
-        rows.append(row(emp_id, day, shift, rec, status))
-    for (emp_id, day), rec in records.items():
-        if (emp_id, day) not in expected:
+                rows.append(row(emp_id, day, shift, None, "not_yet_due"))
+    for (emp_id, day), shift in sorted(off_days.items(), key=lambda kv: (kv[0][1], names.get(kv[0][0], ""))):
+        if (emp_id, day) in expected:
+            continue
+        rec = records.get((emp_id, day))
+        if rec:
             rows.append(row(emp_id, day, shifts.get(rec.shift_id), rec, "unscheduled"))
+            continue
+        count(day, "week_off")
+        rows.append(row(emp_id, day, shift, None, "week_off"))
+    for (emp_id, day), rec in records.items():
+        if (emp_id, day) not in expected and (emp_id, day) not in off_days:
+            rows.append(row(emp_id, day, shifts.get(rec.shift_id), rec, "unscheduled"))
+    for (emp_id, day), absence in absences.items():
+        if (emp_id, day) not in expected:
+            rows.append(row(emp_id, day, None, None, absence.absence_type, True, absence.note))
     return {"rows": rows, "per_day": dict(per_day), **totals}
 
 
@@ -220,16 +257,16 @@ def stock_snapshot(db: Session, scope: set[int] | None, location_id: int | None 
     stmt = select(InventoryBalance, InventoryItem).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id)
     if ids is not None:
         stmt = stmt.where(InventoryBalance.location_id.in_(ids))
-    kinds = {k: {"qty": 0, "value": 0.0} for k in ("crockery", "smallware")}
+    total = {"qty": 0, "value": 0.0}
     low = []
     for balance, item in db.execute(stmt).all():
-        kinds[item.kind]["qty"] += balance.qty
-        kinds[item.kind]["value"] += float(balance.qty * item.unit_cost) if item.unit_cost is not None else 0.0
+        total["qty"] += balance.qty
+        total["value"] += float(balance.qty * item.unit_cost) if item.unit_cost is not None else 0.0
         if item.active and balance.qty < item.min_level:
-            low.append({"item_id": item.id, "code": item.code, "name": item.name, "kind": item.kind,
+            low.append({"item_id": item.id, "code": item.code, "name": item.name,
                         "location_id": balance.location_id, "qty": balance.qty, "min_level": item.min_level,
                         "target_level": item.target_level})
-    return {"kinds": kinds, "low": low}
+    return {"total": total, "low": low}
 
 
 def movements(db: Session, wins: list[Win]) -> list[tuple[StockTransaction, date]]:

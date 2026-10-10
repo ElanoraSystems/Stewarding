@@ -134,7 +134,7 @@ def test_monthly_reconciliation_closing_matches_live_balance(client, login, db, 
     base = {"item_id": item_id(db, "PL-001"), "location_id": loc_id(db, "MK")}
     client.post("/api/inventory/transactions", json={**base, "txn_type": "receipt", "qty": 30}, headers=login(SUP))
     s = sec(rep(client, login(MGR), "monthly", anchor="2026-03-10", location_id=loc_id(db, "MK")), "reconciliation")
-    row_ = next(r for r in s["rows"] if r["item"].startswith("PL-001") and r["kind"] == "crockery")
+    row_ = next(r for r in s["rows"] if r["item"].startswith("PL-001"))
     assert row_["closing"] == balance(db, "PL-001", "MK") == 230 and row_["in"] == 230 and row_["out"] == 0
     consumption = sec(rep(client, login(MGR), "monthly", anchor="2026-03-10"), "stock_consumption")
     assert any(r["item"] == "Dinner Plate 27cm" and r["received"] == 30 for r in consumption["rows"])

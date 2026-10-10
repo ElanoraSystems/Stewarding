@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { Check, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,6 +13,7 @@ import { fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { useLineEntry } from '@/lib/useLineEntry'
 
 interface Transfer {
   id: number
@@ -35,17 +36,17 @@ export function TransfersTab() {
   const [from, setFrom] = useState(String(me?.locations[0]?.id ?? ''))
   const [to, setTo] = useState('')
   const [note, setNote] = useState('')
-  const [lines, setLines] = useState<{ item: string; qty: string }[]>([{ item: '', qty: '' }])
+  const entry = useLineEntry({ item: '', qty: '' }, (l) => l.item !== '' && Number(l.qty) > 0)
+  const { attachList } = entry
   const places = new Map(destinations.data?.map((l) => [l.id, l.name]))
-  const setLine = (i: number, key: 'item' | 'qty', value: string) => setLines((ls) => ls.map((l, n) => (n === i ? { ...l, [key]: value } : l)))
 
   async function request() {
     const ok = await run(() => api('/stock/transfers', { body: {
       from_location_id: Number(from), to_location_id: Number(to), note: note || null,
-      lines: lines.filter((l) => l.item && l.qty).map((l) => ({ item_id: Number(l.item), qty: Number(l.qty) })),
+      lines: entry.rows.filter((l) => l.item && l.qty).map((l) => ({ item_id: Number(l.item), qty: Number(l.qty) })),
     } }), canApprove ? 'Transfer completed' : 'Transfer requested - awaiting approval')
     if (ok) {
-      setLines([{ item: '', qty: '' }])
+      entry.reset()
       setNote('')
       reload()
     }
@@ -69,21 +70,28 @@ export function TransfersTab() {
               </Select>
             </Field>
           </div>
-          {lines.map((line, i) => (
-            <div key={i} className="flex items-end gap-2">
-              <Field label={i === 0 ? 'Item' : ''}>
-                <Select value={line.item} onChange={(e) => setLine(i, 'item', e.target.value)}>
-                  <option value="">Select item</option>
-                  {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
-                </Select>
-              </Field>
-              <Field label={i === 0 ? 'Qty' : ''}><Input type="number" min={1} className="w-24" value={line.qty} onChange={(e) => setLine(i, 'qty', e.target.value)} /></Field>
-              {lines.length > 1 && <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}><Trash2 className="h-4 w-4" /></Button>}
+          <div ref={attachList} className="space-y-2">
+            {entry.rows.map((line, i) => (
+              <div key={i} {...entry.rowProps(i)} className="flex flex-wrap items-end gap-2">
+                <Field label={i === 0 ? 'Item' : ''}>
+                  <Select aria-label="Item" value={line.item} onChange={(e) => entry.update(i, { item: e.target.value })}>
+                    <option value="">Select item</option>
+                    {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
+                  </Select>
+                </Field>
+                <Field label={i === 0 ? 'Qty' : ''}><Input aria-label="Quantity" type="number" min={1} className="w-24" value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} /></Field>
+                <span className="flex h-10 w-5 items-center text-ok" aria-label={line.committed ? 'Line saved' : undefined}>{line.committed && <Check className="h-4 w-4" aria-hidden />}</span>
+                {entry.rows.length > 1 && <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => entry.remove(i)}><Trash2 className="h-4 w-4" /></Button>}
+                {entry.incomplete === i && <p role="alert" className="w-full text-xs text-danger">Choose an item and a quantity, then press Enter.</p>}
+              </div>
+            ))}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" size="sm" onClick={entry.addRow}><Plus className="h-4 w-4" /> Add line</Button>
+              <span className="text-xs text-ink-muted">Press Enter on a completed line to save it and start the next one.</span>
             </div>
-          ))}
-          <Button variant="outline" size="sm" onClick={() => setLines((ls) => [...ls, { item: '', qty: '' }])}><Plus className="h-4 w-4" /> Add line</Button>
+          </div>
           <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-          <Button disabled={!to || !lines.some((l) => l.item && l.qty)} onClick={request}>{canApprove ? 'Transfer now' : 'Request transfer'}</Button>
+          <Button disabled={!to || !entry.rows.some((l) => l.item && l.qty)} onClick={request}>{canApprove ? 'Transfer now' : 'Request transfer'}</Button>
         </CardContent>
       </Card>
 

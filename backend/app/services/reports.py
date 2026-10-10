@@ -63,19 +63,21 @@ def sec_attendance(c: Ctx) -> dict:
     rows, totals = [], Counter()
     for w in c.wins:
         stats = metrics.attendance_stats(c.db, w, c.now, c.employee_id)
-        for key in ("scheduled", "present", "late", "absent"):
+        for key in ("scheduled", "present", "late", "absent", "on_leave", "week_off"):
             totals[key] += stats[key]
         tz = w.loc.timezone
         rows += [{"location": w.loc.name, "date": r["day"].isoformat(), "employee": r["name"], "shift": r["shift"],
-                  "status": r["status"], "check_in": local(r["check_in"], tz), "check_out": local(r["check_out"], tz),
+                  "status": r["status"], "recorded": {True: "Yes", False: "No", None: ""}[r["recorded"]], "note": r["note"],
+                  "check_in": local(r["check_in"], tz), "check_out": local(r["check_out"], tz),
                   "late": r["late_minutes"], "worked": hours(r["payable_minutes"]), "overtime": hours(r["overtime_minutes"])}
                  for r in stats["rows"]]
     cols = [("location", "Location"), ("date", "Date"), ("employee", "Employee"), ("shift", "Shift"), ("status", "Status"),
-            ("check_in", "Check-in"), ("check_out", "Check-out"), ("late", "Late (min)"), ("worked", "Worked (h:mm)"),
+            ("recorded", "Recorded"), ("note", "Note"), ("check_in", "Check-in"), ("check_out", "Check-out"), ("late", "Late (min)"), ("worked", "Worked (h:mm)"),
             ("overtime", "Overtime (h:mm)")]
     return section("attendance", "Employee attendance and shift coverage", cols, rows,
                    [("Scheduled", totals["scheduled"]), ("Present", ratio(totals["present"], totals["scheduled"])),
-                    ("Late arrivals", totals["late"]), ("Absent", totals["absent"])])
+                    ("Late arrivals", totals["late"]), ("Absent", totals["absent"]), ("On leave (excluded)", totals["on_leave"]),
+                    ("Week off (excluded)", totals["week_off"])])
 
 
 def sec_checklists(c: Ctx) -> dict:
@@ -185,10 +187,10 @@ def sec_attendance_trend(c: Ctx) -> dict:
     for w in c.wins:
         for day, vals in metrics.attendance_stats(c.db, w, c.now, c.employee_id)["per_day"].items():
             per_day[day].update(vals)
-    rows = [{"date": d.isoformat(), **{k: per_day[d][k] for k in ("scheduled", "present", "late", "absent")},
+    rows = [{"date": d.isoformat(), **{k: per_day[d][k] for k in metrics.ATTENDANCE_KEYS},
              "percent": metrics.pct(per_day[d]["present"], per_day[d]["scheduled"])} for d in sorted(per_day)]
     cols = [("date", "Date"), ("scheduled", "Scheduled"), ("present", "Present"), ("late", "Late"), ("absent", "Absent"),
-            ("percent", "Attendance %")]
+            ("on_leave", "On leave"), ("week_off", "Week off"), ("percent", "Attendance %")]
     return section("attendance_trend", "Attendance trend", cols, rows)
 
 
@@ -274,6 +276,11 @@ def sec_attendance_hours(c: Ctx) -> dict:
             a = agg[r["name"]]
             if r["status"] == "absent":
                 a["absent"] += 1
+                a["unrecorded"] += 1 if r["recorded"] is False else 0
+            elif r["status"] in metrics.LEAVE_TYPES:
+                a["leave"] += 1
+            elif r["status"] == "week_off":
+                a["weekoff"] += 1
             elif r["check_in"]:
                 a["days"] += 1
                 a["minutes"] += r["payable_minutes"] or 0
@@ -281,10 +288,12 @@ def sec_attendance_hours(c: Ctx) -> dict:
                 a["late"] += 1 if r["late_minutes"] > 0 else 0
                 a["missed"] += 1 if r["status"] == "missed_checkout" else 0
     rows = [{"employee": n, "days": a["days"], "hours": hours(a["minutes"]), "overtime": hours(a["overtime"]),
-             "late": a["late"], "absent": a["absent"], "missed": a["missed"]} for n, a in sorted(agg.items())]
+             "late": a["late"], "absent": a["absent"], "unrecorded": a["unrecorded"], "leave": a["leave"],
+             "weekoff": a["weekoff"], "missed": a["missed"]} for n, a in sorted(agg.items())]
     return section("attendance_hours", "Attendance and total working hours",
                    [("employee", "Employee"), ("days", "Days worked"), ("hours", "Hours worked (h:mm)"),
                     ("overtime", "Overtime (h:mm)"), ("late", "Late days"), ("absent", "Absences"),
+                    ("unrecorded", "of which not recorded"), ("leave", "Leave days"), ("weekoff", "Week-off days"),
                     ("missed", "Missed check-outs")], rows)
 
 
@@ -311,14 +320,13 @@ def sec_reconciliation(c: Ctx) -> dict:
     month = c.d_from.strftime("%Y-%m")
     rows = []
     for w in c.wins:
-        for kind in ("crockery", "smallware"):
-            for r in reconcile(c.db, w.loc, kind, month):
-                rows.append({"location": w.loc.name, "kind": kind, "item": f"{r['code']} {r['name']}", "opening": r["opening"],
-                             "in": r["opening_stock"] + r["receipts"] + r["returns"] + r["transfers_in"],
-                             "out": r["issues"] + r["breakage_damage"] + r["transfers_out"], "adjustments": r["adjustments"],
-                             "closing": r["closing"], "counted": r["counted_qty"], "variance": r["count_variance"], "value": r["value"]})
-    return section("reconciliation", "Crockery and smallware stock reconciliation",
-                   [("location", "Location"), ("kind", "Type"), ("item", "Item"), ("opening", "Opening"), ("in", "In"),
+        for r in reconcile(c.db, w.loc, month):
+            rows.append({"location": w.loc.name, "item": f"{r['code']} {r['name']}", "opening": r["opening"],
+                         "in": r["opening_stock"] + r["receipts"] + r["returns"] + r["transfers_in"],
+                         "out": r["issues"] + r["breakage_damage"] + r["transfers_out"], "adjustments": r["adjustments"],
+                         "closing": r["closing"], "counted": r["counted_qty"], "variance": r["count_variance"], "value": r["value"]})
+    return section("reconciliation", "Stock reconciliation",
+                   [("location", "Location"), ("item", "Item"), ("opening", "Opening"), ("in", "In"),
                     ("out", "Out"), ("adjustments", "Adjustments"), ("closing", "Closing"), ("counted", "Counted"),
                     ("variance", "Count variance"), ("value", "Value")], rows,
                    [("Closing units", sum(r["closing"] for r in rows))])

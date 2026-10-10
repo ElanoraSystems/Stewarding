@@ -22,12 +22,8 @@ def test_manager_kpis_cover_attendance_stock_and_low_stock(client, login, db, cl
     client.post("/api/attendance/check-in", json={"location_id": loc_id(db, "MK")}, headers=login(STEWARD))
     k = dash(client, login(MGR))["kpis"]
     assert (k["checked_in"], k["not_checked_in"], k["on_duty"]) == (1, 2, 1)
-    crockery = db.scalar(select(func.sum(InventoryBalance.qty)).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id)
-                         .where(InventoryItem.kind == "crockery"))
-    smallware = db.scalar(select(func.sum(InventoryBalance.qty)).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id)
-                          .where(InventoryItem.kind == "smallware"))
-    assert k["crockery"]["qty"] == crockery and k["smallware"]["qty"] == smallware
-    assert k["crockery"]["value"] > 0
+    qty = db.scalar(select(func.sum(InventoryBalance.qty)))
+    assert k["inventory"]["qty"] == qty and k["inventory"]["value"] > 0
     low = db.execute(select(InventoryBalance, InventoryItem).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id)
                      .where(InventoryBalance.qty < InventoryItem.min_level)).all()
     assert k["low_stock_items"] == len(low) == 3

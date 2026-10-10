@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
 import { EmptyState, Table, Td, Th } from '@/components/ui/table'
 import { qs, useApi } from '@/lib/useApi'
 
@@ -26,20 +25,15 @@ interface Row {
 
 export function ReconciliationTab() {
   const [locationId, setLocationId] = useState<number | null>(null)
-  const [kind, setKind] = useState('crockery')
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const { data } = useApi<{ rows: Row[]; total_closing: number }>(
-    locationId && month ? `/stock/reconciliation${qs({ location_id: locationId, kind, month })}` : null,
+    locationId && month ? `/stock/reconciliation${qs({ location_id: locationId, month })}` : null,
   )
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
         <LocationSelect value={locationId} onChange={setLocationId} />
-        <Select aria-label="Inventory type" className="w-auto" value={kind} onChange={(e) => setKind(e.target.value)}>
-          <option value="crockery">Crockery</option>
-          <option value="smallware">Kitchen smallware</option>
-        </Select>
         <Input aria-label="Month" type="month" className="w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />
       </div>
       <p className="text-sm text-ink-muted">Opening + movements = closing. Every figure is summed from the immutable stock ledger.</p>

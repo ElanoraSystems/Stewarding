@@ -76,19 +76,20 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
     month_wins = metrics.windows_by(db, now, scope, location_id, lambda t: (t.replace(day=1), t))
     kpis = {
         "scheduled_today": scheduled, "checked_in": present, "not_checked_in": scheduled - present,
+        "off_today": sum(a["week_off"] + a["on_leave"] for a in attendance),
         "absent": sum(a["absent"] for a in attendance), "on_duty": db.scalar(on_duty_stmt),
         "daily_completion": _percent_block(daily), "weekly_completion": _percent_block(weekly),
         "overdue_tasks": db.scalar(overdue_stmt),
         "temperature_checks": {"done": sum(t["done"] for t in temp_today), "due": sum(t["due"] for t in temp_today)},
         "failed_temperature_checks": sum(t["failed"] for t in temp_today),
         "equipment_attention": _equipment_attention(db, scope, location_id, now),
-        "crockery": stock["kinds"]["crockery"], "smallware": stock["kinds"]["smallware"],
+        "inventory": stock["total"],
         "low_stock_items": len(stock["low"]),
         "breakage_today": len(metrics.breakage_in(db, today_wins)), "breakage_month": len(metrics.breakage_in(db, month_wins)),
     }
 
     trend: dict[date, Counter] = defaultdict(Counter)
-    att_trend: dict[date, dict] = defaultdict(lambda: {"scheduled": 0, "present": 0, "late": 0, "absent": 0})
+    att_trend: dict[date, dict] = defaultdict(lambda: {k: 0 for k in metrics.ATTENDANCE_KEYS})
     for w in range_wins:
         for day, counts in metrics.checklist_stats(db, w, now, employee_id=employee_id)["per_day"].items():
             trend[day].update(counts)
@@ -126,7 +127,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
             "breakage_trend": months,
             "inventory_movement": [{"date": d.isoformat(), **movement.get(d, {"in": 0, "out": 0})}
                                    for d in metrics.daterange(d_from, d_to)],
-            "attendance_trend": [{"date": d.isoformat(), **att_trend.get(d, {"scheduled": 0, "present": 0, "late": 0, "absent": 0})}
+            "attendance_trend": [{"date": d.isoformat(), **att_trend.get(d, {k: 0 for k in metrics.ATTENDANCE_KEYS})}
                                  for d in metrics.daterange(d_from, d_to) if d <= first],
         },
         "filters": {"date_from": d_from.isoformat(), "date_to": d_to.isoformat(), "location_id": location_id},
