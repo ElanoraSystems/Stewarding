@@ -1,0 +1,77 @@
+from datetime import datetime
+from decimal import Decimal
+
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+
+from ..db import Base
+from .core import ts
+
+
+class BreakageIncident(Base):
+    __tablename__ = "breakage_incident"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True)
+    occurred_at: Mapped[datetime] = ts(index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), index=True)
+    qty: Mapped[int] = mapped_column(Integer)
+    incident_type: Mapped[str] = mapped_column(String(20))  # breakage | damage | missing | written_off
+    reason: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    shift_id: Mapped[int | None] = mapped_column(ForeignKey("shift.id"))
+    reported_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    photo_path: Mapped[str | None] = mapped_column(String(300))
+    est_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    status: Mapped[str] = mapped_column(String(20), default="reported", index=True)
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    preventive_action: Mapped[str | None] = mapped_column(Text)
+    # unique: a breakage can be deducted from stock only once
+    transaction_id: Mapped[int | None] = mapped_column(ForeignKey("stock_transaction.id"), unique=True)
+
+
+class Notification(Base):
+    __tablename__ = "notification"
+    # one notification per recipient and event window prevents duplicates
+    __table_args__ = (UniqueConstraint("user_id", "dedupe_key"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    priority: Mapped[str] = mapped_column(String(10), default="normal")  # normal | high | critical
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str | None] = mapped_column(Text)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"))
+    link: Mapped[str | None] = mapped_column(String(200))
+    dedupe_key: Mapped[str] = mapped_column(String(120))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = ts(index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime)
+    requires_ack: Mapped[bool] = mapped_column(Boolean, default=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class ApprovalRecord(Base):
+    __tablename__ = "approval_record"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subject_type: Mapped[str] = mapped_column(String(30), index=True)
+    subject_id: Mapped[int] = mapped_column(Integer)
+    decision: Mapped[str] = mapped_column(String(20))
+    decided_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = ts()
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = ts(index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), index=True)
+    action: Mapped[str] = mapped_column(String(60), index=True)
+    entity: Mapped[str] = mapped_column(String(40), index=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer)
+    before: Mapped[dict | None] = mapped_column(JSON)
+    after: Mapped[dict | None] = mapped_column(JSON)
