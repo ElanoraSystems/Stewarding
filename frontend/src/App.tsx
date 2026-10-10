@@ -5,9 +5,11 @@ import { AttendancePage } from '@/pages/AttendancePage'
 import { ChecklistsPage } from '@/pages/ChecklistsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { EmployeesPage } from '@/pages/EmployeesPage'
+import { EquipmentPage } from '@/pages/EquipmentPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ModulePage } from '@/pages/ModulePage'
 import { RosterPage } from '@/pages/RosterPage'
+import { TemperaturePage } from '@/pages/TemperaturePage'
 
 export default function App() {
   const { me, loading } = useAuth()
@@ -23,6 +25,8 @@ export default function App() {
         <Route path="roster" element={<RosterPage />} />
         <Route path="daily-checklists" element={<ChecklistsPage frequency="daily" />} />
         <Route path="weekly-checklists" element={<ChecklistsPage frequency="weekly" />} />
+        <Route path="temperature" element={<TemperaturePage />} />
+        <Route path="equipment" element={<EquipmentPage />} />
         <Route path=":key" element={<ModulePage />} />
       </Route>
     </Routes>
