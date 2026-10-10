@@ -12,7 +12,7 @@ import { fmtDateTime, label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useLookup } from '@/lib/useLookups'
-import type { EquipmentItem } from '@/pages/TemperatureRecordForm'
+import type { EquipmentItem } from '@/pages/MonitoringRecordForm'
 
 interface ActionRow {
   id: number
@@ -23,7 +23,7 @@ interface ActionRow {
   status: string
   equipment_id: number
   stage: string
-  temp_c: number
+  display: string
   recorded_at: string
   location_id: number
 }
@@ -42,7 +42,7 @@ export function CorrectiveActionsPanel({ locationId, equipment, refreshKey, onRe
   const { me } = useAuth()
   const run = useRun()
   const can = (p: string) => me?.permissions.includes(p) ?? false
-  const { data, reload } = useApi<ActionRow[]>(`/temperature/corrective-actions${qs({ location_id: locationId, k: refreshKey })}`)
+  const { data, reload } = useApi<ActionRow[]>(`/monitoring/corrective-actions${qs({ location_id: locationId, k: refreshKey })}`)
   const standardActions = useLookup('corrective_action')
   const [dialog, setDialog] = useState<Dialog>(null)
   const [text, setText] = useState('')
@@ -50,7 +50,7 @@ export function CorrectiveActionsPanel({ locationId, equipment, refreshKey, onRe
   const open = (data ?? []).filter((a) => a.status !== 'resolved')
 
   async function send(path: string, body: unknown, success: string) {
-    const ok = await run(() => api(`/temperature/corrective-actions/${path}`, { body }), success)
+    const ok = await run(() => api(`/monitoring/corrective-actions/${path}`, { body }), success)
     if (ok) {
       setDialog(null)
       setText('')
@@ -63,12 +63,12 @@ export function CorrectiveActionsPanel({ locationId, equipment, refreshKey, onRe
     <Card className={open.length ? 'border-danger/50' : undefined}>
       <CardHeader><CardTitle>Open corrective actions{open.length ? ` (${open.length})` : ''}</CardTitle></CardHeader>
       <CardContent>
-        {open.length === 0 ? <EmptyState title="Nothing outstanding" hint="Failed readings that need action will appear here." /> : (
+        {open.length === 0 ? <EmptyState title="Nothing outstanding" hint="Failed checks that need action will appear here." /> : (
           <ul className="divide-y divide-border">
             {open.map((a) => (
               <li key={a.id} className="space-y-2 py-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{names.get(a.equipment_id)} - {label(a.stage)} at {a.temp_c} C</span>
+                  <span className="font-medium">{names.get(a.equipment_id)} - {label(a.stage)}: {a.display}</span>
                   <StatusBadge status={a.status} />
                 </div>
                 <p className="text-ink-muted">Recorded {fmtDateTime(a.recorded_at)}{a.action && ` - ${a.action}`}</p>

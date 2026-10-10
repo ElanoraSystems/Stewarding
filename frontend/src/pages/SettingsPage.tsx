@@ -13,7 +13,7 @@ const TABS = [
   ['general', 'Rules & alerts'],
   ['locations', 'Locations'],
   ['shifts', 'Shifts'],
-  ['monitoring', 'Monitoring schedules'],
+  ['monitoring', 'Monitoring setup'],
   ['items', 'Item master'],
   ['inventory', 'Categories & units'],
   ['suppliers', 'Suppliers'],

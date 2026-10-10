@@ -10,7 +10,7 @@ from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, Checkli
                       CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryItem,
                       Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
 from .settings import get_setting
-from .temperature import expected_slots
+from .monitoring import expected_slots
 
 DONE = ("completed", "verified", "pending_verification")
 OPEN_STATES = ("not_started", "in_progress", "overdue")
@@ -212,7 +212,7 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
     return {"rows": rows, "per_day": dict(per_day), **totals}
 
 
-def temperature_stats(db: Session, win: Win, now: datetime, equipment_id: int | None = None) -> dict:
+def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | None = None) -> dict:
     """Checks due so far versus recorded, per equipment, plus failed readings in the window."""
     grace = timedelta(minutes=get_setting(db, "temp.due_grace_minutes"))
     stmt = select(Equipment).where(Equipment.location_id == win.loc.id, Equipment.active.is_(True))

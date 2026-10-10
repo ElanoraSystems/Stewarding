@@ -88,7 +88,7 @@ class Equipment(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(30), unique=True)
     name: Mapped[str] = mapped_column(String(120))
-    kind: Mapped[str] = mapped_column(String(20))  # dishwasher | glasswasher
+    kind: Mapped[str] = mapped_column(String(40))  # monitoring type from the managed list
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
     manufacturer: Mapped[str | None] = mapped_column(String(80))
     model: Mapped[str | None] = mapped_column(String(80))
@@ -101,19 +101,25 @@ class Equipment(Base):
 
 
 class EquipmentSchedule(Base):
-    """One monitored stage with its own limits and timing; limits are set per equipment."""
+    """One check on a monitoring point: what is measured, its limits and how often it is due."""
 
     __tablename__ = "equipment_schedule"
     id: Mapped[int] = mapped_column(primary_key=True)
     equipment_id: Mapped[int] = mapped_column(ForeignKey("equipment.id"), index=True)
-    stage: Mapped[str] = mapped_column(String(40))  # e.g. wash, rinse, final_rinse, surface
+    stage: Mapped[str] = mapped_column(String(60))  # check name, e.g. Wash, Core temperature
+    parameter: Mapped[str] = mapped_column(String(60), default="Temperature")
+    unit: Mapped[str | None] = mapped_column(String(20))
+    value_type: Mapped[str] = mapped_column(String(10), default="number")  # number | yes_no
+    require_reference: Mapped[bool] = mapped_column(Boolean, default=False)  # batch, lot or product reference
     source: Mapped[str] = mapped_column(String(20), default="machine_display")  # or independent_probe
     timing: Mapped[str] = mapped_column(String(20))  # startup | interval | checkpoint
+    weekdays: Mapped[str | None] = mapped_column(String(20))  # "0,2,4" Monday-based; empty means every day
+    day_of_month: Mapped[int | None] = mapped_column(Integer)  # monthly checks
     time_of_day: Mapped[time | None] = mapped_column(Time)
     interval_minutes: Mapped[int | None] = mapped_column(Integer)
     shift_id: Mapped[int | None] = mapped_column(ForeignKey("shift.id"))
-    min_temp_c: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
-    max_temp_c: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    min_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    max_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -124,11 +130,15 @@ class TemperatureReading(Base):
     schedule_id: Mapped[int | None] = mapped_column(ForeignKey("equipment_schedule.id"))
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
     recorded_at: Mapped[datetime] = ts(index=True)
-    stage: Mapped[str] = mapped_column(String(40))
+    stage: Mapped[str] = mapped_column(String(60))
     source: Mapped[str] = mapped_column(String(20))
-    temp_c: Mapped[Decimal] = mapped_column(Numeric(5, 1))
-    min_limit: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))  # snapshot at time of reading
-    max_limit: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
+    parameter: Mapped[str] = mapped_column(String(60), default="Temperature")  # snapshot at time of reading
+    unit: Mapped[str | None] = mapped_column(String(20))
+    value_type: Mapped[str] = mapped_column(String(10), default="number")
+    value: Mapped[Decimal] = mapped_column(Numeric(10, 2))  # a yes/no answer is stored as 1 or 0
+    reference: Mapped[str | None] = mapped_column(String(120))
+    min_limit: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    max_limit: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     passed: Mapped[bool] = mapped_column(Boolean)
     recorded_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     comment: Mapped[str | None] = mapped_column(Text)

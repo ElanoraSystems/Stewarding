@@ -11,7 +11,7 @@ from . import summary
 from .checklists import OPEN
 from .notify import notify, recipients
 from .settings import get_setting
-from .temperature import due_checks
+from .monitoring import describe, due_checks
 
 SUMMARY_HOUR = time(8, 0)
 
@@ -113,7 +113,7 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
     return created
 
 
-def temperature_alerts(db: Session, location: Location, now: datetime) -> int:
+def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
     equipment = list(db.scalars(select(Equipment).where(Equipment.location_id == location.id, Equipment.active.is_(True))))
     created = 0
     checks = due_checks(db, equipment, now)
@@ -125,12 +125,12 @@ def temperature_alerts(db: Session, location: Location, now: datetime) -> int:
         slot = check["slot_at"][:16].replace("-", "").replace(":", "").replace("T", "")
         title = f"{check['equipment']} - {check['stage']} check"
         if check["status"] == "due":
-            created += notify(db, recipients(db, location.id, STEWARD, SUPERVISOR), "temperature_due", f"Temperature check due: {title}",
-                              key=f"tempdue:{check['schedule_id']}:{slot}", location_id=location.id, link="/temperature")
+            created += notify(db, recipients(db, location.id, STEWARD, SUPERVISOR), "monitoring_due", f"Check due: {title}",
+                              key=f"checkdue:{check['schedule_id']}:{slot}", location_id=location.id, link="/monitoring")
         elif check["status"] == "overdue":
-            created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "temperature_overdue",
-                              f"Temperature check overdue: {title}", key=f"tempover:{check['schedule_id']}:{slot}",
-                              priority="high", location_id=location.id, link="/temperature", requires_ack=True)
+            created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "monitoring_overdue",
+                              f"Check overdue: {title}", key=f"checkover:{check['schedule_id']}:{slot}",
+                              priority="high", location_id=location.id, link="/monitoring", requires_ack=True)
     return created
 
 
@@ -143,14 +143,14 @@ def corrective_alerts(db: Session, now: datetime) -> int:
     for action, reading in rows:
         if action.status == "retest_due" and action.retest_due_at and action.retest_due_at < now:
             created += notify(db, recipients(db, reading.location_id, SUPERVISOR) + [action.taken_by], "retest_due",
-                              f"Retest overdue for {reading.stage} reading of {reading.temp_c} C", key=f"retest:{action.id}",
-                              priority="critical", location_id=reading.location_id, link="/temperature", requires_ack=True)
+                              f"Retest overdue for {reading.stage}: {describe(reading.value, reading.value_type, reading.unit)}", key=f"retest:{action.id}",
+                              priority="critical", location_id=reading.location_id, link="/monitoring", requires_ack=True)
         if now - reading.recorded_at >= escalate_after and action.escalated_at is None:
             action.escalated_at = now
-            created += notify(db, recipients(db, None, MANAGER), "temperature_escalated",
-                              f"Unresolved failed temperature ({reading.temp_c} C, {reading.stage})",
-                              key=f"temp_esc:{action.id}", priority="critical", location_id=reading.location_id,
-                              link="/temperature", requires_ack=True)
+            created += notify(db, recipients(db, None, MANAGER), "monitoring_escalated",
+                              f"Unresolved failed check ({describe(reading.value, reading.value_type, reading.unit)}, {reading.stage})",
+                              key=f"check_esc:{action.id}", priority="critical", location_id=reading.location_id,
+                              link="/monitoring", requires_ack=True)
     return created
 
 
@@ -182,11 +182,11 @@ def daily_summary(db: Session, location: Location, now: datetime) -> int:
 
 
 def run_alerts(db: Session, now: datetime) -> dict[str, int]:
-    totals = {"checkins": 0, "checklists": 0, "temperature": 0, "summary": 0}
+    totals = {"checkins": 0, "checklists": 0, "monitoring": 0, "summary": 0}
     for location in db.scalars(select(Location).where(Location.active.is_(True))):
         totals["checkins"] += missing_checkins(db, location, now)
         totals["checklists"] += checklist_alerts(db, location, now)
-        totals["temperature"] += temperature_alerts(db, location, now)
+        totals["monitoring"] += monitoring_alerts(db, location, now)
         totals["summary"] += daily_summary(db, location, now)
     totals["checkouts"] = missed_checkouts(db, now)
     totals["corrective"] = corrective_alerts(db, now)

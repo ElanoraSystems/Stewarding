@@ -145,7 +145,7 @@ def test_only_managers_change_inventory_lists(client, login, who):
 def test_every_role_can_read_the_managed_lists_but_only_managers_edit_them(client, login):
     for who in (MGR, SUP, STEWARD):
         lists = client.get("/api/lookups", headers=login(who)).json()
-        assert set(lists) == {"job_title", "checklist_category", "breakage_reason", "corrective_action"}
+        assert set(lists) == {"job_title", "checklist_category", "breakage_reason", "corrective_action", "monitoring_type"}
         assert "Cleaning" in [v["value"] for v in lists["checklist_category"]]
     assert client.get("/api/lookups").status_code == 401
     assert post(client, login(SUP), "/api/lookups", {"kind": "job_title", "value": "Head Steward"}).status_code == 403

@@ -14,8 +14,8 @@ from ..services.inventory import norm
 
 router = APIRouter(prefix="/api/lookups", tags=["lookups"])
 
-Kind = Literal["job_title", "checklist_category", "breakage_reason", "corrective_action"]
-KINDS = ("job_title", "checklist_category", "breakage_reason", "corrective_action")
+Kind = Literal["job_title", "checklist_category", "breakage_reason", "corrective_action", "monitoring_type"]
+KINDS = ("job_title", "checklist_category", "breakage_reason", "corrective_action", "monitoring_type")
 
 
 class LookupIn(BaseModel):

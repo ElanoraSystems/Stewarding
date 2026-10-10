@@ -7,7 +7,7 @@ from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, Che
                       Equipment, InventoryBalance, InventoryItem, InventoryTransfer, Location, TemperatureReading)
 from .checklists import OPEN
 from .settings import get_setting
-from .temperature import due_checks
+from .monitoring import describe, due_checks
 
 URGENCY_RANK = {"critical": 0, "high": 1, "normal": 2}
 
@@ -47,15 +47,15 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
     for check in due_checks(db, equipment, now):
         if check["status"] == "overdue":
             slot = datetime.fromisoformat(check["slot_at"].rstrip("Z"))
-            add("temperature_check", check["location_id"], "critical", sup_names[check["equipment_id"]],
-                f"Temperature check overdue: {check['equipment']} ({check['stage']})", slot, "/temperature")
+            add("monitoring_check", check["location_id"], "critical", sup_names[check["equipment_id"]],
+                f"Check overdue: {check['equipment']} ({check['stage']})", slot, "/monitoring")
 
     for action, reading in db.execute(
             select(CorrectiveAction, TemperatureReading).join(TemperatureReading, TemperatureReading.id == CorrectiveAction.reading_id)
             .where(TemperatureReading.location_id.in_(locations), CorrectiveAction.status != "resolved")).all():
         add("corrective_action", reading.location_id, "critical", user_names.get(action.taken_by, "Supervisor"),
-            f"Failed reading {reading.temp_c} C ({reading.stage}) - {action.status.replace('_', ' ')}",
-            reading.recorded_at, "/temperature")
+            f"Failed reading {describe(reading.value, reading.value_type, reading.unit)} ({reading.stage}) - {action.status.replace('_', ' ')}",
+            reading.recorded_at, "/monitoring")
 
     for incident in db.scalars(select(BreakageIncident).where(
             BreakageIncident.location_id.in_(locations), BreakageIncident.status.in_(("reported", "pending_approval")))):

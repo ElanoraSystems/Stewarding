@@ -12,12 +12,28 @@ from .settings import get_setting
 DEFAULT_START = time(6, 0)
 
 
-def evaluate(temp: Decimal, minimum: Decimal | None, maximum: Decimal | None) -> bool:
-    return (minimum is None or temp >= minimum) and (maximum is None or temp <= maximum)
+def evaluate(value: Decimal, minimum: Decimal | None, maximum: Decimal | None) -> bool:
+    return (minimum is None or value >= minimum) and (maximum is None or value <= maximum)
+
+
+def describe(value: Decimal, value_type: str, unit: str | None) -> str:
+    """A reading as people say it: 'Yes', 'No' or the number with its unit."""
+    if value_type == "yes_no":
+        return "Yes" if value == 1 else "No"
+    return f"{value.normalize():f} {unit}".strip() if unit else f"{value.normalize():f}"
+
+
+def applies_on(schedule: EquipmentSchedule, day) -> bool:
+    """Whether the check is due on this local date, by weekday list and day of month."""
+    if schedule.weekdays and str(day.weekday()) not in schedule.weekdays.split(","):
+        return False
+    return schedule.day_of_month is None or day.day == schedule.day_of_month
 
 
 def expected_slots(schedule: EquipmentSchedule, shift: Shift | None, tz: str, day) -> list[datetime]:
-    """UTC check times for one schedule on a location-local date."""
+    """UTC check times for one schedule on a location-local date; none when the check is not due that day."""
+    if not applies_on(schedule, day):
+        return []
     start = schedule.time_of_day or (shift.start_time if shift else DEFAULT_START)
     first = timeutil.local_to_utc(day, start, tz)
     if schedule.timing != "interval" or not schedule.interval_minutes:

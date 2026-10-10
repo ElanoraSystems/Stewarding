@@ -45,16 +45,16 @@ def test_checklist_kpis_use_done_over_due_and_ignore_future_work(client, login, 
     assert dash(client, login(MGR), location_id=mk)["kpis"]["weekly_completion"]["denominator"] == 10
 
 
-def test_temperature_kpis_and_equipment_attention(client, login, db, clock):
+def test_monitoring_kpis_and_equipment_attention(client, login, db, clock):
     clock.set(2026, 3, 2, 2, 45)
     h = login(STEWARD)
-    eq = next(e for e in client.get("/api/temperature/equipment", headers=h).json() if e["code"] == "DW-MK-1")
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")
     wash = next(s for s in eq["schedules"] if s["stage"] == "wash")
     for _ in range(3):
-        client.post("/api/temperature/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "temp_c": 20})
+        client.post("/api/monitoring/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "value": 20})
     k = dash(client, login(MGR), location_id=loc_id(db, "MK"))["kpis"]
-    assert k["failed_temperature_checks"] == 3 and k["equipment_attention"] == 1
-    assert k["temperature_checks"] == {"done": 1, "due": 4}
+    assert k["failed_checks"] == 3 and k["equipment_attention"] == 1
+    assert k["monitoring_checks"] == {"done": 1, "due": 4}
 
 
 def test_breakage_kpis_and_monthly_trend(client, login, db, clock):
@@ -87,7 +87,7 @@ def test_filters_by_location_employee_and_equipment(client, login, db, clock):
     emp = dash(client, login(MGR), employee_id=emps["E004"], date_from="2026-03-01", date_to="2026-03-02")
     assert [d["scheduled"] for d in emp["charts"]["attendance_trend"]] == [1, 1]
     eq = next(e for e in client.get("/api/equipment", headers=login(MGR)).json() if e["code"] == "DW-MK-1")
-    filtered = dash(client, login(MGR), equipment_id=eq["id"])["charts"]["temperature_compliance"]
+    filtered = dash(client, login(MGR), equipment_id=eq["id"])["charts"]["monitoring_compliance"]
     assert [e["equipment"] for e in filtered if e["location"] == "Main Kitchen"] == ["Main Kitchen Dishwasher 1"]
 
 
@@ -126,12 +126,12 @@ def test_steward_dashboard_shows_only_my_shift(client, login, db, clock):
     client.post("/api/attendance/check-in", json={"location_id": loc_id(db, "MK")}, headers=h)
     task = client.get("/api/checklists/instances?size=200", headers=h).json()["items"][0]
     client.post(f"/api/checklists/instances/{task['id']}/complete", json={}, headers=h)
-    eq = next(e for e in client.get("/api/temperature/equipment", headers=h).json() if e["code"] == "DW-MK-1")
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")
     wash = next(s for s in eq["schedules"] if s["stage"] == "wash")
-    client.post("/api/temperature/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "temp_c": 10})
+    client.post("/api/monitoring/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "value": 10})
     body = dash(client, h)
     assert body["checked_in"] is True and body["tasks"]["done"] == 1 and body["unresolved_issues"] == 1
-    assert body["temperature_checks"]["due"] >= 1
+    assert body["monitoring_checks"]["due"] >= 1
 
 
 def test_dashboard_requires_authentication(client):

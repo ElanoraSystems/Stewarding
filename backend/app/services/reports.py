@@ -9,6 +9,7 @@ from .. import timeutil
 from ..models import (BreakageIncident, CorrectiveAction, Employee, Equipment, InventoryItem, StockTransaction,
                       TemperatureReading)
 from . import metrics
+from .monitoring import describe
 from .inventory import reconcile
 from .settings import get_setting
 from .summary import pending_items
@@ -109,20 +110,21 @@ def _readings(c: Ctx):
             yield w, r
 
 
-def sec_temperature_log(c: Ctx) -> dict:
+def sec_monitoring_log(c: Ctx) -> dict:
     eq = {e.id: e.name for e in c.db.scalars(select(Equipment))}
     actions = {a.reading_id: a.status for a in c.db.scalars(select(CorrectiveAction))}
     rows = []
     for w, r in _readings(c):
         rows.append({"location": w.loc.name, "time": local(r.recorded_at, w.loc.timezone), "equipment": eq.get(r.equipment_id),
-                     "stage": r.stage, "source": r.source, "temp": float(r.temp_c),
+                     "parameter": r.parameter, "stage": r.stage, "source": r.source,
+                     "value": describe(r.value, r.value_type, r.unit), "reference": r.reference,
                      "limits": f"{r.min_limit if r.min_limit is not None else '-'} to {r.max_limit if r.max_limit is not None else '-'}",
                      "result": "Pass" if r.passed else "FAIL", "retest": "Yes" if r.retest_of_id else "",
                      "recorded_by": c.names_by_user.get(r.recorded_by), "action": actions.get(r.id)})
-    cols = [("location", "Location"), ("time", "Time"), ("equipment", "Equipment"), ("stage", "Stage"), ("source", "Source"),
-            ("temp", "Temp (C)"), ("limits", "Limits (C)"), ("result", "Result"), ("retest", "Retest"),
+    cols = [("location", "Location"), ("time", "Time"), ("equipment", "Monitoring point"), ("stage", "Check"), ("source", "Source"),
+            ("parameter", "Measure"), ("value", "Value"), ("limits", "Limits"), ("reference", "Reference"), ("result", "Result"), ("retest", "Retest"),
             ("recorded_by", "Recorded by"), ("action", "Corrective action")]
-    return section("temperature", "Dishwasher and glasswasher readings", cols, rows,
+    return section("monitoring", "Monitoring log", cols, rows,
                    [("Readings", len(rows)), ("Failed", sum(1 for r in rows if r["result"] == "FAIL"))])
 
 
@@ -194,16 +196,16 @@ def sec_attendance_trend(c: Ctx) -> dict:
     return section("attendance_trend", "Attendance trend", cols, rows)
 
 
-def sec_temperature_compliance(c: Ctx) -> dict:
+def sec_monitoring_compliance(c: Ctx) -> dict:
     rows = []
     for w in c.wins:
-        for e in metrics.temperature_stats(c.db, w, c.now)["equipment"].values():
+        for e in metrics.monitoring_stats(c.db, w, c.now)["equipment"].values():
             rows.append({"location": e["location"], "equipment": e["equipment"], "due": e["due"], "done": e["done"],
                          "missed": e["missed"], "percent": metrics.pct(e["done"], e["due"]), "failed": e["failed"]})
-    cols = [("location", "Location"), ("equipment", "Equipment"), ("due", "Checks due (denominator)"),
+    cols = [("location", "Location"), ("equipment", "Monitoring point"), ("due", "Checks due (denominator)"),
             ("done", "Recorded (numerator)"), ("missed", "Missed"), ("percent", "Compliance %"), ("failed", "Failed readings")]
     due, done = sum(r["due"] for r in rows), sum(r["done"] for r in rows)
-    return section("temperature_compliance", "Temperature monitoring compliance", cols, rows,
+    return section("monitoring_compliance", "Monitoring compliance", cols, rows,
                    [("Overall", ratio(done, due)), ("Failed readings", sum(r["failed"] for r in rows))])
 
 
@@ -224,7 +226,7 @@ def sec_equipment_failures(c: Ctx) -> dict:
              "repeat": "Yes" if n >= repeat else ""} for i, n in failed.most_common()]
     cols = [("location", "Location"), ("equipment", "Equipment"), ("failed", "Failed readings"),
             ("unresolved", "Unresolved actions"), ("repeat", "Repeat failure")]
-    return section("equipment_failures", "Failed readings and repeat failures by equipment", cols, rows,
+    return section("equipment_failures", "Failed readings and repeat failures by monitoring point", cols, rows,
                    [("Total failed readings", sum(failed.values()))])
 
 
@@ -307,11 +309,11 @@ def sec_corrective_actions(c: Ctx) -> dict:
         a = actions.get(r.id)
         minutes = int((a.resolved_at - r.recorded_at).total_seconds() // 60) if a and a.resolved_at else None
         rows.append({"location": w.loc.name, "time": local(r.recorded_at, w.loc.timezone), "equipment": eq.get(r.equipment_id),
-                     "stage": r.stage, "temp": float(r.temp_c), "status": a.status if a else "none",
+                     "stage": r.stage, "value": describe(r.value, r.value_type, r.unit), "status": a.status if a else "none",
                      "action": a.action if a else None, "minutes_to_resolve": minutes})
     return section("corrective_actions", "Failed readings and corrective actions",
                    [("location", "Location"), ("time", "Time"), ("equipment", "Equipment"), ("stage", "Stage"),
-                    ("temp", "Temp (C)"), ("status", "Action status"), ("action", "Action taken"),
+                    ("value", "Value"), ("status", "Action status"), ("action", "Action taken"),
                     ("minutes_to_resolve", "Minutes to resolve")], rows,
                    [("Failed readings", len(rows)), ("Resolved", sum(1 for r in rows if r["status"] == "resolved"))])
 
@@ -382,26 +384,26 @@ def sec_scorecard(c: Ctx) -> dict:
     for w in c.wins:
         att = metrics.attendance_stats(c.db, w, c.now)
         chk = metrics.checklist_stats(c.db, w, c.now)
-        tmp = metrics.temperature_stats(c.db, w, c.now)
+        tmp = metrics.monitoring_stats(c.db, w, c.now)
         incidents = [i for ww, i in _incidents(Ctx(c.db, c.now, [w], c.scope, c.d_from, c.d_to, None, c.names_by_user, c.items))
                      if i.status != "rejected"]
         issues = pending_items(c.db, {w.loc.id}, c.now)
         rows.append({"location": w.loc.name, "attendance": ratio(att["present"], att["scheduled"]),
-                     "checklists": ratio(chk["numerator"], chk["denominator"]), "temperature": ratio(tmp["done"], tmp["due"]),
+                     "checklists": ratio(chk["numerator"], chk["denominator"]), "monitoring": ratio(tmp["done"], tmp["due"]),
                      "failed": tmp["failed"], "breakage": sum(i.qty for i in incidents),
                      "breakage_cost": round(sum(float(i.est_cost or 0) for i in incidents), 2),
                      "low_stock": sum(1 for i in snap["low"] if i["location_id"] == w.loc.id), "open_issues": len(issues)})
     return section("scorecard", "Location operational scorecard",
                    [("location", "Location"), ("attendance", "Attendance"), ("checklists", "Checklists"),
-                    ("temperature", "Temperature checks"), ("failed", "Failed readings"), ("breakage", "Breakage units"),
+                    ("monitoring", "Monitoring checks"), ("failed", "Failed readings"), ("breakage", "Breakage units"),
                     ("breakage_cost", "Breakage cost"), ("low_stock", "Low-stock items"), ("open_issues", "Open issues")], rows)
 
 
 REPORTS = {
-    "daily": [sec_attendance, sec_checklists, sec_temperature_log, sec_breakage_log, sec_inventory_movements],
-    "weekly": [sec_checklist_by_location, sec_attendance_trend, sec_temperature_compliance, sec_equipment_failures,
+    "daily": [sec_attendance, sec_checklists, sec_monitoring_log, sec_breakage_log, sec_inventory_movements],
+    "weekly": [sec_checklist_by_location, sec_attendance_trend, sec_monitoring_compliance, sec_equipment_failures,
                sec_recurring_overdue, sec_breakage_summary, sec_inventory_variance],
-    "monthly": [sec_attendance_hours, sec_checklist_by_location, sec_temperature_compliance, sec_corrective_actions,
+    "monthly": [sec_attendance_hours, sec_checklist_by_location, sec_monitoring_compliance, sec_corrective_actions,
                 sec_breakage_summary, sec_reconciliation, sec_stock_consumption, sec_replenishment, sec_outstanding,
                 sec_scorecard],
 }

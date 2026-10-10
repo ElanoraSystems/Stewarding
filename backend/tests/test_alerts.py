@@ -134,40 +134,40 @@ def test_completed_tasks_do_not_raise_alerts(client, login, db, clock):
     assert notes(db, "task_overdue") == []
 
 
-def test_temperature_due_then_overdue_alerts(client, login, db, clock):
+def test_monitoring_due_then_overdue_alerts(client, login, db, clock):
     run(db, clock)  # 06:05, wash check is due
-    due = notes(db, "temperature_due")
+    due = notes(db, "monitoring_due")
     assert due and emails(db, due) >= {"steward.mk@example.test", "sup.mk@example.test"}
-    assert notes(db, "temperature_overdue") == []
+    assert notes(db, "monitoring_overdue") == []
     clock.advance(minutes=40)  # past the 30 minute grace
     run(db, clock)
-    over = notes(db, "temperature_overdue")
+    over = notes(db, "monitoring_overdue")
     assert over and all(n.requires_ack and n.priority == "high" for n in over)
     assert emails(db, over) == {"manager@example.test", "sup.mk@example.test"}
-    count = len(notes(db, "temperature_overdue"))
+    count = len(notes(db, "monitoring_overdue"))
     run(db, clock)
-    assert len(notes(db, "temperature_overdue")) == count
+    assert len(notes(db, "monitoring_overdue")) == count
 
 
 def test_retest_overdue_and_escalation_to_manager(client, login, db, clock):
     h = login(STEWARD)
-    eq = next(e for e in client.get("/api/temperature/equipment", headers=h).json() if e["code"] == "DW-MK-1")
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")
     sched = next(s for s in eq["schedules"] if s["stage"] == "wash")
-    failed = client.post("/api/temperature/readings", headers=h, json={
-        "equipment_id": eq["id"], "schedule_id": sched["id"], "temp_c": 40, "corrective_action": "Refilled the tank"}).json()
+    failed = client.post("/api/monitoring/readings", headers=h, json={
+        "equipment_id": eq["id"], "schedule_id": sched["id"], "value": 40, "corrective_action": "Refilled the tank"}).json()
     clock.advance(minutes=20)
     run(db, clock)
     retest = notes(db, "retest_due")
     assert retest and all(n.priority == "critical" and n.requires_ack for n in retest)
-    assert notes(db, "temperature_escalated") == []
+    assert notes(db, "monitoring_escalated") == []
     clock.advance(minutes=45)  # 65 minutes since the failed reading
     run(db, clock)
-    escalated = notes(db, "temperature_escalated")
+    escalated = notes(db, "monitoring_escalated")
     assert emails(db, escalated) == {"manager@example.test"}
     assert db.get(CorrectiveAction, failed["corrective_action"]["id"]).escalated_at is not None
-    count = len(notes(db, "temperature_escalated"))
+    count = len(notes(db, "monitoring_escalated"))
     run(db, clock)
-    assert len(notes(db, "temperature_escalated")) == count
+    assert len(notes(db, "monitoring_escalated")) == count
 
 
 def test_low_stock_recheck_notifies_the_right_location_once_a_day(client, login, db, clock):

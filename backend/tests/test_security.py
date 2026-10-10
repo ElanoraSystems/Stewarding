@@ -57,6 +57,7 @@ MANAGER_ONLY = [
     ("POST", "/api/suppliers", {}), ("PUT", "/api/suppliers/1", {}), ("PUT", "/api/inventory/categories/1", {}),
     ("PUT", "/api/inventory/units/1", {}), ("POST", "/api/lookups", {}), ("PUT", "/api/lookups/1", {}),
     ("POST", "/api/receipts/1/void", {"reason": "Entered by mistake"}),
+    ("GET", "/api/equipment/templates", None), ("POST", "/api/equipment/from-template", {}),
 ]
 
 SUPERVISOR_UP = [
@@ -66,7 +67,7 @@ SUPERVISOR_UP = [
     ("POST", "/api/stock/transfers", {}), ("POST", "/api/stock/counts", {}), ("GET", "/api/breakage", None),
     ("POST", "/api/breakage/1/review", {"qty": 1}), ("POST", "/api/checklists/instances/1/verify", {"approve": True}),
     ("POST", "/api/checklists/instances/1/assign", {"employee_id": 1}), ("POST", "/api/inventory/transactions", {}),
-    ("POST", "/api/temperature/readings/1/review", None), ("GET", "/api/equipment", None),
+    ("POST", "/api/monitoring/readings/1/review", None), ("GET", "/api/equipment", None),
     ("POST", "/api/receipts", {}), ("GET", "/api/receipts", None), ("GET", "/api/receipts/1", None),
     ("GET", "/api/suppliers", None),
 ]
@@ -90,8 +91,8 @@ LOCATION_SCOPED = [
     "/api/attendance?location_id={mk}", "/api/employees?location_id={mk}", "/api/roster/today?location_id={mk}",
     "/api/roster/assignments?location_id={mk}", "/api/checklists/templates?location_id={mk}",
     "/api/checklists/instances?location_id={mk}", "/api/equipment?location_id={mk}",
-    "/api/temperature/equipment?location_id={mk}", "/api/temperature/due?location_id={mk}",
-    "/api/temperature/readings?location_id={mk}", "/api/temperature/corrective-actions?location_id={mk}",
+    "/api/monitoring/equipment?location_id={mk}", "/api/monitoring/due?location_id={mk}",
+    "/api/monitoring/readings?location_id={mk}", "/api/monitoring/corrective-actions?location_id={mk}",
     "/api/inventory/items?location_id={mk}", "/api/inventory/transactions?location_id={mk}",
     "/api/inventory/assets?location_id={mk}", "/api/stock/counts?location_id={mk}",
     "/api/stock/reconciliation?month=2026-03&location_id={mk}", "/api/breakage?location_id={mk}",

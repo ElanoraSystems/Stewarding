@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth'
 import { fmtDateTime, label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
-import type { EquipmentItem } from '@/pages/TemperatureRecordForm'
+import type { EquipmentItem } from '@/pages/MonitoringRecordForm'
 
 interface Reading {
   id: number
@@ -19,7 +19,9 @@ interface Reading {
   recorded_at: string
   stage: string
   source: string
-  temp_c: number
+  display: string
+  parameter: string
+  reference: string | null
   min_limit: number | null
   max_limit: number | null
   passed: boolean
@@ -38,7 +40,7 @@ interface LogProps {
   refreshKey: number
 }
 
-export function TemperatureLog({ locationId, equipment, refreshKey }: LogProps) {
+export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
   const { me } = useAuth()
   const run = useRun()
   const canReview = me?.permissions.includes('temp.review') ?? false
@@ -51,18 +53,18 @@ export function TemperatureLog({ locationId, equipment, refreshKey }: LogProps) 
   const names = new Map(equipment.map((e) => [e.id, e.name]))
 
   const { data, loading, reload } = useApi<{ total: number; items: Reading[] }>(
-    `/temperature/readings${qs({ location_id: locationId, equipment_id: equipmentId, passed: result, date_from: from, date_to: to, page, size: SIZE, k: refreshKey })}`,
+    `/monitoring/readings${qs({ location_id: locationId, equipment_id: equipmentId, passed: result, date_from: from, date_to: to, page, size: SIZE, k: refreshKey })}`,
   )
 
   async function review(id: number) {
-    if (await run(() => api(`/temperature/readings/${id}/review`, { method: 'POST' }), 'Reading reviewed')) reload()
+    if (await run(() => api(`/monitoring/readings/${id}/review`, { method: 'POST' }), 'Check reviewed')) reload()
   }
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
-        <Select aria-label="Equipment" className="w-auto" value={equipmentId} onChange={(e) => { setEquipmentId(e.target.value); setPage(1) }}>
-          <option value="">All equipment</option>
+        <Select aria-label="Monitoring point" className="w-auto" value={equipmentId} onChange={(e) => { setEquipmentId(e.target.value); setPage(1) }}>
+          <option value="">All monitoring points</option>
           {equipment.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </Select>
         <Select aria-label="Result" className="w-auto" value={result} onChange={(e) => { setResult(e.target.value); setPage(1) }}>
@@ -75,16 +77,17 @@ export function TemperatureLog({ locationId, equipment, refreshKey }: LogProps) 
       </div>
       <Table>
         <thead>
-          <tr><Th>Time</Th><Th>Equipment</Th><Th>Stage</Th><Th>Temp</Th><Th>Limits</Th><Th>Result</Th><Th>By</Th><Th>Review</Th></tr>
+          <tr><Th>Time</Th><Th>Monitoring point</Th><Th>Check</Th><Th>Value</Th><Th>Reference</Th><Th>Limits</Th><Th>Result</Th><Th>By</Th><Th>Review</Th></tr>
         </thead>
         <tbody>
-          {loading && !data ? <SkeletonRows cols={8} /> : data?.items.map((r) => (
+          {loading && !data ? <SkeletonRows cols={9} /> : data?.items.map((r) => (
             <tr key={r.id} className={r.passed ? undefined : 'bg-danger-soft/50'}>
               <Td>{fmtDateTime(r.recorded_at, timezone)}</Td>
               <Td className="font-medium">{names.get(r.equipment_id)}</Td>
               <Td>{label(r.stage)}{r.retest_of_id && <Badge className="ml-1">Retest</Badge>}</Td>
-              <Td>{r.temp_c} C</Td>
-              <Td>{r.min_limit ?? '-'} to {r.max_limit ?? '-'}</Td>
+              <Td>{r.display}</Td>
+              <Td>{r.reference ?? '-'}</Td>
+              <Td>{r.display === 'Yes' || r.display === 'No' ? 'Must be Yes' : `${r.min_limit ?? '-'} to ${r.max_limit ?? '-'}`}</Td>
               <Td>
                 <Badge tone={r.passed ? 'ok' : 'critical'}>{r.passed ? 'Pass' : 'Fail'}</Badge>
                 {r.corrective_action && <span className="ml-1"><StatusBadge status={r.corrective_action.status} /></span>}
@@ -99,7 +102,7 @@ export function TemperatureLog({ locationId, equipment, refreshKey }: LogProps) 
           ))}
         </tbody>
       </Table>
-      {data?.items.length === 0 && <EmptyState title="No readings for this selection" />}
+      {data?.items.length === 0 && <EmptyState title="No checks recorded for this selection" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
     </div>
   )

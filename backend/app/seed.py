@@ -84,19 +84,19 @@ def seed(db: Session, password: str) -> None:
 
     if not db.scalar(select(Equipment.id).limit(1)):
         for code, name, kind, loc_code, sup in [
-            ("DW-MK-1", "Main Kitchen Dishwasher 1", "dishwasher", "MK", "sup.mk@example.test"),
-            ("GW-MK-1", "Main Kitchen Glasswasher 1", "glasswasher", "MK", "sup.mk@example.test"),
-            ("DW-BQ-1", "Banquet Dishwasher 1", "dishwasher", "BQ", "sup.mk@example.test"),
-            ("GW-RB-1", "Rooftop Bar Glasswasher 1", "glasswasher", "RB", "sup.rb@example.test"),
+            ("DW-MK-1", "Main Kitchen Dishwasher 1", "Dishwasher", "MK", "sup.mk@example.test"),
+            ("GW-MK-1", "Main Kitchen Glasswasher 1", "Glasswasher", "MK", "sup.mk@example.test"),
+            ("DW-BQ-1", "Banquet Dishwasher 1", "Dishwasher", "BQ", "sup.mk@example.test"),
+            ("GW-RB-1", "Rooftop Bar Glasswasher 1", "Glasswasher", "RB", "sup.rb@example.test"),
         ]:
             eq = Equipment(code=code, name=name, kind=kind, location_id=locs[loc_code].id,
                            supervisor_id=emps[sup].id, maintenance_notes=PLACEHOLDER_NOTE)
             db.add(eq)
             db.flush()
-            db.add(EquipmentSchedule(equipment_id=eq.id, stage="wash", timing="startup", time_of_day=time(6),
-                                     min_temp_c=Decimal("55.0"), max_temp_c=Decimal("65.0")))
-            db.add(EquipmentSchedule(equipment_id=eq.id, stage="final_rinse", timing="interval", interval_minutes=240,
-                                     min_temp_c=Decimal("80.0"), max_temp_c=Decimal("90.0")))
+            db.add(EquipmentSchedule(equipment_id=eq.id, stage="wash", unit="°C", timing="startup", time_of_day=time(6),
+                                     min_value=Decimal("55.0"), max_value=Decimal("65.0")))
+            db.add(EquipmentSchedule(equipment_id=eq.id, stage="final_rinse", unit="°C", timing="interval", interval_minutes=240,
+                                     min_value=Decimal("80.0"), max_value=Decimal("90.0")))
     seed_inventory(db, db.scalar(select(User).where(User.email == PEOPLE[0][0])), locs)
     ensure_lookups(db)
     db.commit()
@@ -126,6 +126,8 @@ LOOKUPS = {
                         "Defective item", "Cause unknown"],
     "corrective_action": ["Re-ran the wash cycle", "Cleaned spray arms and filters", "Descaled the machine",
                           "Refilled chemical", "Called the engineer"],
+    "monitoring_type": ["Cold storage", "Defrosting", "Cooking", "Reheating", "Cooling", "Hot holding", "Sanitising", "Dishwasher",
+                        "Glasswasher", "Traceability", "Calibration", "Other"],
 }
 SUPPLIERS = ["Gulf Catering Supplies", "Hotel Ware Trading"]
 

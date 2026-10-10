@@ -38,7 +38,7 @@ Sign in as the manager and open **Settings**. Each tab manages one kind of data:
 3. **Categories & units** - item categories, units of measure.
 4. **Suppliers** - the companies you receive stock from.
 5. **Item master** - every item once (names are checked for duplicates and the item ID is generated automatically), linked to a category, unit and supplier.
-6. **Monitoring schedules** - for each dishwasher and glasswasher: its stages, when each is checked, and the temperature limits. Limits are not pre-filled in production; set them from the manufacturer's instructions and your food-safety procedure.
+6. **Monitoring setup** - for each chiller, freezer, machine or log you keep: its checks, what each measures, how often it is due, and the limits. Start from a template where one fits. Limits are not pre-filled in production; set them from the manufacturer's instructions and your food-safety procedure.
 7. **Rules & alerts** - reminder, escalation, retest and approval thresholds.
 8. **Dropdown lists** - job titles, checklist categories, breakage reasons and standard corrective actions.
 

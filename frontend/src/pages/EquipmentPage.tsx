@@ -15,20 +15,29 @@ import { useAuth } from '@/lib/auth'
 import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
-import type { EquipmentItem, Schedule } from '@/pages/TemperatureRecordForm'
+import { useLookup } from '@/lib/useLookups'
+import { CheckFormModal } from '@/pages/CheckFormModal'
+import type { EquipmentItem, Schedule } from '@/pages/MonitoringRecordForm'
 
-interface ScheduleForm {
-  id: number | null
-  stage: string
-  source: string
-  timing: string
-  time_of_day: string
-  interval_minutes: string
-  min_temp_c: string
-  max_temp_c: string
+interface Template {
+  key: string
+  name: string
+  type: string
+  checks: { stage: string; parameter: string; unit: string | null; value_type: string; min_value: number | null; max_value: number | null; timing: string }[]
 }
 
-const EMPTY: ScheduleForm = { id: null, stage: '', source: 'machine_display', timing: 'startup', time_of_day: '', interval_minutes: '', min_temp_c: '', max_temp_c: '' }
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+function when(s: Schedule): string {
+  const days = s.weekdays.length ? s.weekdays.map((d) => DAYS[d]).join(', ') : 'Every day'
+  const month = s.day_of_month ? `day ${s.day_of_month} of the month` : days
+  const timing = s.timing === 'interval' ? `every ${s.interval_minutes} min` : s.timing === 'startup' ? 'at startup' : 'at a set time'
+  return `${month}, ${timing}${s.time_of_day ? ` from ${s.time_of_day.slice(0, 5)}` : ''}`
+}
+
+function limits(s: Schedule): string {
+  return s.value_type === 'yes_no' ? 'Must be Yes' : `${s.min_value ?? '-'} to ${s.max_value ?? '-'} ${s.unit ?? ''}`.trim()
+}
 
 export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const { me } = useAuth()
@@ -36,29 +45,15 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const canManage = me?.permissions.includes('equipment.manage') ?? false
   const [locationId, setLocationId] = useState<number | null>(null)
   const { data, reload } = useApi<EquipmentItem[]>(locationId ? `/equipment${qs({ location_id: locationId })}` : null)
-  const [editing, setEditing] = useState<{ equipmentId: number; form: ScheduleForm } | null>(null)
+  const [editing, setEditing] = useState<{ equipmentId: number; schedule: Schedule | null } | null>(null)
   const [adding, setAdding] = useState(false)
-  const [newEq, setNewEq] = useState({ code: '', name: '', kind: 'dishwasher', manufacturer: '', model: '' })
-
-  async function saveSchedule(event: FormEvent) {
-    event.preventDefault()
-    if (!editing) return
-    const { form, equipmentId } = editing
-    const body = {
-      stage: form.stage, source: form.source, timing: form.timing,
-      time_of_day: form.time_of_day ? `${form.time_of_day}:00` : null,
-      interval_minutes: form.interval_minutes ? Number(form.interval_minutes) : null,
-      min_temp_c: form.min_temp_c === '' ? null : Number(form.min_temp_c),
-      max_temp_c: form.max_temp_c === '' ? null : Number(form.max_temp_c),
-    }
-    const ok = await run(() => form.id
-      ? api(`/equipment/schedules/${form.id}`, { method: 'PUT', body })
-      : api(`/equipment/${equipmentId}/schedules`, { body }), 'Monitoring stage saved')
-    if (ok) {
-      setEditing(null)
-      reload()
-    }
-  }
+  const [presetOpen, setPresetOpen] = useState(false)
+  const [preset, setPreset] = useState('')
+  const [presetName, setPresetName] = useState('')
+  const [newEq, setNewEq] = useState({ code: '', name: '', kind: 'Other', manufacturer: '', model: '' })
+  const types = useLookup('monitoring_type')
+  const templates = useApi<Template[]>(canManage ? '/equipment/templates' : null)
+  const chosen = templates.data?.find((t) => t.key === preset)
 
   async function setStatus(eq: EquipmentItem, status: string) {
     if (await run(() => api(`/equipment/${eq.id}`, { method: 'PUT', body: { status } }), 'Status updated')) reload()
@@ -66,39 +61,41 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
 
   async function addEquipment(event: FormEvent) {
     event.preventDefault()
-    const ok = await run(() => api('/equipment', { body: { ...newEq, location_id: locationId, manufacturer: newEq.manufacturer || null, model: newEq.model || null } }), 'Equipment added')
+    const ok = await run(() => api('/equipment', { body: { ...newEq, location_id: locationId, manufacturer: newEq.manufacturer || null, model: newEq.model || null } }), 'Monitoring point added')
     if (ok) {
       setAdding(false)
       reload()
     }
   }
 
-  const openEdit = (equipmentId: number, s?: Schedule) => setEditing({
-    equipmentId,
-    form: s ? {
-      id: s.id, stage: s.stage, source: s.source, timing: s.timing, time_of_day: s.time_of_day?.slice(0, 5) ?? '',
-      interval_minutes: s.interval_minutes ? String(s.interval_minutes) : '', min_temp_c: s.min_temp_c?.toString() ?? '', max_temp_c: s.max_temp_c?.toString() ?? '',
-    } : EMPTY,
-  })
-  const setField = (key: keyof ScheduleForm, value: string) => setEditing((e) => e && { ...e, form: { ...e.form, [key]: value } })
+  async function addFromTemplate(event: FormEvent) {
+    event.preventDefault()
+    const ok = await run(() => api('/equipment/from-template', { body: { template: preset, location_id: locationId, name: presetName || null } }), 'Monitoring point added')
+    if (ok) {
+      setPresetOpen(false)
+      setPreset('')
+      setPresetName('')
+      reload()
+    }
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {embedded ? <h2 className="text-lg font-semibold">Equipment and monitoring schedules</h2> : <h1 className="text-2xl font-semibold">Equipment Management</h1>}
+        {embedded ? <h2 className="text-lg font-semibold">Monitoring points and checks</h2> : <h1 className="text-2xl font-semibold">Monitoring Setup</h1>}
         <div className="flex gap-3">
           <LocationSelect value={locationId} onChange={setLocationId} />
-          {canManage && <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add equipment</Button>}
+          {canManage && <Button onClick={() => setPresetOpen(true)}><Plus className="h-4 w-4" /> From template</Button>}
+          {canManage && <Button variant="outline" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Custom point</Button>}
         </div>
       </div>
       <p className="text-sm text-ink-muted">
-        Each machine has one or more monitoring stages. A stage sets what is measured (machine display or independent probe),
-        when it is checked (at startup, every N minutes, or at a shift checkpoint) and the acceptable temperature range.
-        Limits must come from the manufacturer's instructions and the approved food-safety procedure.
-        {!embedded && canManage && ' Managers can also edit these under Settings, Monitoring schedules.'}
+        A monitoring point is anything you keep a log for: a chiller, a freezer, a dishwasher, a cooking or cooling batch, a delivery.
+        Each point has checks. A check says what is measured (a temperature, ppm, pH or a yes or no), the limits, and how often it is due:
+        at startup, at set times, every few minutes, on chosen days or monthly. Take the limits from your approved food-safety procedure.
       </p>
 
-      {data?.length === 0 && <EmptyState title="No equipment at this location" />}
+      {data?.length === 0 && <EmptyState title="No monitoring points at this location" hint="Add one from a template, such as a chiller, freezer, cooking or traceability log." />}
       {data?.map((eq) => (
         <Card key={eq.id} className={eq.needs_attention ? 'border-warn/60' : undefined}>
           <CardHeader>
@@ -119,66 +116,57 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
               </Select>
             )}
             <Table>
-              <thead><tr><Th>Stage</Th><Th>Source</Th><Th>When</Th><Th>Limits (C)</Th>{canManage && <Th />}</tr></thead>
+              <thead><tr><Th>Check</Th><Th>Measures</Th><Th>When</Th><Th>Limits</Th>{canManage && <Th />}</tr></thead>
               <tbody>
                 {eq.schedules.map((s) => (
                   <tr key={s.id}>
-                    <Td>{label(s.stage)}</Td>
-                    <Td>{s.source === 'independent_probe' ? 'Independent probe' : 'Machine display'}</Td>
-                    <Td>{label(s.timing)}{s.timing === 'interval' && ` every ${s.interval_minutes} min`}{s.time_of_day && ` from ${s.time_of_day.slice(0, 5)}`}</Td>
-                    <Td>{s.min_temp_c ?? '-'} to {s.max_temp_c ?? '-'}</Td>
-                    {canManage && <Td><Button size="sm" variant="outline" onClick={() => openEdit(eq.id, s)}>Edit limits</Button></Td>}
+                    <Td>{s.stage}{s.require_reference && <Badge className="ml-2">Reference</Badge>}</Td>
+                    <Td>{s.value_type === 'yes_no' ? 'Yes or no' : s.parameter}</Td>
+                    <Td>{when(s)}</Td>
+                    <Td>{limits(s)}</Td>
+                    {canManage && <Td><Button size="sm" variant="outline" onClick={() => setEditing({ equipmentId: eq.id, schedule: s })}>Edit</Button></Td>}
                   </tr>
                 ))}
               </tbody>
             </Table>
-            {canManage && <Button size="sm" variant="outline" onClick={() => openEdit(eq.id)}>Add monitoring stage</Button>}
+            {canManage && <Button size="sm" variant="outline" onClick={() => setEditing({ equipmentId: eq.id, schedule: null })}>Add check</Button>}
           </CardContent>
         </Card>
       ))}
 
-      <Modal open={editing !== null} title={editing?.form.id ? 'Edit monitoring stage' : 'Add monitoring stage'} onClose={() => setEditing(null)}>
-        {editing && (
-          <form onSubmit={saveSchedule} className="space-y-3">
-            <p className="rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">Limit changes are audited and apply to new readings only.</p>
-            <Field label="Stage (e.g. wash, final_rinse)"><Input required value={editing.form.stage} onChange={(e) => setField('stage', e.target.value)} /></Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Reading source">
-                <Select value={editing.form.source} onChange={(e) => setField('source', e.target.value)}>
-                  <option value="machine_display">Machine display</option>
-                  <option value="independent_probe">Independent probe</option>
-                </Select>
-              </Field>
-              <Field label="Timing">
-                <Select value={editing.form.timing} onChange={(e) => setField('timing', e.target.value)}>
-                  <option value="startup">At startup</option>
-                  <option value="interval">At intervals</option>
-                  <option value="checkpoint">Shift checkpoint</option>
-                </Select>
-              </Field>
-              <Field label="First check at"><Input type="time" value={editing.form.time_of_day} onChange={(e) => setField('time_of_day', e.target.value)} /></Field>
-              {editing.form.timing === 'interval' && (
-                <Field label="Every (minutes)"><Input required type="number" min={1} value={editing.form.interval_minutes} onChange={(e) => setField('interval_minutes', e.target.value)} /></Field>
-              )}
-              <Field label="Minimum (C)"><Input type="number" step="0.1" value={editing.form.min_temp_c} onChange={(e) => setField('min_temp_c', e.target.value)} /></Field>
-              <Field label="Maximum (C)"><Input type="number" step="0.1" value={editing.form.max_temp_c} onChange={(e) => setField('max_temp_c', e.target.value)} /></Field>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-              <Button type="submit">Save</Button>
-            </div>
-          </form>
-        )}
+      {editing && <CheckFormModal equipmentId={editing.equipmentId} schedule={editing.schedule} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
+
+      <Modal open={presetOpen} title="Add from template" onClose={() => setPresetOpen(false)}>
+        <form onSubmit={addFromTemplate} className="space-y-3">
+          <Field label="Template">
+            <Select required value={preset} onChange={(e) => setPreset(e.target.value)}>
+              <option value="">Select</option>
+              {templates.data?.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
+            </Select>
+          </Field>
+          {chosen && (
+            <ul className="list-inside list-disc text-sm text-ink-muted">
+              {chosen.checks.map((c) => (
+                <li key={c.stage}>{c.stage}: {c.value_type === 'yes_no' ? 'yes or no' : `${c.parameter} ${c.min_value ?? '-'} to ${c.max_value ?? '-'} ${c.unit ?? ''}`}</li>
+              ))}
+            </ul>
+          )}
+          <Field label="Name (optional)"><Input value={presetName} maxLength={120} onChange={(e) => setPresetName(e.target.value)} /></Field>
+          <p className="text-xs text-ink-muted">The point is created with its checks; change the limits and times afterwards if your procedure differs.</p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setPresetOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={!preset || !locationId}>Add</Button>
+          </div>
+        </form>
       </Modal>
 
-      <Modal open={adding} title="Add equipment" onClose={() => setAdding(false)}>
+      <Modal open={adding} title="Add custom monitoring point" onClose={() => setAdding(false)}>
         <form onSubmit={addEquipment} className="space-y-3">
-          <Field label="Equipment ID"><Input required value={newEq.code} onChange={(e) => setNewEq({ ...newEq, code: e.target.value })} /></Field>
+          <Field label="Point ID"><Input required value={newEq.code} onChange={(e) => setNewEq({ ...newEq, code: e.target.value })} /></Field>
           <Field label="Name"><Input required value={newEq.name} onChange={(e) => setNewEq({ ...newEq, name: e.target.value })} /></Field>
           <Field label="Type">
             <Select value={newEq.kind} onChange={(e) => setNewEq({ ...newEq, kind: e.target.value })}>
-              <option value="dishwasher">Dishwasher</option>
-              <option value="glasswasher">Glasswasher</option>
+              {types.map((t) => <option key={t} value={t}>{t}</option>)}
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-3">

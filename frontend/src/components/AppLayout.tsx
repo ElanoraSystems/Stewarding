@@ -18,7 +18,7 @@ const ICONS: Record<string, LucideIcon> = {
   roster: CalendarDays,
   'daily-checklists': ClipboardCheck,
   'weekly-checklists': ClipboardList,
-  temperature: Thermometer,
+  monitoring: Thermometer,
   equipment: Wrench,
   inventory: Package,
   'stock-movements': ArrowLeftRight,

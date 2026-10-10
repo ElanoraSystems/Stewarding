@@ -30,8 +30,8 @@ interface Dashboard {
     daily_completion: Compliance
     weekly_completion: Compliance
     overdue_tasks: number
-    temperature_checks: { done: number; due: number }
-    failed_temperature_checks: number
+    monitoring_checks: { done: number; due: number }
+    failed_checks: number
     equipment_attention: number
     inventory: { qty: number; value: number }
     off_today: number
@@ -42,7 +42,7 @@ interface Dashboard {
   charts: {
     task_trend: { date: string; percent: number | null; done: number; due: number }[]
     weekly_compliance: ({ location: string } & Compliance)[]
-    temperature_compliance: { equipment: string; location: string; due: number; done: number; failed: number; percent: number | null }[]
+    monitoring_compliance: { equipment: string; location: string; due: number; done: number; failed: number; percent: number | null }[]
     breakage_trend: { month: string; incidents: number; qty: number }[]
     inventory_movement: { date: string; in: number; out: number }[]
     attendance_trend: { date: string; present: number; absent: number; late: number }[]
@@ -76,7 +76,7 @@ export function ManagerDashboard() {
   const isManager = me?.role === 'manager'
 
   const k = data?.kpis
-  const urgent = k && (k.failed_temperature_checks > 0 || k.overdue_tasks > 0 || k.equipment_attention > 0)
+  const urgent = k && (k.failed_checks > 0 || k.overdue_tasks > 0 || k.equipment_attention > 0)
 
   return (
     <div className="space-y-5">
@@ -111,9 +111,9 @@ export function ManagerDashboard() {
         <div role="alert" className="rounded-md border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">
           <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden /> Needs attention now</p>
           <ul className="mt-1 list-inside list-disc">
-            {k.failed_temperature_checks > 0 && <li><Link className="underline" to="/temperature">{k.failed_temperature_checks} failed temperature reading(s) today</Link></li>}
+            {k.failed_checks > 0 && <li><Link className="underline" to="/monitoring">{k.failed_checks} failed check(s) today</Link></li>}
             {k.overdue_tasks > 0 && <li><Link className="underline" to="/daily-checklists">{k.overdue_tasks} overdue task(s)</Link></li>}
-            {k.equipment_attention > 0 && <li><Link className="underline" to="/equipment">{k.equipment_attention} equipment item(s) need attention</Link></li>}
+            {k.equipment_attention > 0 && <li><Link className="underline" to="/equipment">{k.equipment_attention} monitoring point(s) need attention</Link></li>}
           </ul>
         </div>
       )}
@@ -126,9 +126,9 @@ export function ManagerDashboard() {
           <KpiCard label="Daily checklists" value={pct(k.daily_completion)} hint={ratio(k.daily_completion)} />
           <KpiCard label="Weekly checklists" value={pct(k.weekly_completion)} hint={ratio(k.weekly_completion)} />
           <KpiCard label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
-          <KpiCard label="Temperature checks" value={`${k.temperature_checks.done} / ${k.temperature_checks.due}`} hint="recorded / due so far today" />
-          <KpiCard label="Failed temperature checks" value={k.failed_temperature_checks} tone={k.failed_temperature_checks ? 'critical' : 'default'} />
-          <KpiCard label="Equipment needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
+          <KpiCard label="Monitoring checks" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} hint="recorded / due so far today" />
+          <KpiCard label="Failed checks" value={k.failed_checks} tone={k.failed_checks ? 'critical' : 'default'} />
+          <KpiCard label="Points needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
           <KpiCard label="Stock on hand" value={k.inventory.qty} hint={`Value ${k.inventory.value.toFixed(2)}`} />
           <KpiCard label="Low-stock items" value={k.low_stock_items} tone={k.low_stock_items ? 'warn' : 'default'} />
           <KpiCard label="Breakage today" value={k.breakage_today} hint={`${k.breakage_month} this month`} />
@@ -146,9 +146,9 @@ export function ManagerDashboard() {
             <CardContent><BarList items={data.charts.weekly_compliance.map((w) => ({ label: w.location, value: w.percent, sub: ratio(w) }))} /></CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Temperature compliance by equipment</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Monitoring compliance by point</CardTitle></CardHeader>
             <CardContent>
-              <BarList items={data.charts.temperature_compliance.map((e) => ({ label: `${e.equipment} (${e.location})`, value: e.percent, sub: `${e.done} of ${e.due} checks, ${e.failed} failed` }))} />
+              <BarList items={data.charts.monitoring_compliance.map((e) => ({ label: `${e.equipment} (${e.location})`, value: e.percent, sub: `${e.done} of ${e.due} checks, ${e.failed} failed` }))} />
             </CardContent>
           </Card>
           <Card>

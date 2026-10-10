@@ -15,7 +15,7 @@ from ..services import metrics
 from ..services.checklists import OPEN, effective_status
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
-from ..services.temperature import due_checks, failure_count
+from ..services.monitoring import due_checks, failure_count
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -71,7 +71,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         overdue_stmt = overdue_stmt.where(ChecklistInstance.location_id == location_id)
     elif scope is not None:
         overdue_stmt = overdue_stmt.where(ChecklistInstance.location_id.in_(scope))
-    temp_today = [metrics.temperature_stats(db, w, now) for w in today_wins]
+    temp_today = [metrics.monitoring_stats(db, w, now) for w in today_wins]
     stock = metrics.stock_snapshot(db, scope, location_id)
     month_wins = metrics.windows_by(db, now, scope, location_id, lambda t: (t.replace(day=1), t))
     kpis = {
@@ -80,8 +80,8 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         "absent": sum(a["absent"] for a in attendance), "on_duty": db.scalar(on_duty_stmt),
         "daily_completion": _percent_block(daily), "weekly_completion": _percent_block(weekly),
         "overdue_tasks": db.scalar(overdue_stmt),
-        "temperature_checks": {"done": sum(t["done"] for t in temp_today), "due": sum(t["due"] for t in temp_today)},
-        "failed_temperature_checks": sum(t["failed"] for t in temp_today),
+        "monitoring_checks": {"done": sum(t["done"] for t in temp_today), "due": sum(t["due"] for t in temp_today)},
+        "failed_checks": sum(t["failed"] for t in temp_today),
         "equipment_attention": _equipment_attention(db, scope, location_id, now),
         "inventory": stock["total"],
         "low_stock_items": len(stock["low"]),
@@ -106,7 +106,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
             entry["selected"] = c[task_status]
         task_trend.append(entry)
 
-    temp_range = [metrics.temperature_stats(db, w, now, equipment_id) for w in range_wins]
+    temp_range = [metrics.monitoring_stats(db, w, now, equipment_id) for w in range_wins]
     movement: dict[date, dict] = defaultdict(lambda: {"in": 0, "out": 0})
     for txn, day in metrics.movements(db, range_wins):
         if txn.txn_type in ("receipt", "return"):
@@ -121,7 +121,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
             "task_trend": task_trend,
             "weekly_compliance": [{"location": w.loc.name, **_percent_block(metrics.checklist_stats(db, w, now, frequency="weekly"))}
                                   for w in week_wins],
-            "temperature_compliance": [{k: e[k] for k in ("equipment", "location", "due", "done", "failed")}
+            "monitoring_compliance": [{k: e[k] for k in ("equipment", "location", "due", "done", "failed")}
                                        | {"percent": metrics.pct(e["done"], e["due"])}
                                        for t in temp_range for e in t["equipment"].values()],
             "breakage_trend": months,
@@ -206,7 +206,7 @@ def _steward_view(db: Session, user: User, now: datetime) -> dict:
         "role": STEWARD, "checked_in": open_rec is not None,
         "check_in_at": open_rec.check_in_at.isoformat() + "Z" if open_rec else None,
         "tasks": {"total": total, "done": done, "overdue": tasks["overdue"], "outstanding": task_rows[:20]},
-        "temperature_checks": {"due": sum(1 for c in checks if c["status"] == "due"),
+        "monitoring_checks": {"due": sum(1 for c in checks if c["status"] == "due"),
                                "overdue": sum(1 for c in checks if c["status"] == "overdue")},
         "unresolved_issues": issues,
     }

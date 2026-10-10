@@ -16,7 +16,7 @@ import { RosterPage } from '@/pages/RosterPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { TasksPage } from '@/pages/TasksPage'
 import { StockMovementsPage } from '@/pages/StockMovementsPage'
-import { TemperaturePage } from '@/pages/TemperaturePage'
+import { MonitoringPage } from '@/pages/MonitoringPage'
 
 export default function App() {
   const { me, loading } = useAuth()
@@ -32,7 +32,8 @@ export default function App() {
         <Route path="roster" element={<RosterPage />} />
         <Route path="daily-checklists" element={<ChecklistsPage frequency="daily" />} />
         <Route path="weekly-checklists" element={<ChecklistsPage frequency="weekly" />} />
-        <Route path="temperature" element={<TemperaturePage />} />
+        <Route path="monitoring" element={<MonitoringPage />} />
+        <Route path="temperature" element={<Navigate to="/monitoring" replace />} />
         <Route path="equipment" element={<EquipmentPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="crockery" element={<Navigate to="/inventory" replace />} />

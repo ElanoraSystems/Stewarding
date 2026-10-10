@@ -1,6 +1,6 @@
 import { useApi } from '@/lib/useApi'
 
-export type LookupKind = 'job_title' | 'checklist_category' | 'breakage_reason' | 'corrective_action'
+export type LookupKind = 'job_title' | 'checklist_category' | 'breakage_reason' | 'corrective_action' | 'monitoring_type'
 
 /** Active values of one managed list, for dropdowns and suggestions. */
 export function useLookup(kind: LookupKind): string[] {

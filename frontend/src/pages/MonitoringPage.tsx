@@ -8,8 +8,8 @@ import { useAuth } from '@/lib/auth'
 import { fmtTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { CorrectiveActionsPanel } from '@/pages/CorrectiveActionsPanel'
-import { TemperatureLog } from '@/pages/TemperatureLog'
-import { TemperatureRecordForm, type EquipmentItem, type Prefill } from '@/pages/TemperatureRecordForm'
+import { MonitoringLog } from '@/pages/MonitoringLog'
+import { MonitoringRecordForm, type EquipmentItem, type Prefill } from '@/pages/MonitoringRecordForm'
 
 interface Due {
   equipment_id: number
@@ -22,7 +22,7 @@ interface Due {
 
 const TONE = { done: 'ok', due: 'warn', overdue: 'critical', upcoming: 'neutral' } as const
 
-export function TemperaturePage() {
+export function MonitoringPage() {
   const { me } = useAuth()
   const [locationId, setLocationId] = useState<number | null>(null)
   const [prefill, setPrefill] = useState<Prefill | null>(null)
@@ -30,8 +30,8 @@ export function TemperaturePage() {
   const canRecord = me?.permissions.includes('temp.record') ?? false
   const timezone = me?.locations.find((l) => l.id === locationId)?.timezone
 
-  const equipment = useApi<EquipmentItem[]>(locationId ? `/temperature/equipment${qs({ location_id: locationId, k: refreshKey })}` : null)
-  const due = useApi<Due[]>(locationId ? `/temperature/due${qs({ location_id: locationId, k: refreshKey })}` : null)
+  const equipment = useApi<EquipmentItem[]>(locationId ? `/monitoring/equipment${qs({ location_id: locationId, k: refreshKey })}` : null)
+  const due = useApi<Due[]>(locationId ? `/monitoring/due${qs({ location_id: locationId, k: refreshKey })}` : null)
   const items = equipment.data ?? []
   const overdue = (due.data ?? []).filter((d) => d.status === 'overdue')
   const actionable = (due.data ?? []).filter((d) => d.status !== 'upcoming' && d.status !== 'done')
@@ -45,20 +45,20 @@ export function TemperaturePage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Temperature Monitoring</h1>
+        <h1 className="text-2xl font-semibold">Monitoring</h1>
         <LocationSelect value={locationId} onChange={setLocationId} />
       </div>
 
       {overdue.length > 0 && (
         <div role="alert" className="flex items-center gap-2 rounded-md border border-danger/40 bg-danger-soft px-4 py-3 text-sm font-medium text-danger">
-          <AlertTriangle className="h-4 w-4" aria-hidden /> {overdue.length} temperature check(s) overdue
+          <AlertTriangle className="h-4 w-4" aria-hidden /> {overdue.length} check(s) overdue
         </div>
       )}
 
       <Card>
         <CardHeader><CardTitle>Checks due today</CardTitle></CardHeader>
         <CardContent>
-          {(due.data ?? []).length === 0 ? <EmptyState title="No monitoring schedule configured here" /> : (
+          {(due.data ?? []).length === 0 ? <EmptyState title="No checks configured here" /> : (
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {(due.data ?? []).map((d) => (
                 <li key={`${d.schedule_id}-${d.slot_at}`}>
@@ -78,17 +78,17 @@ export function TemperaturePage() {
 
       {canRecord && (
         <Card>
-          <CardHeader><CardTitle>Record a reading</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Record a check</CardTitle></CardHeader>
           <CardContent>
-            <TemperatureRecordForm equipment={items} prefill={prefill} onSaved={refresh} onClearRetest={() => setPrefill(null)} />
+            <MonitoringRecordForm equipment={items} prefill={prefill} onSaved={refresh} onClearRetest={() => setPrefill(null)} />
           </CardContent>
         </Card>
       )}
 
       <CorrectiveActionsPanel locationId={locationId} equipment={items} refreshKey={refreshKey} onRetest={retest} onChanged={refresh} />
 
-      <h2 className="pt-2 text-lg font-semibold">Reading log</h2>
-      <TemperatureLog locationId={locationId} equipment={items} refreshKey={refreshKey} />
+      <h2 className="pt-2 text-lg font-semibold">Monitoring log</h2>
+      <MonitoringLog locationId={locationId} equipment={items} refreshKey={refreshKey} />
     </div>
   )
 }

@@ -61,13 +61,13 @@ def test_database_refuses_two_incidents_sharing_one_stock_transaction(db, client
         db.commit()
 
 
-def test_temperature_readings_have_no_update_or_delete_route(client, login, db, clock):
+def test_monitoring_readings_have_no_update_or_delete_route(client, login, db, clock):
     h = login(STEWARD)
-    eq = next(e for e in client.get("/api/temperature/equipment", headers=h).json() if e["code"] == "DW-MK-1")
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")
     wash = next(s for s in eq["schedules"] if s["stage"] == "wash")
-    reading = client.post("/api/temperature/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "temp_c": 20}).json()
+    reading = client.post("/api/monitoring/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "value": 20}).json()
     for method in ("put", "patch", "delete"):
-        r = getattr(client, method)(f"/api/temperature/readings/{reading['id']}", headers=login(MGR))
+        r = getattr(client, method)(f"/api/monitoring/readings/{reading['id']}", headers=login(MGR))
         assert r.status_code in (404, 405)
     assert db.get(TemperatureReading, reading["id"]).passed is False
 
@@ -140,17 +140,17 @@ def test_night_shift_crossing_midnight_is_paid_and_dated_correctly(client, login
     assert done["local_date"] == "2026-03-02" and done["payable_minutes"] == 485 - 30 and done["overtime_minutes"] == 5
 
 
-def test_temperature_readings_land_on_the_correct_local_day_around_a_clock_change(client, login, db, clock):
+def test_monitoring_readings_land_on_the_correct_local_day_around_a_clock_change(client, login, db, clock):
     h = login(STEWARD_RB)
-    eq = next(e for e in client.get("/api/temperature/equipment", headers=h).json() if e["code"] == "GW-RB-1")
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "GW-RB-1")
     wash = next(s for s in eq["schedules"] if s["stage"] == "wash")
     for moment in ((2026, 3, 29, 0, 30), (2026, 3, 29, 23, 30)):  # 00:30 GMT on the 29th, 00:30 BST on the 30th
         clock.set(*moment)
-        client.post("/api/temperature/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "temp_c": 60})
+        client.post("/api/monitoring/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "value": 60})
     clock.set(2026, 3, 30, 8, 0)
     for day, expected in (("2026-03-29", 1), ("2026-03-30", 1)):
         report = client.get(f"/api/reports/daily?anchor={day}&location_id={loc_id(db, 'RB')}", headers=login(MGR)).json()
-        section = next(s for s in report["sections"] if s["id"] == "temperature")
+        section = next(s for s in report["sections"] if s["id"] == "monitoring")
         assert len(section["rows"]) == expected, day
     assert client.get(f"/api/reports/daily?anchor=2026-03-29&location_id={loc_id(db, 'RB')}", headers=login(SUP_RB)).status_code == 200
     assert client.get(f"/api/reports/daily?anchor=2026-03-29&location_id={loc_id(db, 'RB')}", headers=login(SUP)).status_code == 403

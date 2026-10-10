@@ -86,15 +86,15 @@ def test_weekly_trend_never_counts_future_days(client, login, db, clock):
     assert [r["absent"] for r in trend["rows"]] == [1, 1, 1]  # nobody checked in on any past or current day
 
 
-def test_temperature_compliance_counts_only_checks_due_so_far(client, login, db, clock):
+def test_monitoring_compliance_counts_only_checks_due_so_far(client, login, db, clock):
     clock.set(2026, 3, 2, 2, 45)  # 06:45: wash and first final-rinse checks are due, 30 minute grace has passed
     h = login(STEWARD)
-    eq = next(e for e in client.get("/api/temperature/equipment", headers=h).json() if e["code"] == "DW-MK-1")
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")
     wash = next(s for s in eq["schedules"] if s["stage"] == "wash")
-    client.post("/api/temperature/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "temp_c": 60})
-    s = sec(rep(client, login(MGR), anchor="2026-03-02", location_id=loc_id(db, "MK")), "temperature")
+    client.post("/api/monitoring/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "value": 60})
+    s = sec(rep(client, login(MGR), anchor="2026-03-02", location_id=loc_id(db, "MK")), "monitoring")
     assert totals(s)["Readings"] == 1
-    weekly = sec(rep(client, login(MGR), "weekly", anchor="2026-03-02", location_id=loc_id(db, "MK")), "temperature_compliance")
+    weekly = sec(rep(client, login(MGR), "weekly", anchor="2026-03-02", location_id=loc_id(db, "MK")), "monitoring_compliance")
     dw = next(r for r in weekly["rows"] if r["equipment"] == "Main Kitchen Dishwasher 1")
     assert (dw["done"], dw["due"], dw["missed"], dw["percent"]) == (1, 2, 1, 50.0)
     gw = next(r for r in weekly["rows"] if "Glasswasher" in r["equipment"])
@@ -104,10 +104,10 @@ def test_temperature_compliance_counts_only_checks_due_so_far(client, login, db,
 
 def test_failed_readings_appear_in_monthly_corrective_action_history(client, login, db, clock):
     h = login(STEWARD)
-    eq = next(e for e in client.get("/api/temperature/equipment", headers=h).json() if e["code"] == "DW-MK-1")
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")
     wash = next(s for s in eq["schedules"] if s["stage"] == "wash")
-    client.post("/api/temperature/readings", headers=h, json={
-        "equipment_id": eq["id"], "schedule_id": wash["id"], "temp_c": 40, "corrective_action": "Descaled"})
+    client.post("/api/monitoring/readings", headers=h, json={
+        "equipment_id": eq["id"], "schedule_id": wash["id"], "value": 40, "corrective_action": "Descaled"})
     s = sec(rep(client, login(MGR), "monthly", anchor="2026-03-15"), "corrective_actions")
     assert totals(s) == {"Failed readings": 1, "Resolved": 0}
     assert s["rows"][0]["status"] == "retest_due" and s["rows"][0]["action"] == "Descaled"

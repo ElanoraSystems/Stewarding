@@ -16,14 +16,14 @@ from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services.notify import notify, recipients
 from ..services.settings import get_setting
-from ..services.temperature import (due_checks, evaluate, failure_count, resolve_alerts, resolve_chain)
+from ..services.monitoring import describe, due_checks, evaluate, failure_count, resolve_alerts, resolve_chain
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
 
-router = APIRouter(prefix="/api/temperature", tags=["temperature"])
+router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
-READING_FIELDS = ("id", "equipment_id", "schedule_id", "location_id", "recorded_at", "stage", "source", "temp_c",
-                  "min_limit", "max_limit", "passed", "recorded_by", "comment", "evidence_path", "retest_of_id",
+READING_FIELDS = ("id", "equipment_id", "schedule_id", "location_id", "recorded_at", "stage", "source", "parameter", "unit",
+                  "value_type", "value", "reference", "min_limit", "max_limit", "passed", "recorded_by", "comment", "evidence_path", "retest_of_id",
                   "reviewed_by", "reviewed_at")
 ACTION_FIELDS = ("id", "reading_id", "action", "taken_by", "taken_at", "retest_due_at", "status", "resolved_at",
                  "escalated_at")
@@ -32,7 +32,8 @@ ACTION_FIELDS = ("id", "reading_id", "action", "taken_by", "taken_at", "retest_d
 class ReadingIn(BaseModel):
     equipment_id: int
     schedule_id: int
-    temp_c: Decimal = Field(ge=-50, le=200)
+    value: Decimal = Field(ge=-100000, le=100000)
+    reference: str | None = Field(default=None, max_length=120)
     comment: str | None = Field(default=None, max_length=1000)
     evidence_path: str | None = None
     corrective_action: str | None = Field(default=None, max_length=1000)
@@ -51,7 +52,7 @@ class DecisionIn(BaseModel):
 def _equipment_for(db: Session, user: User, equipment_id: int) -> Equipment:
     eq = db.get(Equipment, equipment_id)
     if not eq:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Equipment not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Monitoring point not found")
     check_location(user, db, eq.location_id)
     return eq
 
@@ -75,6 +76,7 @@ def _latest_action(db: Session, reading_id: int) -> CorrectiveAction | None:
 def _serialize_reading(db: Session, reading: TemperatureReading, names: dict[int, str]) -> dict:
     out = row(reading, *READING_FIELDS)
     out["recorded_by_name"] = names.get(reading.recorded_by)
+    out["display"] = describe(reading.value, reading.value_type, reading.unit)
     action = _latest_action(db, reading.id)
     out["corrective_action"] = row(action, *ACTION_FIELDS) if action else None
     return out
@@ -103,9 +105,14 @@ def record_reading(body: ReadingIn, user: User = Depends(require("temp.record"))
     eq = _equipment_for(db, user, body.equipment_id)
     sched = db.get(EquipmentSchedule, body.schedule_id)
     if not sched or sched.equipment_id != eq.id or not sched.active:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown monitoring stage for this equipment")
-    if sched.min_temp_c is None and sched.max_temp_c is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Temperature limits are not configured for this stage")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown check for this monitoring point")
+    if sched.value_type == "number" and sched.min_value is None and sched.max_value is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Limits are not configured for this check")
+    if sched.value_type == "yes_no" and body.value not in (0, 1):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Answer yes or no")
+    reference = (body.reference or "").strip() or None
+    if sched.require_reference and reference is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the batch, lot or product reference for this check")
     if body.evidence_path and not is_valid_evidence(body.evidence_path):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown evidence file")
 
@@ -113,7 +120,7 @@ def record_reading(body: ReadingIn, user: User = Depends(require("temp.record"))
     if body.retest_of_id is not None:
         original = db.get(TemperatureReading, body.retest_of_id)
         if not original or original.equipment_id != eq.id or original.schedule_id != sched.id or original.passed:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "A retest must refer to a failed reading of the same stage")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "A retest must refer to a failed reading of the same check")
         if db.scalar(select(TemperatureReading.id).where(TemperatureReading.retest_of_id == original.id)):
             raise HTTPException(status.HTTP_409_CONFLICT, "This reading has already been retested")
         original_action = _latest_action(db, original.id)
@@ -121,11 +128,12 @@ def record_reading(body: ReadingIn, user: User = Depends(require("temp.record"))
             raise HTTPException(status.HTTP_409_CONFLICT, "Record the corrective action before retesting")
 
     now = timeutil.utc_now()
-    temp = body.temp_c.quantize(Decimal("0.1"))
-    passed = evaluate(temp, sched.min_temp_c, sched.max_temp_c)
+    value = body.value.quantize(Decimal("0.01"))
+    passed = value == 1 if sched.value_type == "yes_no" else evaluate(value, sched.min_value, sched.max_value)
     reading = TemperatureReading(
         equipment_id=eq.id, schedule_id=sched.id, location_id=eq.location_id, recorded_at=now, stage=sched.stage,
-        source=sched.source, temp_c=temp, min_limit=sched.min_temp_c, max_limit=sched.max_temp_c, passed=passed,
+        source=sched.source, parameter=sched.parameter, unit=sched.unit, value_type=sched.value_type, value=value,
+        reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed,
         recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, retest_of_id=body.retest_of_id)
     db.add(reading)
     db.flush()
@@ -147,13 +155,14 @@ def _open_failure(db: Session, user: User, eq: Equipment, reading: TemperatureRe
         reading_id=reading.id, action=text.strip() if has_text else "", taken_by=user.id,
         status="retest_due" if has_text else "action_required",
         retest_due_at=now + timedelta(minutes=get_setting(db, "temp.retest_minutes")) if has_text else None))
-    notify(db, recipients(db, eq.location_id, SUPERVISOR, MANAGER), "temperature_failed",
-           f"Failed temperature: {eq.name} ({reading.stage}) {reading.temp_c} C", key=f"temp_fail:{reading.id}",
-           body=f"Limits {reading.min_limit}-{reading.max_limit} C. Corrective action and retest required.",
-           priority="critical", location_id=eq.location_id, link="/temperature", requires_ack=True)
+    limits = "Answered No" if reading.value_type == "yes_no" else f"Limits {reading.min_limit or '-'} to {reading.max_limit or '-'} {reading.unit or ''}".strip()
+    notify(db, recipients(db, eq.location_id, SUPERVISOR, MANAGER), "monitoring_failed",
+           f"Failed check: {eq.name} ({reading.stage}) {describe(reading.value, reading.value_type, reading.unit)}",
+           key=f"temp_fail:{reading.id}", body=f"{limits}. Corrective action and retest required.",
+           priority="critical", location_id=eq.location_id, link="/monitoring", requires_ack=True)
     if failure_count(db, eq.id, now) >= get_setting(db, "temp.repeat_failure_count"):
         notify(db, recipients(db, eq.location_id, MANAGER, SUPERVISOR), "equipment_maintenance",
-               f"Repeated failures: {eq.name} needs maintenance review",
+               f"Repeated failures: {eq.name} needs review",
                key=f"maint:{eq.id}:{now.date().isoformat()}", priority="high", location_id=eq.location_id,
                link="/equipment", requires_ack=True)
 
@@ -195,7 +204,7 @@ def review_reading(reading_id: int, user: User = Depends(require("temp.review"))
     if reading.reviewed_at:
         raise HTTPException(status.HTTP_409_CONFLICT, "Reading was already reviewed")
     reading.reviewed_by, reading.reviewed_at = user.id, timeutil.utc_now()
-    audit(db, user, "temperature.review", "temperature_reading", reading.id)
+    audit(db, user, "monitoring.review", "temperature_reading", reading.id)
     db.commit()
     return _serialize_reading(db, reading, _names(db, {reading.recorded_by}))
 
@@ -214,7 +223,7 @@ def list_actions(action_status: str | None = Query(None, alias="status"), locati
     if action_status:
         stmt = stmt.where(CorrectiveAction.status == action_status)
     items = db.execute(stmt.order_by(CorrectiveAction.id.desc()).limit(200)).all()
-    return [{**row(a, *ACTION_FIELDS), "equipment_id": r.equipment_id, "stage": r.stage, "temp_c": r.temp_c,
+    return [{**row(a, *ACTION_FIELDS), "equipment_id": r.equipment_id, "stage": r.stage, "display": describe(r.value, r.value_type, r.unit),
              "recorded_at": row(r, "recorded_at")["recorded_at"], "location_id": r.location_id} for a, r in items]
 
 
@@ -259,9 +268,9 @@ def decide(action_id: int, body: DecisionIn, user: User = Depends(require("temp.
         action.status, action.retest_due_at = "action_required", None
         notify(db, [action.taken_by], "corrective_action_rejected", "Corrective action rejected - redo",
                key=f"reject_action:{action.id}:{now.isoformat()}", body=body.note, priority="high",
-               location_id=reading.location_id, link="/temperature")
+               location_id=reading.location_id, link="/monitoring")
     db.add(ApprovalRecord(subject_type="corrective_action", subject_id=action.id, decision=body.decision,
                           decided_by=user.id, reason=body.note))
-    audit(db, user, f"temperature.action_{body.decision}", "corrective_action", action.id, None, {"note": body.note})
+    audit(db, user, f"monitoring.action_{body.decision}", "corrective_action", action.id, None, {"note": body.note})
     db.commit()
     return row(action, *ACTION_FIELDS)

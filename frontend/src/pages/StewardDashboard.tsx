@@ -11,7 +11,7 @@ import { MyShiftCard } from '@/pages/MyShiftCard'
 interface StewardData {
   checked_in: boolean
   tasks: { total: number; done: number; overdue: number; outstanding: { id: number; description: string; status: string; due_at: string | null }[] }
-  temperature_checks: { due: number; overdue: number }
+  monitoring_checks: { due: number; overdue: number }
   unresolved_issues: number
 }
 
@@ -30,12 +30,12 @@ export function StewardDashboard() {
 
       {loading && !data ? <Skeleton className="h-40 w-full" /> : data && (
         <>
-          {(data.temperature_checks.overdue > 0 || data.unresolved_issues > 0) && (
+          {(data.monitoring_checks.overdue > 0 || data.unresolved_issues > 0) && (
             <div role="alert" className="rounded-md border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">
               <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden /> Safety checks need you</p>
               <ul className="mt-1 list-inside list-disc">
-                {data.temperature_checks.overdue > 0 && <li><Link className="underline" to="/temperature">{data.temperature_checks.overdue} temperature check(s) overdue</Link></li>}
-                {data.unresolved_issues > 0 && <li><Link className="underline" to="/temperature">{data.unresolved_issues} failed reading(s) still open</Link></li>}
+                {data.monitoring_checks.overdue > 0 && <li><Link className="underline" to="/monitoring">{data.monitoring_checks.overdue} check(s) overdue</Link></li>}
+                {data.unresolved_issues > 0 && <li><Link className="underline" to="/monitoring">{data.unresolved_issues} failed check(s) still open</Link></li>}
               </ul>
             </div>
           )}
@@ -66,13 +66,13 @@ export function StewardDashboard() {
             </CardContent>
           </Card>
 
-          <Link to="/temperature" className="block">
-            <Card className={data.temperature_checks.overdue ? 'border-danger/50' : undefined}>
+          <Link to="/monitoring" className="block">
+            <Card className={data.monitoring_checks.overdue ? 'border-danger/50' : undefined}>
               <CardContent className="flex items-center justify-between gap-3 py-4">
-                <span className="flex items-center gap-2 font-medium"><ThermometerSun className="h-5 w-5 text-brand" aria-hidden /> Temperature checks</span>
+                <span className="flex items-center gap-2 font-medium"><ThermometerSun className="h-5 w-5 text-brand" aria-hidden /> Monitoring</span>
                 <span className="flex gap-2">
-                  <Badge tone={data.temperature_checks.due ? 'warn' : 'neutral'}>{data.temperature_checks.due} due</Badge>
-                  <Badge tone={data.temperature_checks.overdue ? 'critical' : 'neutral'}>{data.temperature_checks.overdue} overdue</Badge>
+                  <Badge tone={data.monitoring_checks.due ? 'warn' : 'neutral'}>{data.monitoring_checks.due} due</Badge>
+                  <Badge tone={data.monitoring_checks.overdue ? 'critical' : 'neutral'}>{data.monitoring_checks.overdue} overdue</Badge>
                 </span>
               </CardContent>
             </Card>

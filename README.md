@@ -1,7 +1,7 @@
 # Stewarding Operations Management System
 
-Multi-location stewarding operations: attendance, daily and weekly checklists, dishwasher and glasswasher temperature
-monitoring, a single categorised inventory, breakage, notifications, dashboards and reports. Three roles (Back of House
+Multi-location stewarding operations: attendance, daily and weekly checklists, configurable monitoring logs
+(temperature, ppm, yes or no, traceability), a single categorised inventory, breakage, notifications, dashboards and reports. Three roles (Back of House
 Manager, Stewarding Supervisor, Steward) are enforced on the server, including per-location access.
 
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) - run it with Docker, create the first manager, back up, upgrade.
@@ -17,7 +17,7 @@ docker compose run --rm backend python -m app.bootstrap --email you@company.com 
 Open http://localhost:8080. See the deployment guide for details.
 
 ## Where things are configured
-Managers open **Settings**: locations, shifts, monitoring schedules (stages, timing and temperature limits per machine),
+Managers open **Settings**: locations, shifts, monitoring setup (monitoring points, their checks, limits and frequency, or a ready-made template),
 item master, categories and units, suppliers, alert rules and dropdown lists. Deliveries and supplier invoices are posted
 under **Stock Movements, Receiving** and update stock through the ledger.
 

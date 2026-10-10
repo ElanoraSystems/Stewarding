@@ -60,20 +60,20 @@ def test_open_critical_alerts_are_listed_first(client, login, db):
     assert items[0]["title"] == "Critical"
 
 
-def test_failed_temperature_alert_closes_when_the_retest_passes(client, login, db, clock):
+def test_failed_check_alert_closes_when_the_retest_passes(client, login, db, clock):
     h = login(STEWARD)
-    eq = next(e for e in client.get("/api/temperature/equipment", headers=h).json() if e["code"] == "DW-MK-1")
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")
     sched = next(s for s in eq["schedules"] if s["stage"] == "wash")
-    failed = client.post("/api/temperature/readings", headers=h, json={
-        "equipment_id": eq["id"], "schedule_id": sched["id"], "temp_c": 30, "corrective_action": "Cleaned the heater"}).json()
+    failed = client.post("/api/monitoring/readings", headers=h, json={
+        "equipment_id": eq["id"], "schedule_id": sched["id"], "value": 30, "corrective_action": "Cleaned the heater"}).json()
     sup = login(SUP)
     before = client.get("/api/notifications", headers=sup).json()["items"]
-    assert before[0]["kind"] == "temperature_failed" and before[0]["action_needed"] is True
+    assert before[0]["kind"] == "monitoring_failed" and before[0]["action_needed"] is True
     clock.advance(minutes=20)
-    client.post("/api/temperature/readings", headers=h, json={
-        "equipment_id": eq["id"], "schedule_id": sched["id"], "temp_c": 60, "retest_of_id": failed["id"]})
+    client.post("/api/monitoring/readings", headers=h, json={
+        "equipment_id": eq["id"], "schedule_id": sched["id"], "value": 60, "retest_of_id": failed["id"]})
     after = client.get("/api/notifications", headers=sup).json()["items"]
-    assert next(i for i in after if i["kind"] == "temperature_failed")["action_needed"] is False
+    assert next(i for i in after if i["kind"] == "monitoring_failed")["action_needed"] is False
 
 
 def test_notification_events_are_deduplicated_per_recipient(client, login, db):
@@ -125,4 +125,4 @@ def test_pending_summary_lists_verification_breakage_and_transfers(client, login
 
 def test_run_alerts_returns_counts(db, clock):
     totals = run_alerts(db, clock.now)
-    assert set(totals) == {"checkins", "checklists", "temperature", "summary", "checkouts", "corrective", "low_stock"}
+    assert set(totals) == {"checkins", "checklists", "monitoring", "summary", "checkouts", "corrective", "low_stock"}
