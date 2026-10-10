@@ -1,6 +1,7 @@
 import { MapPin } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/lib/auth'
+import { MyShiftCard } from '@/pages/MyShiftCard'
 
 const HEADINGS = {
   manager: { title: 'All locations', hint: 'Consolidated multi-location view.' },
@@ -19,6 +20,7 @@ export function DashboardPage() {
         <h1 className="text-2xl font-semibold">{title}</h1>
         <p className="text-sm text-ink-muted">{hint}</p>
       </div>
+      {me.role === 'steward' && <MyShiftCard />}
       {me.locations.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-ink-muted">

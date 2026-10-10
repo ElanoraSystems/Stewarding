@@ -1,0 +1,41 @@
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..models import Employee, EmployeeLocation, Notification, Role, User
+from ..permissions import MANAGER
+
+
+def recipients(db: Session, location_id: int | None, *roles: str) -> list[int]:
+    """Active users holding one of `roles` at the location; managers are always included when asked for."""
+    base = (
+        select(User.id)
+        .join(Role, User.role_id == Role.id)
+        .join(Employee, Employee.user_id == User.id)
+        .where(User.active.is_(True), Employee.status == "active", Role.name.in_(roles))
+    )
+    non_manager = [r for r in roles if r != MANAGER]
+    ids: set[int] = set()
+    if MANAGER in roles:
+        ids |= set(db.scalars(base.where(Role.name == MANAGER)))
+    if non_manager and location_id is not None:
+        q = base.join(EmployeeLocation, EmployeeLocation.employee_id == Employee.id).where(
+            EmployeeLocation.location_id == location_id, Role.name.in_(non_manager)
+        )
+        ids |= set(db.scalars(q))
+    return sorted(ids)
+
+
+def notify(db: Session, user_ids, kind: str, title: str, *, key: str, body: str | None = None,
+           priority: str = "normal", location_id: int | None = None, link: str | None = None,
+           due_at=None, requires_ack: bool = False) -> int:
+    """One notification per recipient and `key`; returns how many were newly created."""
+    created = 0
+    for uid in set(user_ids):
+        if db.scalar(select(Notification.id).where(Notification.user_id == uid, Notification.dedupe_key == key)):
+            continue
+        db.add(Notification(user_id=uid, kind=kind, title=title, body=body, priority=priority,
+                            location_id=location_id, link=link, dedupe_key=key, due_at=due_at,
+                            requires_ack=requires_ack))
+        db.flush()
+        created += 1
+    return created

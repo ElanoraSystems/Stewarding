@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     token_minutes: int = 600
     cors_origins: str = "http://localhost:5173"
     seed_password: str = ""
+    upload_dir: str = "./uploads"
+    scheduler_enabled: bool = True
+    bcrypt_rounds: int = 12
 
 
 settings = Settings()

@@ -4,7 +4,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/lib/auth'
 
 const PHASE: Record<string, number> = {
-  employees: 2, attendance: 2, roster: 2, 'daily-checklists': 2, 'weekly-checklists': 2,
   temperature: 3, equipment: 3,
   crockery: 4, smallware: 4, 'stock-movements': 4, breakage: 4,
   tasks: 5, reports: 5, audit: 5, settings: 5,

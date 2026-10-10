@@ -11,6 +11,7 @@ from .models import (Employee, EmployeeLocation, Equipment, EquipmentSchedule, L
                      Shift, ShiftAssignment, User)
 from .permissions import MANAGER, ROLE_PERMISSIONS, STEWARD, SUPERVISOR
 from .security import hash_password
+from .services.starter import apply_starter
 
 LOCATIONS = [
     ("MK", "Main Kitchen", "kitchen", "Asia/Dubai"),
@@ -73,6 +74,9 @@ def seed(db: Session, password: str) -> None:
             for weekday in range(7):
                 db.add(ShiftAssignment(employee_id=emp.id, shift_id=shifts["Morning"].id,
                                        location_id=locs[loc_codes[0]].id, weekday=weekday, valid_from=date(2025, 1, 6)))
+
+    for loc in locs.values():
+        apply_starter(db, loc.id)
 
     if not db.scalar(select(Equipment.id).limit(1)):
         for code, name, kind, loc_code, sup in [
