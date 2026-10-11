@@ -58,7 +58,8 @@ def _header(report: dict) -> list[tuple[str, str]]:
     period = report["period"]
     return [("Report", f"{period['type'].title()} report"), ("Period", f"{period['label']} ({period['from']} to {period['to']})"),
             ("Locations", ", ".join(report["locations"])), ("Location time zones", ", ".join(report["timezones"])),
-            ("Generated", _generated(report))]
+            ("Generated", _generated(report)), ("Prepared by", report.get("prepared_by") or "-"),
+            ("Position", report.get("prepared_position") or "-")]
 
 
 def to_csv(report: dict) -> bytes:
@@ -227,7 +228,7 @@ def _mark(key: str, value, style) -> object:
 
 def _record_meta(doc: dict) -> list[tuple[str, str]]:
     return [("Period", doc["period"]["label"]), ("Locations", ", ".join(doc["locations"]) or "-"),
-            ("Prepared by", doc["prepared_by"]), ("Generated", doc["generated_at"])]
+            ("Prepared by", doc["prepared_by"]), ("Position", doc.get("prepared_position") or "-"), ("Generated", doc["generated_at"])]
 
 
 def record_to_csv(doc: dict) -> bytes:

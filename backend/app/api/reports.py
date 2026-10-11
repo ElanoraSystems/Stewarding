@@ -33,7 +33,14 @@ def _build(db: Session, user: User, period: str, anchor: date | None, location_i
         report = build_report(db, timeutil.utc_now(), scoped_locations(user, db), period, anchor, location_id, employee_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
-    return {**report, "organization": report_identity(db)}
+    name, position = _author(db, user)
+    return {**report, "prepared_by": name, "prepared_position": position, "organization": report_identity(db)}
+
+
+def _author(db: Session, user: User) -> tuple[str, str]:
+    """The person exporting the report: their name and, separately, their job title."""
+    emp = db.scalar(select(Employee).where(Employee.user_id == user.id))
+    return (emp.full_name, emp.job_title) if emp else (user.email, user.role.name.replace("_", " ").capitalize())
 
 
 def _record(db: Session, user: User, kind: str, date_from: date | None, date_to: date | None, f: Filters) -> dict:
@@ -48,13 +55,13 @@ def _record(db: Session, user: User, kind: str, date_from: date | None, date_to:
     now = timeutil.utc_now()
     day_to = date_to or now.date()
     day_from = date_from or day_to
-    name = db.scalar(select(Employee.full_name).where(Employee.user_id == user.id)) or user.email
+    name, position = _author(db, user)
     try:
         doc = build_record(db, now, scoped_locations(user, db), kind, day_from, day_to, f, name)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     identity = report_identity(db)
-    return {**doc, "generated_at": stamp(now, identity["timezone"]), "organization": identity}
+    return {**doc, "prepared_position": position, "generated_at": stamp(now, identity["timezone"]), "organization": identity}
 
 
 @router.get("/records/{kind}")

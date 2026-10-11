@@ -30,7 +30,7 @@ def seed_readings(client, login):
 def test_monitoring_record_lists_who_what_when_and_the_corrective_action(client, login, db, clock):
     seed_readings(client, login)
     doc = monitoring(client, login(MGR), location_id=loc_id(db, "MK")).json()
-    assert doc["title"] == "Monitoring Record" and doc["locations"] == ["Main Kitchen"] and doc["prepared_by"] == "Maya Manager"
+    assert doc["title"] == "Monitoring Record" and doc["locations"] == ["Main Kitchen"] and doc["prepared_by"] == "Maya Manager" and doc["prepared_position"] == "Back of House Manager"
     group = next(g for g in doc["groups"] if "DW-MK-1" in g["title"])
     assert group["title"] == "Main Kitchen - Main Kitchen Dishwasher 1 (DW-MK-1)"
     assert dict(group["meta"])["Type"] == "Dishwasher"
@@ -236,3 +236,17 @@ def test_attendance_sheet_has_one_page_per_employee_with_day_totals(client, logi
     assert pdf.content.startswith(b"%PDF") and len(re.findall(rb"/Type\s*/Page[^s]", pdf.content)) >= len(names)
     xlsx = client.get(f"{URL}/attendance_sheet/export?fmt=xlsx&date_from=2026-02-27&date_to=2026-03-02", headers=mgr)
     assert len(load_workbook(io.BytesIO(xlsx.content)).worksheets) == len(names)
+
+
+def test_the_report_header_gives_name_and_position_separately(client, login, db, clock):
+    sup = login(SUP)
+    q = "date_from=2026-03-02&date_to=2026-03-02"
+    doc = client.get(f"{URL}/attendance?{q}", headers=sup).json()
+    assert (doc["prepared_by"], doc["prepared_position"]) == ("Sam Supervisor", "Stewarding Supervisor")
+    csv = client.get(f"{URL}/attendance/export?fmt=csv&{q}", headers=login(MGR)).content.decode("utf-8-sig").splitlines()
+    assert "Prepared by,Maya Manager" in csv and "Position,Back of House Manager" in csv
+    sheet = load_workbook(io.BytesIO(client.get(f"{URL}/attendance/export?fmt=xlsx&{q}", headers=login(MGR)).content)).worksheets[0]
+    cells = {(c.value, sheet.cell(row=c.row, column=2).value) for row in sheet.iter_rows(max_col=1) for c in row if c.value}
+    assert ("Prepared by", "Maya Manager") in cells and ("Position", "Back of House Manager") in cells
+    summary = client.get("/api/reports/daily/export?fmt=csv", headers=login(MGR)).content.decode("utf-8-sig").splitlines()
+    assert "Prepared by,Maya Manager" in summary and "Position,Back of House Manager" in summary
