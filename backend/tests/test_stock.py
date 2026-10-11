@@ -36,12 +36,20 @@ def test_approval_posts_both_sides_atomically_and_only_once(client, login, db):
     assert db.scalar(select(ApprovalRecord.id).where(ApprovalRecord.subject_type == "transfer"))
 
 
-def test_transfer_larger_than_stock_stays_requested(client, login, db):
-    t = transfer(client, login(SUP), db, qty=500).json()
-    assert decide(client, login(MGR), t["id"]).status_code == 409
+def test_transfer_larger_than_stock_is_refused_when_requested(client, login, db):
+    assert transfer(client, login(SUP), db, qty=500).status_code == 409
+    assert client.get("/api/stock/transfers", headers=login(MGR)).json() == []
     assert balance(db, "PL-001", "MK") == 200 and balance(db, "PL-001", "BQ") == 150
+
+
+def test_stock_used_before_approval_blocks_the_transfer(client, login, db):
+    t = transfer(client, login(SUP), db, qty=150).json()
+    client.post("/api/inventory/transactions", json={"item_id": item_id(db, "PL-001"), "location_id": loc_id(db, "MK"),
+                                                    "txn_type": "issue", "qty": 100}, headers=login(SUP))
+    assert decide(client, login(MGR), t["id"]).status_code == 409
     listing = client.get("/api/stock/transfers?transfer_status=requested", headers=login(MGR)).json()
     assert [x["id"] for x in listing] == [t["id"]]
+    assert balance(db, "PL-001", "MK") == 100 and balance(db, "PL-001", "BQ") == 150
 
 
 def test_rejected_transfer_changes_no_stock(client, login, db):
@@ -153,3 +161,42 @@ def test_the_count_limit_follows_receipts_and_transfers_in(client, login, db):
     transfer(client, m, db, qty=20, src="MK", dst="BQ")  # BQ received 150 + 20
     assert count(client, h, db, 170, loc="BQ").status_code == 201
     assert count(client, h, db, 171, loc="BQ").status_code == 400
+
+
+def test_insights_summarise_movements_breakage_and_transfers(client, login, db, clock):
+    h, m = login(SUP), login(MGR)
+    base = {"item_id": item_id(db, "PL-001"), "location_id": loc_id(db, "MK")}
+    client.post("/api/inventory/transactions", json={**base, "txn_type": "receipt", "qty": 30}, headers=h)
+    client.post("/api/inventory/transactions", json={**base, "txn_type": "issue", "qty": 8}, headers=h)
+    client.post("/api/breakage", headers=h, json={**base, "qty": 2, "incident_type": "breakage", "reason": "Dropped while carrying"})
+    transfer(client, m, db, qty=5)
+    data = client.get(f"/api/stock/insights?location_id={loc_id(db, 'MK')}&date_from=2026-03-01&date_to=2026-03-02", headers=m).json()
+    today = next(d for d in data["movement"] if d["date"] == "2026-03-02")
+    assert today["in"] == 30 and today["out"] >= 8 + 5  # the issue and the transfer out
+    assert data["totals"]["breakage_units"] == 2 and data["breakage_by_reason"] == [{"label": "Dropped while carrying", "value": 2}]
+    assert data["breakage_top_items"][0]["label"] == "Dinner Plate 27cm"
+    assert data["transfers"]["completed"] == 1 and data["transfers"]["units"] == 5
+    assert data["transfer_routes"][0]["label"] == "Main Kitchen to Banquet Hall" and data["transfer_routes"][0]["value"] == 5
+    assert {t["label"] for t in data["movement_by_type"]} >= {"Receipt", "Issue", "Transfer out"}
+    assert data["range"]["grain"] == "day"
+    quarter = client.get("/api/stock/insights?date_from=2025-12-15&date_to=2026-03-02", headers=m).json()
+    assert quarter["range"]["grain"] == "month" and quarter["movement"][0]["date"] == "2025-12" and len(quarter["movement"]) == 4
+
+
+def test_insights_respect_location_scope_and_range_limits(client, login, db):
+    assert client.get(f"/api/stock/insights?location_id={loc_id(db, 'MK')}", headers=login(SUP_RB)).status_code == 403
+    assert client.get("/api/stock/insights?date_from=2020-01-01&date_to=2026-03-02", headers=login(MGR)).status_code == 400
+    assert client.get("/api/stock/insights?date_from=2026-03-05&date_to=2026-03-01", headers=login(MGR)).status_code == 400
+    assert client.get("/api/stock/insights").status_code == 401
+
+
+def test_reconciliation_flags_shortages_with_their_value(client, login, db, clock):
+    c = count(client, login(SUP), db, 190).json()  # 10 plates short
+    client.post(f"/api/stock/counts/{c['id']}/post", headers=login(MGR))
+    other = count(client, login(SUP), db, 5, code="KN-001", loc="MK")
+    assert other.status_code in (201, 400)
+    doc = client.get(f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}&month=2026-03", headers=login(MGR)).json()
+    row_ = next(r for r in doc["rows"] if r["code"] == "PL-001")
+    assert row_["count_variance"] == -10 and row_["variance_value"] == -25.0  # 10 x 2.50
+    assert doc["variance"]["shortage_items"] == 1 and doc["variance"]["shortage_units"] == 10 and doc["variance"]["net_value"] == -25.0
+    assert doc["variance"]["surplus_items"] == 0

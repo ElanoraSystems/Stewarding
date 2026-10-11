@@ -16,6 +16,7 @@ from ..services.settings import DEFAULTS, all_settings
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
+MAX_SETTING = 100_000
 LOCATION_FIELDS = ("id", "code", "name", "kind", "timezone", "active")
 
 
@@ -61,8 +62,10 @@ def update_settings(body: SettingsIn, user: User = Depends(require("settings.man
     unknown = set(body.values) - set(DEFAULTS)
     if unknown:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown setting: {sorted(unknown)[0]}")
-    if any(v < 0 for v in body.values.values()):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Values must not be negative")
+    if any(v < 0 or v > MAX_SETTING for v in body.values.values()):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Values must be between 0 and {MAX_SETTING}")
+    if body.values.get("approval.checklists", 0) not in (0, 1):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "approval.checklists must be 0 or 1")
     before = all_settings(db)
     for key, value in body.values.items():
         record = db.get(Setting, key)

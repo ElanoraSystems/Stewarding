@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import scheduler
 from .api import (absences, attendance, audit, auth, breakage, checklists, dashboard, employees, equipment, inventory,
-                  lookups, notifications, receipts, reports, roster, settings as settings_api, stock, suppliers,
+                  lookups, notifications, organization, receipts, reports, roster, settings as settings_api, stock, suppliers,
                   monitoring, uploads)
 from .config import settings
 from .db import SessionLocal
@@ -24,7 +24,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Stewarding Operations Management System", lifespan=lifespan)
+app = FastAPI(title="Scullery", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
@@ -32,7 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 for module in (auth, employees, attendance, roster, checklists, uploads, equipment, monitoring, inventory, stock,
-               breakage, notifications, dashboard, reports, settings_api, audit, suppliers, receipts, lookups, absences):
+               breakage, notifications, dashboard, reports, settings_api, audit, suppliers, receipts, lookups, absences, organization):
     app.include_router(module.router)
 
 

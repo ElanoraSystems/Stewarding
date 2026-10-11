@@ -11,6 +11,7 @@ from ..db import get_db
 from ..deps import check_location, require, scoped_locations
 from ..models import Employee, User
 from ..services import exporters
+from ..services.organization import report_identity, stamp
 from ..services.records import KINDS, MOVEMENTS, Filters, build_record
 from ..services.reports import PERIODS, REPORTS, build_report
 
@@ -29,9 +30,10 @@ def _build(db: Session, user: User, period: str, anchor: date | None, location_i
     if location_id is not None:
         check_location(user, db, location_id)
     try:
-        return build_report(db, timeutil.utc_now(), scoped_locations(user, db), period, anchor, location_id, employee_id)
+        report = build_report(db, timeutil.utc_now(), scoped_locations(user, db), period, anchor, location_id, employee_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    return {**report, "organization": report_identity(db)}
 
 
 def _record(db: Session, user: User, kind: str, date_from: date | None, date_to: date | None, f: Filters) -> dict:
@@ -48,9 +50,11 @@ def _record(db: Session, user: User, kind: str, date_from: date | None, date_to:
     day_from = date_from or day_to
     name = db.scalar(select(Employee.full_name).where(Employee.user_id == user.id)) or user.email
     try:
-        return build_record(db, now, scoped_locations(user, db), kind, day_from, day_to, f, name)
+        doc = build_record(db, now, scoped_locations(user, db), kind, day_from, day_to, f, name)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    identity = report_identity(db)
+    return {**doc, "generated_at": stamp(now, identity["timezone"]), "organization": identity}
 
 
 @router.get("/records/{kind}")

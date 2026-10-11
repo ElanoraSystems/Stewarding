@@ -71,6 +71,18 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         overdue_stmt = overdue_stmt.where(ChecklistInstance.location_id == location_id)
     elif scope is not None:
         overdue_stmt = overdue_stmt.where(ChecklistInstance.location_id.in_(scope))
+    def scoped(stmt, column):
+        if location_id is not None:
+            return stmt.where(column == location_id)
+        return stmt.where(column.in_(scope)) if scope is not None else stmt
+
+    awaiting_tasks = db.scalar(scoped(select(func.count()).select_from(ChecklistInstance).where(
+        ChecklistInstance.status == "pending_verification"), ChecklistInstance.location_id))
+    awaiting_readings = db.scalar(scoped(select(func.count()).select_from(TemperatureReading).where(
+        TemperatureReading.reviewed_at.is_(None), TemperatureReading.retest_of_id.is_(None),
+        TemperatureReading.recorded_at >= now - timedelta(days=14)), TemperatureReading.location_id))
+    awaiting_breakage = db.scalar(scoped(select(func.count()).select_from(BreakageIncident).where(
+        BreakageIncident.status.in_(("reported", "pending_approval"))), BreakageIncident.location_id))
     temp_today = [metrics.monitoring_stats(db, w, now) for w in today_wins]
     stock = metrics.stock_snapshot(db, scope, location_id)
     month_wins = metrics.windows_by(db, now, scope, location_id, lambda t: (t.replace(day=1), t))
@@ -80,6 +92,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         "absent": sum(a["absent"] for a in attendance), "on_duty": db.scalar(on_duty_stmt),
         "daily_completion": _percent_block(daily), "weekly_completion": _percent_block(weekly),
         "overdue_tasks": db.scalar(overdue_stmt),
+        "awaiting_approval": {"tasks": awaiting_tasks, "readings": awaiting_readings, "breakage": awaiting_breakage},
         "monitoring_checks": {"done": sum(t["done"] for t in temp_today), "due": sum(t["due"] for t in temp_today)},
         "failed_checks": sum(t["failed"] for t in temp_today),
         "equipment_attention": _equipment_attention(db, scope, location_id, now),

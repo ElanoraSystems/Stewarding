@@ -12,6 +12,8 @@ export interface ReportDef {
 export const REPORTS: ReportDef[] = [
   { key: 'attendance', title: 'Attendance', section: 'People', filters: ['employee'],
     blurb: 'Who worked, when they checked in and out, late arrivals, absences, leave and week offs, by location.' },
+  { key: 'attendance_sheet', title: 'Employee attendance sheet', section: 'People', filters: ['employee'],
+    blurb: 'One page per employee: days present, week off, absent, leave and hours worked, with every day listed. Ready to sign.' },
   { key: 'checklist_chart', title: 'Checklist completion chart', section: 'Checklists', filters: ['frequency'],
     blurb: 'Tasks down the page, dates across, a tick for each task done. Shows who completed and who approved, with exceptions.' },
   { key: 'checklists', title: 'Checklist record', section: 'Checklists', filters: ['frequency', 'employee'],

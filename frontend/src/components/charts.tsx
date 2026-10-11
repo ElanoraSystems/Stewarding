@@ -90,3 +90,25 @@ export function TrendLine({ points }: { points: { label: string; value: number |
     </div>
   )
 }
+
+/** Horizontal bars sized against the largest value, for counts of units rather than percentages. */
+export function QuantityBars({ items, unit = '' }: { items: { label: string; value: number; sub?: string }[]; unit?: string }) {
+  if (items.length === 0) return <p className="py-6 text-center text-sm text-ink-muted">Nothing recorded for this selection.</p>
+  const max = Math.max(1, ...items.map((i) => i.value))
+  return (
+    <ul className="space-y-3">
+      {items.map((item) => (
+        <li key={item.label}>
+          <div className="flex justify-between gap-2 text-sm">
+            <span className="truncate font-medium">{item.label}</span>
+            <span className="tabular-nums text-ink-muted">{item.value}{unit}</span>
+          </div>
+          <div className="mt-1 h-2 overflow-hidden rounded bg-surface-muted" role="img" aria-label={`${item.label} ${item.value}${unit}`}>
+            <div className="h-full rounded bg-brand" style={{ width: `${(item.value / max) * 100}%` }} />
+          </div>
+          {item.sub && <p className="mt-0.5 text-xs text-ink-muted">{item.sub}</p>}
+        </li>
+      ))}
+    </ul>
+  )
+}

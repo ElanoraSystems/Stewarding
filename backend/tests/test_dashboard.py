@@ -136,3 +136,18 @@ def test_steward_dashboard_shows_only_my_shift(client, login, db, clock):
 
 def test_dashboard_requires_authentication(client):
     assert client.get("/api/dashboard").status_code == 401
+
+
+def test_dashboard_counts_what_is_waiting_for_approval(client, login, db, clock):
+    from .test_approvals import complete
+    from .test_checklists import find
+    from .test_monitoring import mk_stage, record
+    generate(client, login, db)
+    steward = login(STEWARD)
+    complete(client, steward, find(client, steward, "Clean drains"))
+    eq, wash = mk_stage(client, steward)
+    record(client, steward, eq, wash, 60)
+    waiting = dash(client, login(MGR))["kpis"]["awaiting_approval"]
+    assert waiting == {"tasks": 1, "readings": 1, "breakage": 0}
+    only_rb = dash(client, login(MGR), location_id=loc_id(db, "RB"))["kpis"]["awaiting_approval"]
+    assert only_rb == {"tasks": 0, "readings": 0, "breakage": 0}

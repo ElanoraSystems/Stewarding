@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, ChecklistTemplate,
                       CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryItem,
-                      Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
+                      InventoryTransfer, InventoryTransferLine, Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
 from .settings import get_setting
 from .monitoring import expected_slots
 
@@ -162,7 +162,7 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
 
     def row(emp_id, day, shift, rec, status, recorded=None, note=None):
         return {"employee_id": emp_id, "name": names.get(emp_id), "day": day, "shift": shift.name if shift else None,
-                "status": status, "recorded": recorded, "note": note,
+                "status": status, "recorded": recorded, "note": note or (rec.exception_reason if rec else None),
                 "check_in": rec.check_in_at if rec else None, "check_out": rec.check_out_at if rec else None,
                 "late_minutes": rec.late_minutes if rec else 0, "payable_minutes": rec.payable_minutes if rec else None,
                 "overtime_minutes": rec.overtime_minutes if rec else None}
@@ -179,6 +179,9 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
             if rec.late_minutes > 0:
                 count(day, "late")
             rows.append(row(emp_id, day, shift, rec, status))
+        elif absence and absence.absence_type == "day_off":
+            count(day, "week_off")
+            rows.append(row(emp_id, day, shift, None, "week_off", True, absence.note))
         elif absence and absence.absence_type in LEAVE_TYPES:
             count(day, "on_leave")
             rows.append(row(emp_id, day, shift, None, absence.absence_type, True, absence.note))
@@ -208,7 +211,10 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
             rows.append(row(emp_id, day, shifts.get(rec.shift_id), rec, "unscheduled"))
     for (emp_id, day), absence in absences.items():
         if (emp_id, day) not in expected:
-            rows.append(row(emp_id, day, None, None, absence.absence_type, True, absence.note))
+            is_off = absence.absence_type == "day_off"
+            if is_off:
+                count(day, "week_off")
+            rows.append(row(emp_id, day, None, None, "week_off" if is_off else absence.absence_type, True, absence.note))
     return {"rows": rows, "per_day": dict(per_day), **totals}
 
 
@@ -296,3 +302,56 @@ def open_actions(db: Session, location_ids: set[int] | None) -> int:
     if location_ids is not None:
         stmt = stmt.where(TemperatureReading.location_id.in_(location_ids))
     return len(db.scalars(stmt).all())
+
+
+DAILY_GRAIN_DAYS = 62
+
+
+def stock_insights(db: Session, wins: list[Win], d_from: date, d_to: date) -> dict:
+    """Stock in and out, breakage and transfers over a range, grouped by day or by month for long ranges."""
+    monthly = (d_to - d_from).days >= DAILY_GRAIN_DAYS
+    key = (lambda d: d.strftime("%Y-%m")) if monthly else (lambda d: d.isoformat())
+    periods = sorted({key(d) for d in daterange(d_from, d_to)})
+    moves = {p: {"date": p, "in": 0, "out": 0} for p in periods}
+    by_type: Counter = Counter()
+    for txn, day in movements(db, wins):
+        if txn.txn_type == "opening":
+            continue
+        slot = moves[key(day)]
+        slot["in" if txn.qty_delta > 0 else "out"] += abs(txn.qty_delta)
+        by_type[txn.txn_type] += abs(txn.qty_delta)
+    breakage = {p: {"period": p, "incidents": 0, "qty": 0, "est_cost": 0.0} for p in periods}
+    reasons: Counter = Counter()
+    top_items: Counter = Counter()
+    names = {i.id: i.name for i in db.scalars(select(InventoryItem))}
+    for inc, day in breakage_in(db, wins):
+        slot = breakage[key(day)]
+        slot["incidents"] += 1
+        slot["qty"] += inc.qty
+        slot["est_cost"] = round(slot["est_cost"] + float(inc.est_cost or 0), 2)
+        reasons[inc.reason or "No reason given"] += inc.qty
+        top_items[names.get(inc.item_id, "Unknown item")] += inc.qty
+    places = {w.loc.id: w.loc.name for w in wins}
+    first = wins[0] if wins else None
+    transfers = {"requested": 0, "completed": 0, "rejected": 0, "units": 0}
+    routes: dict[str, dict] = {}
+    if first:
+        start, end = min(w.start for w in wins), max(w.end for w in wins)
+        all_places = {loc.id: loc.name for loc in db.scalars(select(Location))}
+        for t in db.scalars(select(InventoryTransfer).where(InventoryTransfer.requested_at >= start, InventoryTransfer.requested_at < end)):
+            if t.from_location_id not in places and t.to_location_id not in places:
+                continue
+            transfers[t.status if t.status in transfers else "requested"] += 1
+            units = sum(ln.qty for ln in db.scalars(select(InventoryTransferLine).where(InventoryTransferLine.transfer_id == t.id)))
+            if t.status == "completed":
+                transfers["units"] += units
+                route = routes.setdefault(f"{all_places.get(t.from_location_id)} to {all_places.get(t.to_location_id)}", {"count": 0, "qty": 0})
+                route["count"] += 1
+                route["qty"] += units
+    top = lambda counter: [{"label": k, "value": v} for k, v in counter.most_common(6)]  # noqa: E731
+    return {"range": {"from": d_from.isoformat(), "to": d_to.isoformat(), "grain": "month" if monthly else "day"},
+            "movement": list(moves.values()), "movement_by_type": [{"label": k.replace("_", " ").capitalize(), "value": v} for k, v in by_type.most_common()],
+            "breakage_trend": list(breakage.values()), "breakage_by_reason": top(reasons), "breakage_top_items": top(top_items),
+            "transfers": transfers, "transfer_routes": [{"label": k, "value": v["qty"], "sub": f"{v['count']} transfer(s)"} for k, v in sorted(routes.items(), key=lambda kv: -kv[1]["qty"])[:6]],
+            "totals": {"in": sum(m["in"] for m in moves.values()), "out": sum(m["out"] for m in moves.values()),
+                       "breakage_units": sum(b["qty"] for b in breakage.values()), "breakage_cost": round(sum(b["est_cost"] for b in breakage.values()), 2)}}

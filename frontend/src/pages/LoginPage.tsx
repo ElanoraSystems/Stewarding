@@ -2,10 +2,14 @@ import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { BrandMark } from '@/components/BrandMark'
+import { APP_NAME, APP_TAGLINE } from '@/lib/brand'
 import { useAuth } from '@/lib/auth'
+import { useApi } from '@/lib/useApi'
 
 export function LoginPage() {
   const { login } = useAuth()
+  const org = useApi<{ name: string; has_logo: boolean }>('/organization/public')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -28,8 +32,9 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-xl">Stewarding Operations</CardTitle>
-          <p className="text-sm text-ink-muted">Sign in with your individual account.</p>
+          <BrandMark organization={org.data?.name ?? ''} hasLogo={org.data?.has_logo ?? false} />
+          <CardTitle className="pt-2 text-xl">Sign in to {APP_NAME}</CardTitle>
+          <p className="text-sm text-ink-muted">{APP_TAGLINE}. Use your individual account.</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="space-y-4">

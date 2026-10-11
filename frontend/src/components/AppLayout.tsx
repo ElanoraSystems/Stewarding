@@ -3,12 +3,15 @@ import {
   LogOut, Menu, ScrollText, Settings, Thermometer, TriangleAlert, Users, Wrench, X,
   type LucideIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { BrandMark } from '@/components/BrandMark'
 import { NotificationBell } from '@/components/NotificationBell'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
+import { setDisplayTimeZone } from '@/lib/format'
+import { useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
 
 const ICONS: Record<string, LucideIcon> = {
@@ -33,6 +36,13 @@ const ROLE_LABEL = { manager: 'Back of House Manager', supervisor: 'Stewarding S
 
 export function AppLayout() {
   const { me, logout } = useAuth()
+  const org = useApi<{ name: string; logo: string | null; timezone: string }>('/organization')
+  const reloadOrg = org.reload
+  setDisplayTimeZone(org.data?.timezone)
+  useEffect(() => {
+    window.addEventListener('organization-changed', reloadOrg)
+    return () => window.removeEventListener('organization-changed', reloadOrg)
+  }, [reloadOrg])
   const [open, setOpen] = useState(false)
   if (!me) return null
 
@@ -45,7 +55,7 @@ export function AppLayout() {
         )}
       >
         <div className="flex h-16 items-center justify-between px-5 font-semibold">
-          Stewarding Ops
+          <BrandMark organization={org.data?.name ?? ''} hasLogo={!!org.data?.logo} />
           <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Close menu" onClick={() => setOpen(false)}>
             <X className="h-5 w-5" />
           </Button>

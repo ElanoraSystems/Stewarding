@@ -1,6 +1,6 @@
-# Stewarding Operations Management System
+# Scullery
 
-Multi-location stewarding operations: attendance, daily and weekly checklists, configurable monitoring logs
+Back-of-house operations for hospitality kitchens and F&B stewarding teams. Multi-location: attendance, daily and weekly checklists, configurable monitoring logs
 (temperature, ppm, yes or no, traceability), a single categorised inventory, breakage, notifications, dashboards and reports. Three roles (Back of House
 Manager, Stewarding Supervisor, Steward) are enforced on the server, including per-location access.
 

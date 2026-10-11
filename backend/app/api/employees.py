@@ -1,8 +1,9 @@
-from datetime import date
+import re
+from datetime import date, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import asc, desc, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,31 +22,80 @@ SORTABLE = {"full_name", "employee_code", "job_title", "status", "date_joined"}
 PRIVATE = ("phone", "email", "emergency_contact", "date_joined", "weekly_schedule", "photo_path")
 
 
+PHONE_RE = re.compile(r"^[0-9+()\-.\s]{5,40}$")
+CODE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+FIRST_DAY = date(2000, 1, 1)
+
+
+def _text(value: str | None) -> str | None:
+    return " ".join(value.split()) or None if isinstance(value, str) else value
+
+
+def _name(value: str | None) -> str | None:
+    if value is None:
+        return value
+    cleaned = " ".join(value.split())
+    if len(cleaned) < 2:
+        raise ValueError("Enter at least 2 characters")
+    return cleaned
+
+
+def _phone(value: str | None) -> str | None:
+    value = _text(value)
+    if value and not PHONE_RE.match(value):
+        raise ValueError("Phone may contain digits, spaces, + ( ) - and .")
+    return value
+
+
+def _joined(value: date | None) -> date | None:
+    if value and not (FIRST_DAY <= value <= date.today() + timedelta(days=366)):
+        raise ValueError("The joining date is out of range")
+    return value
+
+
+def _password(value: str) -> str:
+    classes = sum(any(check(c) for c in value) for check in (str.islower, str.isupper, str.isdigit, lambda c: not c.isalnum()))
+    if classes < 2:
+        raise ValueError("Use at least two kinds of characters: letters, numbers or symbols")
+    return value
+
+
 class EmployeeIn(BaseModel):
-    employee_code: str = Field(min_length=2, max_length=20)
+    employee_code: str = Field(min_length=2, max_length=20, pattern=CODE_RE.pattern)
     full_name: str = Field(min_length=2, max_length=120)
     job_title: str = Field(min_length=2, max_length=80)
     email: EmailStr
     password: str = Field(min_length=10, max_length=128)
     role: RoleName
-    phone: str | None = None
-    emergency_contact: str | None = None
+    phone: str | None = Field(default=None, max_length=40)
+    emergency_contact: str | None = Field(default=None, max_length=200)
     date_joined: date | None = None
     supervisor_id: int | None = None
     location_ids: list[int] = Field(min_length=1)
     weekly_schedule: dict | None = None
 
+    _names = field_validator("full_name", "job_title")(_name)
+    _phone = field_validator("phone")(_phone)
+    _contact = field_validator("emergency_contact")(_text)
+    _joined = field_validator("date_joined")(_joined)
+    _password = field_validator("password")(_password)
+
 
 class EmployeeUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
-    job_title: str | None = None
+    job_title: str | None = Field(default=None, min_length=2, max_length=80)
     role: RoleName | None = None
-    phone: str | None = None
-    emergency_contact: str | None = None
+    phone: str | None = Field(default=None, max_length=40)
+    emergency_contact: str | None = Field(default=None, max_length=200)
     date_joined: date | None = None
     supervisor_id: int | None = None
     location_ids: list[int] | None = Field(default=None, min_length=1)
     weekly_schedule: dict | None = None
+
+    _names = field_validator("full_name", "job_title")(_name)
+    _phone = field_validator("phone")(_phone)
+    _contact = field_validator("emergency_contact")(_text)
+    _joined = field_validator("date_joined")(_joined)
 
 
 def _location_ids(emp: Employee) -> list[int]:

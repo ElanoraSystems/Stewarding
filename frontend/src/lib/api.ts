@@ -55,3 +55,9 @@ export async function uploadFile(file: File): Promise<string> {
   const { name } = await send<{ name: string }>('/uploads', { method: 'POST', body: form })
   return name
 }
+
+export async function uploadLogo(file: File): Promise<void> {
+  const form = new FormData()
+  form.append('file', file)
+  await send('/organization/logo', { method: 'POST', body: form })
+}

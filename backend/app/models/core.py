@@ -150,7 +150,7 @@ class AbsenceRecord(Base):
     employee_id: Mapped[int] = mapped_column(ForeignKey("employee.id"), index=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
     local_date: Mapped[date] = mapped_column(Date, index=True)
-    absence_type: Mapped[str] = mapped_column(String(20))  # absent | sick_leave | annual_leave | unpaid_leave | other_leave
+    absence_type: Mapped[str] = mapped_column(String(20))  # absent | day_off | sick_leave | annual_leave | unpaid_leave | other_leave
     note: Mapped[str | None] = mapped_column(Text)
     recorded_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     created_at: Mapped[datetime] = ts()

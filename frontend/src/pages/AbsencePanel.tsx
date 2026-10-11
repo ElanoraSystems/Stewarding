@@ -12,7 +12,7 @@ import { fmtDate, label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 
-const ABSENCE_TYPES = ['absent', 'sick_leave', 'annual_leave', 'unpaid_leave', 'other_leave']
+const ABSENCE_TYPES = ['absent', 'day_off', 'sick_leave', 'annual_leave', 'unpaid_leave', 'other_leave']
 
 interface Absence {
   id: number
@@ -31,6 +31,7 @@ export function AbsencePanel() {
   const [locationId, setLocationId] = useState<number | null>(null)
   const [employeeId, setEmployeeId] = useState('')
   const [day, setDay] = useState(today)
+  const [dayTo, setDayTo] = useState('')
   const [kind, setKind] = useState('absent')
   const [note, setNote] = useState('')
   const employees = useApi<{ items: { id: number; full_name: string }[] }>(locationId ? `/employees${qs({ location_id: locationId, status: 'active', size: 200 })}` : null)
@@ -38,7 +39,7 @@ export function AbsencePanel() {
 
   async function record(event: FormEvent) {
     event.preventDefault()
-    const ok = await run(() => api('/absences', { body: { employee_id: Number(employeeId), location_id: locationId, day, absence_type: kind, note: note || null } }), 'Recorded')
+    const ok = await run(() => api('/absences', { body: { employee_id: Number(employeeId), location_id: locationId, day, day_to: dayTo || null, absence_type: kind, note: note || null } }), 'Recorded')
     if (ok) {
       setNote('')
       list.reload()
@@ -52,7 +53,7 @@ export function AbsencePanel() {
 
   return (
     <Card>
-      <CardHeader><CardTitle>Record absence or leave</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Assign a day off, absence or leave</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <form onSubmit={record} className="flex flex-wrap items-end gap-3">
           <Field label="Location"><LocationSelect value={locationId} onChange={(id) => { setLocationId(id); setEmployeeId('') }} /></Field>
@@ -62,7 +63,8 @@ export function AbsencePanel() {
               {employees.data?.items.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
             </Select>
           </Field>
-          <Field label="Date"><Input required type="date" value={day} onChange={(e) => setDay(e.target.value)} /></Field>
+          <Field label="From"><Input required type="date" value={day} onChange={(e) => setDay(e.target.value)} /></Field>
+          <Field label="To (optional)" hint="For several days in a row"><Input type="date" value={dayTo} min={day} onChange={(e) => setDayTo(e.target.value)} /></Field>
           <Field label="Type">
             <Select value={kind} onChange={(e) => setKind(e.target.value)}>{ABSENCE_TYPES.map((t) => <option key={t} value={t}>{label(t)}</option>)}</Select>
           </Field>

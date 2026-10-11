@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { LocationSelect } from '@/components/LocationSelect'
 import { BarList, ColumnChart, TrendLine } from '@/components/charts'
@@ -30,6 +30,7 @@ interface Dashboard {
     daily_completion: Compliance
     weekly_completion: Compliance
     overdue_tasks: number
+    awaiting_approval: { tasks: number; readings: number; breakage: number }
     monitoring_checks: { done: number; due: number }
     failed_checks: number
     equipment_attention: number
@@ -58,6 +59,18 @@ interface Dashboard {
 
 const pct = (c: Compliance) => (c.percent === null ? 'n/a' : `${c.percent}%`)
 const ratio = (c: Compliance) => `${c.numerator} of ${c.denominator} due`
+
+function KpiGroup({ title, link, children }: { title: string; link: string; children: ReactNode }) {
+  return (
+    <section aria-label={title} className="space-y-2">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">{title}</h2>
+        <Link to={link} className="text-sm text-brand underline">Open</Link>
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{children}</div>
+    </section>
+  )
+}
 
 export function ManagerDashboard() {
   const { me } = useAuth()
@@ -119,20 +132,38 @@ export function ManagerDashboard() {
       )}
 
       {loading && !data ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-24" />)}</div> : k && (
-        <section aria-label="Key figures" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiCard label="Scheduled today" value={k.scheduled_today} />
-          <KpiCard label="Checked in" value={k.checked_in} hint={`${k.on_duty} on duty now`} tone="ok" />
-          <KpiCard label="Not checked in" value={k.not_checked_in} hint={`${k.absent} absent, ${k.off_today} off today`} tone={k.absent ? 'warn' : 'default'} />
-          <KpiCard label="Daily checklists" value={pct(k.daily_completion)} hint={ratio(k.daily_completion)} />
-          <KpiCard label="Weekly checklists" value={pct(k.weekly_completion)} hint={ratio(k.weekly_completion)} />
-          <KpiCard label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
-          <KpiCard label="Monitoring checks" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} hint="recorded / due so far today" />
-          <KpiCard label="Failed checks" value={k.failed_checks} tone={k.failed_checks ? 'critical' : 'default'} />
-          <KpiCard label="Points needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
-          <KpiCard label="Stock on hand" value={k.inventory.qty} hint={`Value ${k.inventory.value.toFixed(2)}`} />
-          <KpiCard label="Low-stock items" value={k.low_stock_items} tone={k.low_stock_items ? 'warn' : 'default'} />
-          <KpiCard label="Breakage today" value={k.breakage_today} hint={`${k.breakage_month} this month`} />
-        </section>
+        <div className="space-y-5">
+          {k.awaiting_approval.tasks + k.awaiting_approval.readings + k.awaiting_approval.breakage > 0 && (
+            <Link to="/tasks" className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-warn/50 bg-warn-soft px-4 py-3 text-sm">
+              <span className="font-semibold">Waiting for approval</span>
+              <span>{k.awaiting_approval.tasks} checklist task(s)</span>
+              <span>{k.awaiting_approval.readings} monitoring reading(s)</span>
+              <span>{k.awaiting_approval.breakage} breakage report(s)</span>
+              <span className="ml-auto underline">Review</span>
+            </Link>
+          )}
+          <KpiGroup title="People today" link="/attendance">
+            <KpiCard label="Scheduled" value={k.scheduled_today} />
+            <KpiCard label="Checked in" value={k.checked_in} hint={`${k.on_duty} on duty now`} tone="ok" />
+            <KpiCard label="Not checked in" value={k.not_checked_in} hint={`${k.absent} absent`} tone={k.absent ? 'warn' : 'default'} />
+            <KpiCard label="Off today" value={k.off_today} hint="week off or leave" />
+          </KpiGroup>
+          <KpiGroup title="Checklists" link="/daily-checklists">
+            <KpiCard label="Daily completion" value={pct(k.daily_completion)} hint={ratio(k.daily_completion)} />
+            <KpiCard label="Weekly completion" value={pct(k.weekly_completion)} hint={ratio(k.weekly_completion)} />
+            <KpiCard label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
+          </KpiGroup>
+          <KpiGroup title="Food safety monitoring" link="/monitoring">
+            <KpiCard label="Checks recorded" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} hint="recorded / due so far today" />
+            <KpiCard label="Failed checks" value={k.failed_checks} tone={k.failed_checks ? 'critical' : 'default'} />
+            <KpiCard label="Points needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
+          </KpiGroup>
+          <KpiGroup title="Stock and breakage" link="/stock-movements">
+            <KpiCard label="Stock on hand" value={k.inventory.qty} hint={`Value ${k.inventory.value.toFixed(2)}`} />
+            <KpiCard label="Low-stock items" value={k.low_stock_items} tone={k.low_stock_items ? 'warn' : 'default'} />
+            <KpiCard label="Breakage today" value={k.breakage_today} hint={`${k.breakage_month} this month`} />
+          </KpiGroup>
+        </div>
       )}
 
       {data && (

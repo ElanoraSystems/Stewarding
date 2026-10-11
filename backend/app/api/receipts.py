@@ -12,7 +12,7 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import Employee, InventoryItem, Receipt, ReceiptLine, Supplier, User
+from ..models import Employee, InventoryItem, Location, Receipt, ReceiptLine, Supplier, User
 from ..pagination import paginate, row
 from ..services.inventory import StockError, post_txn
 
@@ -118,6 +118,11 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
         if item_id not in items or not items[item_id].active:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown or inactive item (id {item_id})")
     invoice = " ".join(body.invoice_number.split()).upper()
+    if not invoice:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the invoice number")
+    today = timeutil.local_date(timeutil.utc_now(), db.get(Location, body.location_id).timezone)
+    if body.invoice_date and not (today - timedelta(days=730) <= body.invoice_date <= today):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice date cannot be in the future or more than two years old")
     duplicate = db.scalar(select(Receipt).where(Receipt.supplier_id == supplier.id, Receipt.invoice_number == invoice,
                                                 Receipt.status == "posted"))
     if duplicate:

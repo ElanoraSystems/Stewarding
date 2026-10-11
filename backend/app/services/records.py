@@ -13,7 +13,7 @@ from . import metrics
 from .monitoring import describe
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
-         "attendance": "Attendance Record", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements"}
+         "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements"}
 MAX_DAYS = 366
 CHART_DAYS = 31
 MOVEMENTS = {"receipts": ("receipt",), "issues": ("issue",), "returns": ("return",), "transfers": ("transfer_in", "transfer_out"),
@@ -128,12 +128,15 @@ def _checklist_groups(db: Session, locations: list[Location], day_from: date, da
                 "verified_by": names.get(inst.verified_by, ""), "verified_at": _local(inst.verified_at, loc.timezone)})
         for title, rows in rows_by_template.items():
             counts = {s: sum(1 for r in rows if r["status"] == s) for s in ("verified", "pending verification", "completed", "failed")}
+            columns = [("date", "Date"), ("task", "Task"), ("status", "Status"), ("completed_by", "Completed by"),
+                       ("completed_at", "Completed at"), ("reading", "Reading"), ("comment", "Comment"),
+                       ("verified_by", "Approved by"), ("verified_at", "Approved at")]
+            if not any(r["reading"] for r in rows):
+                columns = [c for c in columns if c[0] != "reading"]  # only tasks that ask for a measurement have one
             groups.append({
                 "title": f"{loc.name} - {title}",
                 "meta": [("Location", loc.name), ("Checklist", title)],
-                "columns": [("date", "Date"), ("task", "Task"), ("status", "Status"), ("completed_by", "Completed by"),
-                            ("completed_at", "Completed at"), ("reading", "Reading"), ("comment", "Comment"),
-                            ("verified_by", "Approved by"), ("verified_at", "Approved at")],
+                "columns": columns,
                 "rows": rows,
                 "totals": [("Tasks", len(rows)), ("Approved", counts["verified"]), ("Awaiting approval", counts["pending verification"]),
                            ("Rejected", counts["failed"])]})
@@ -195,9 +198,9 @@ def _chart_groups(db: Session, now: datetime, scope, f: Filters, day_from: date,
                 rows.append(row)
             groups.append({
                 "title": f"{win.loc.name} - {title}", "layout": "chart",
-                "meta": [("Location", win.loc.name), ("Checklist", title), ("Initials", ", ".join(f"{k} = {v}" for k, v in sorted(legend.items())) or "-")],
+                "meta": [("Location", win.loc.name), ("Checklist", title), ("Columns", "Each column is a date: weekday and day of the month"), ("Initials", ", ".join(f"{k} = {v}" for k, v in sorted(legend.items())) or "-")],
                 "legend": CHART_KEY,
-                "columns": [("task", "Task")] + [(f"d{i}", str(day.day)) for i, day in enumerate(days)],
+                "columns": [("task", "Task")] + [(f"d{i}", f"{day.strftime('%a')}\n{day.day}") for i, day in enumerate(days)],
                 "rows": rows,
                 "totals": [("Tasks", len(rows)), ("Completed", f"{done}/{expected}" if expected else "0/0"),
                            ("Compliance", f"{metrics.pct(done, expected)}%" if expected else "n/a")]})
@@ -230,6 +233,49 @@ def _attendance_groups(db: Session, now: datetime, scope, f: Filters, day_from: 
             "rows": rows,
             "totals": [("Scheduled", stats["scheduled"]), ("Present", stats["present"]), ("Late", stats["late"]),
                        ("Absent", stats["absent"]), ("On leave", stats["on_leave"]), ("Week off", stats["week_off"])]})
+    return groups
+
+
+PRESENT_STATUSES = ("present", "late", "on_duty", "missed_checkout", "unscheduled")
+LEAVE_STATUSES = ("sick_leave", "annual_leave", "unpaid_leave", "other_leave")
+
+
+def _attendance_sheet_groups(db: Session, now: datetime, scope, f: Filters, day_from: date, day_to: date) -> list[dict]:
+    """One page per employee: day totals first, then every scheduled, worked or recorded day."""
+    people = {e.id: e for e in db.scalars(select(Employee))}
+    sheets: dict[int, dict] = {}
+    for win in metrics.windows(db, now, scope, f.location_id, day_from, day_to):
+        tz = win.loc.timezone
+        for r in metrics.attendance_stats(db, win, now, f.employee_id)["rows"]:
+            sheet = sheets.setdefault(r["employee_id"], {"places": set(), "rows": []})
+            sheet["places"].add(win.loc.name)
+            sheet["rows"].append((r["day"], {
+                "date": r["day"].strftime("%d %b %Y"), "weekday": r["day"].strftime("%a"),
+                "status": r["status"].replace("_", " ").capitalize(), "_status": r["status"],
+                "check_in": timeutil.to_local(r["check_in"], tz).strftime("%H:%M") if r["check_in"] else "",
+                "check_out": timeutil.to_local(r["check_out"], tz).strftime("%H:%M") if r["check_out"] else "",
+                "late": r["late_minutes"] or "", "worked": _hm(r["payable_minutes"]), "overtime": _hm(r["overtime_minutes"]),
+                "note": r["note"] or ("No punch recorded" if r["status"] == "absent" and r["recorded"] is False else ""), "_minutes": r["payable_minutes"] or 0, "_over": r["overtime_minutes"] or 0, "_late": r["late_minutes"] or 0}))
+    groups = []
+    for emp_id, sheet in sorted(sheets.items(), key=lambda kv: people[kv[0]].full_name):
+        emp = people[emp_id]
+        rows = [row for _, row in sorted(sheet["rows"], key=lambda item: item[0]) if row["_status"] != "not_yet_due"]
+        if not rows:
+            continue
+        count = lambda *statuses: sum(1 for r in rows if r["_status"] in statuses)  # noqa: E731
+        totals = [("Days present", count(*PRESENT_STATUSES)), ("Late arrivals", sum(1 for r in rows if r["_late"] and r["_status"] in PRESENT_STATUSES)),
+                  ("Week off", count("week_off")), ("Absent", count("absent")), ("On leave", count(*LEAVE_STATUSES)),
+                  ("Hours worked", _hm(sum(r["_minutes"] for r in rows)) or "0:00"), ("Overtime", _hm(sum(r["_over"] for r in rows)) or "0:00")]
+        for r in rows:
+            for private in ("_status", "_minutes", "_over", "_late"):
+                del r[private]
+        groups.append({
+            "title": f"{emp.full_name} ({emp.employee_code})", "layout": "sheet", "page_break": True, "summary_first": True,
+            "meta": [("Employee", emp.full_name), ("Employee ID", emp.employee_code), ("Job title", emp.job_title),
+                     ("Location", ", ".join(sorted(sheet["places"])))],
+            "columns": [("date", "Date"), ("weekday", "Day"), ("status", "Status"), ("check_in", "In"), ("check_out", "Out"),
+                        ("late", "Late (min)"), ("worked", "Worked"), ("overtime", "Overtime"), ("note", "Note")],
+            "rows": rows, "totals": totals})
     return groups
 
 
@@ -326,6 +372,8 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
         groups = _chart_groups(db, now, scope, f, day_from, day_to)
     elif kind == "attendance":
         groups = _attendance_groups(db, now, scope, f, day_from, day_to)
+    elif kind == "attendance_sheet":
+        groups = _attendance_sheet_groups(db, now, scope, f, day_from, day_to)
     elif kind == "receipts":
         groups = _receipt_groups(db, locations, f, day_from, day_to)
     else:

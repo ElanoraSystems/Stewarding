@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { Skeleton, Table, Td, Th } from '@/components/ui/table'
+import { TimezoneInput } from '@/components/TimezoneInput'
 import { api } from '@/lib/api'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
@@ -21,12 +22,13 @@ interface LocationRow {
 }
 
 const KINDS = ['kitchen', 'restaurant', 'bar', 'banquet', 'station', 'other']
-const BLANK = { id: null as number | null, code: '', name: '', kind: 'kitchen', timezone: 'UTC', active: true, pin: '', clear_pin: false }
+const BLANK = { id: null as number | null, code: '', name: '', kind: 'kitchen', timezone: 'Asia/Kuwait', active: true, pin: '', clear_pin: false }
 
 export function SettingsLocations() {
   const run = useRun()
   const { data, reload } = useApi<{ locations: LocationRow[] }>('/settings')
   const [loc, setLoc] = useState<typeof BLANK | null>(null)
+  const org = useApi<{ timezone: string }>('/organization')
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -46,7 +48,7 @@ export function SettingsLocations() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-ink-muted">Kitchens, restaurants, bars, banquet areas and stations. Each has its own time zone and optional check-in PIN.</p>
-        <Button onClick={() => setLoc({ ...BLANK })}>Add location</Button>
+        <Button onClick={() => setLoc({ ...BLANK, timezone: org.data?.timezone ?? BLANK.timezone })}>Add location</Button>
       </div>
       <Table>
         <thead><tr><Th>Code</Th><Th>Name</Th><Th>Type</Th><Th>Time zone</Th><Th>Status</Th><Th /></tr></thead>
@@ -68,7 +70,7 @@ export function SettingsLocations() {
             <Field label="Name"><Input required value={loc.name} onChange={(e) => setLoc({ ...loc, name: e.target.value })} /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Type"><Select value={loc.kind} onChange={(e) => setLoc({ ...loc, kind: e.target.value })}>{KINDS.map((k) => <option key={k} value={k}>{k}</option>)}</Select></Field>
-              <Field label="Time zone (IANA)"><Input required value={loc.timezone} onChange={(e) => setLoc({ ...loc, timezone: e.target.value })} /></Field>
+              <Field label="Time zone" hint="Shift times, check-ins and report dates at this location use it."><TimezoneInput value={loc.timezone} onChange={(zone) => setLoc({ ...loc, timezone: zone })} /></Field>
             </div>
             <Field label="Check-in PIN (4-8 digits)" hint="Leave blank to keep the current PIN."><Input inputMode="numeric" autoComplete="off" value={loc.pin} onChange={(e) => setLoc({ ...loc, pin: e.target.value })} /></Field>
             {loc.id && (

@@ -14,6 +14,7 @@ import { fmtDate, fmtTime, hoursMinutes } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { AbsencePanel } from '@/pages/AbsencePanel'
+import { ManualAttendanceModal } from '@/pages/ManualAttendanceModal'
 import { MyShiftCard } from '@/pages/MyShiftCard'
 
 interface Record {
@@ -51,6 +52,7 @@ export function AttendancePage() {
   const [field, setField] = useState('check_out_at')
   const [value, setValue] = useState('')
   const [reason, setReason] = useState('')
+  const [adding, setAdding] = useState(false)
 
   const path = canView
     ? `/attendance${qs({ location_id: locationId, date_from: from, date_to: to, page, size: SIZE })}`
@@ -78,7 +80,10 @@ export function AttendancePage() {
       <MyShiftCard onChange={reload} />
       {me?.permissions.includes('attendance.absence') && <AbsencePanel />}
 
-      <h2 className="pt-2 text-lg font-semibold">{canView ? 'Attendance records' : 'My attendance history'}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+        <h2 className="text-lg font-semibold">{canView ? 'Attendance records' : 'My attendance history'}</h2>
+        {canCorrect && <Button size="sm" onClick={() => setAdding(true)}>Add missing attendance</Button>}
+      </div>
       {canView && (
         <div className="flex flex-wrap gap-3">
           <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />
@@ -113,7 +118,8 @@ export function AttendancePage() {
               <Td className="space-x-1">
                 {r.late_minutes > 0 && <Badge tone="warn">Late {r.late_minutes}m</Badge>}
                 {r.missed_checkout && <Badge tone="critical">Missed checkout</Badge>}
-                {r.exception_reason && <Badge tone="warn" title={r.exception_reason}>Exception</Badge>}
+                {r.exception_reason?.startsWith('Manual entry') ? <Badge title={r.exception_reason}>Manual entry</Badge>
+                  : r.exception_reason && <Badge tone="warn" title={r.exception_reason}>Exception</Badge>}
               </Td>
               {canCorrect && <Td><Button size="sm" variant="outline" onClick={() => { setCorrecting(r); setValue('') }}>Correct</Button></Td>}
             </tr>
@@ -122,6 +128,8 @@ export function AttendancePage() {
       </Table>
       {data?.items.length === 0 && <EmptyState title="No attendance records" hint="Records appear after the first check-in." />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
+
+      {adding && <ManualAttendanceModal onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload() }} />}
 
       <Modal open={correcting !== null} title="Correct attendance" onClose={() => setCorrecting(null)}>
         <form onSubmit={submitCorrection} className="space-y-3">

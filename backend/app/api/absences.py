@@ -16,7 +16,8 @@ from ..pagination import paginate, row
 
 router = APIRouter(prefix="/api/absences", tags=["absences"])
 
-AbsenceType = Literal["absent", "sick_leave", "annual_leave", "unpaid_leave", "other_leave"]
+AbsenceType = Literal["absent", "day_off", "sick_leave", "annual_leave", "unpaid_leave", "other_leave"]
+MAX_RANGE_DAYS = 31
 PAST_DAYS = 31
 FUTURE_DAYS = 366
 FIELDS = ("id", "employee_id", "location_id", "local_date", "absence_type", "note", "recorded_by", "created_at",
@@ -27,6 +28,7 @@ class AbsenceIn(BaseModel):
     employee_id: int
     location_id: int
     day: date
+    day_to: date | None = None
     absence_type: AbsenceType
     note: str | None = Field(default=None, max_length=500)
 
@@ -45,29 +47,40 @@ def _serialize(db: Session, record: AbsenceRecord) -> dict:
 
 @router.post("", status_code=201)
 def record_absence(body: AbsenceIn, user: User = Depends(require("attendance.absence")), db: Session = Depends(get_db)):
+    """Records an absence, leave or day off for one day, or for every day from `day` to `day_to`; all or none."""
     check_location(user, db, body.location_id)
     emp = db.get(Employee, body.employee_id)
     works_here = emp and db.scalar(select(EmployeeLocation.employee_id).where(
         EmployeeLocation.employee_id == emp.id, EmployeeLocation.location_id == body.location_id))
     if not works_here or emp.status != "active":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Employee is not active at this location")
+    last = body.day_to or body.day
+    if last < body.day:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The end date is before the start date")
+    if (last - body.day).days >= MAX_RANGE_DAYS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"A range covers at most {MAX_RANGE_DAYS} days")
     today = timeutil.local_date(timeutil.utc_now(), db.get(Location, body.location_id).timezone)
-    if not (today - timedelta(days=PAST_DAYS) <= body.day <= today + timedelta(days=FUTURE_DAYS)):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"The date must be within {PAST_DAYS} days back and {FUTURE_DAYS} days ahead")
-    if db.scalar(select(AttendanceRecord.id).where(AttendanceRecord.employee_id == emp.id, AttendanceRecord.local_date == body.day)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "The employee checked in on that day, so they cannot be marked absent")
-    record = AbsenceRecord(employee_id=emp.id, location_id=body.location_id, local_date=body.day,
-                           absence_type=body.absence_type, note=body.note, recorded_by=user.id)
+    if not (today - timedelta(days=PAST_DAYS) <= body.day and last <= today + timedelta(days=FUTURE_DAYS)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"The dates must be within {PAST_DAYS} days back and {FUTURE_DAYS} days ahead")
+    days = [body.day + timedelta(days=n) for n in range((last - body.day).days + 1)]
+    for day in days:
+        if db.scalar(select(AttendanceRecord.id).where(AttendanceRecord.employee_id == emp.id, AttendanceRecord.local_date == day)):
+            raise HTTPException(status.HTTP_409_CONFLICT, f"The employee checked in on {day.isoformat()}, so that day cannot be marked")
+        if db.scalar(select(AbsenceRecord.id).where(AbsenceRecord.employee_id == emp.id, AbsenceRecord.local_date == day,
+                                                    AbsenceRecord.voided_at.is_(None))):
+            raise HTTPException(status.HTTP_409_CONFLICT, f"{day.isoformat()} already has an absence, leave or day off recorded")
+    records = [AbsenceRecord(employee_id=emp.id, location_id=body.location_id, local_date=day, absence_type=body.absence_type,
+                             note=body.note, recorded_by=user.id) for day in days]
     try:
-        db.add(record)
+        db.add_all(records)
         db.flush()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "An absence or leave is already recorded for that employee and day") from None
-    audit(db, user, "absence.record", "absence_record", record.id, None,
-          {"employee_id": emp.id, "date": body.day.isoformat(), "type": body.absence_type})
+        raise HTTPException(status.HTTP_409_CONFLICT, "An absence, leave or day off is already recorded for one of those days") from None
+    audit(db, user, "absence.record", "absence_record", records[0].id, None,
+          {"employee_id": emp.id, "from": days[0].isoformat(), "to": days[-1].isoformat(), "type": body.absence_type})
     db.commit()
-    return _serialize(db, record)
+    return _serialize(db, records[0]) if len(records) == 1 else {"created": len(records), "items": [_serialize(db, r) for r in records]}
 
 
 @router.get("/mine")

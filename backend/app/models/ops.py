@@ -87,3 +87,20 @@ class LookupValue(Base):
     value: Mapped[str] = mapped_column(String(120))
     value_key: Mapped[str] = mapped_column(String(120))  # lower-cased value, blocks case-only duplicates
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Organization(Base):
+    """The one organization whose name, details and logo head every report; the row id is always 1."""
+
+    __tablename__ = "organization"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), default="")
+    legal_name: Mapped[str | None] = mapped_column(String(160))
+    address: Mapped[str | None] = mapped_column(String(500))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    email: Mapped[str | None] = mapped_column(String(120))
+    website: Mapped[str | None] = mapped_column(String(200))
+    registration_number: Mapped[str | None] = mapped_column(String(60))
+    report_footer: Mapped[str | None] = mapped_column(String(300))
+    logo: Mapped[str | None] = mapped_column(String(60))
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kuwait")  # shown on reports and used for new locations

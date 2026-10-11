@@ -1,11 +1,18 @@
+let displayZone: string | undefined
+
+/** Zone used when a time has no location of its own; set from the organization settings. */
+export function setDisplayTimeZone(zone: string | undefined) {
+  displayZone = zone
+}
+
 export function fmtDateTime(iso: string | null | undefined, timeZone?: string): string {
   if (!iso) return '-'
-  return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso))
+  return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: timeZone ?? displayZone }).format(new Date(iso))
 }
 
 export function fmtTime(iso: string | null | undefined, timeZone?: string): string {
   if (!iso) return '-'
-  return new Intl.DateTimeFormat('en-GB', { timeStyle: 'short', timeZone }).format(new Date(iso))
+  return new Intl.DateTimeFormat('en-GB', { timeStyle: 'short', timeZone: timeZone ?? displayZone }).format(new Date(iso))
 }
 
 /** Formats a plain YYYY-MM-DD date without applying any timezone shift. */

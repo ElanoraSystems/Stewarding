@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { SettingsGeneral } from '@/pages/settings/SettingsGeneral'
 import { SettingsInventoryLists } from '@/pages/settings/SettingsInventoryLists'
 import { SettingsItems } from '@/pages/settings/SettingsItems'
+import { SettingsOrganization } from '@/pages/settings/SettingsOrganization'
 import { SettingsLocations } from '@/pages/settings/SettingsLocations'
 import { SettingsLookups } from '@/pages/settings/SettingsLookups'
 import { SettingsMonitoring } from '@/pages/settings/SettingsMonitoring'
@@ -10,6 +11,7 @@ import { SettingsShifts } from '@/pages/settings/SettingsShifts'
 import { SettingsSuppliers } from '@/pages/settings/SettingsSuppliers'
 
 const TABS = [
+  ['organization', 'Organization'],
   ['general', 'Rules & alerts'],
   ['locations', 'Locations'],
   ['shifts', 'Shifts'],
@@ -38,6 +40,7 @@ export function SettingsPage() {
           </Button>
         ))}
       </div>
+      {tab === 'organization' && <SettingsOrganization />}
       {tab === 'general' && <SettingsGeneral />}
       {tab === 'locations' && <SettingsLocations />}
       {tab === 'shifts' && <SettingsShifts />}

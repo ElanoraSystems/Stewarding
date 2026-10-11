@@ -2,7 +2,7 @@ from datetime import date, time
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,8 +25,19 @@ class ShiftIn(BaseModel):
     end_time: time
     grace_minutes: int = Field(default=10, ge=0, le=120)
     break_minutes: int = Field(default=0, ge=0, le=240)
-    overtime_after_minutes: int | None = Field(default=None, ge=0)
+    overtime_after_minutes: int | None = Field(default=None, ge=0, le=1440)
     active: bool = True
+
+    @model_validator(mode="after")
+    def _hours(self):
+        if self.kind == "work":
+            minutes = (self.end_time.hour * 60 + self.end_time.minute) - (self.start_time.hour * 60 + self.start_time.minute)
+            length = minutes % 1440
+            if length == 0:
+                raise ValueError("A working shift needs different start and end times")
+            if self.break_minutes >= length:
+                raise ValueError("The break must be shorter than the shift")
+        return self
 
 
 class AssignmentIn(BaseModel):
@@ -166,7 +177,8 @@ def today(location_id: int, user: User = Depends(require("roster.view")), db: Se
         AbsenceRecord.location_id == location_id, AbsenceRecord.local_date == day, AbsenceRecord.voided_at.is_(None)))}
     return [{
         "employee_id": e.id, "name": e.full_name, "shift": s.name, "shift_start": s.start_time.isoformat(),
-        "day_type": "week_off" if s.kind == "weekoff" else ("absence" if e.id in absences and e.id not in attended else "work"),
+        "day_type": "week_off" if s.kind == "weekoff" or (e.id in absences and absences[e.id].absence_type == "day_off")
+        else ("absence" if e.id in absences and e.id not in attended else "work"),
         "absence_type": absences[e.id].absence_type if e.id in absences else None,
         "checked_in": e.id in attended, "late_minutes": attended[e.id].late_minutes if e.id in attended else 0,
         "on_duty": e.id in attended and attended[e.id].check_out_at is None,

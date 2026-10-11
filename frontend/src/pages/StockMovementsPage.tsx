@@ -9,6 +9,7 @@ import { fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { CountsTab } from '@/pages/CountsTab'
+import { InsightsTab } from '@/pages/InsightsTab'
 import { ReceivingTab } from '@/pages/ReceivingTab'
 import { ReconciliationTab } from '@/pages/ReconciliationTab'
 import { TransfersTab } from '@/pages/TransfersTab'
@@ -24,7 +25,7 @@ interface Txn {
   user: string | null
 }
 
-const TABS = [['transactions', 'Transactions'], ['receiving', 'Receiving'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation']] as const
+const TABS = [['insights', 'Insights'], ['transactions', 'Transactions'], ['receiving', 'Receiving'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation']] as const
 const SIZE = 15
 
 function Transactions() {
@@ -73,7 +74,7 @@ function Transactions() {
 }
 
 export function StockMovementsPage() {
-  const [tab, setTab] = useState<(typeof TABS)[number][0]>('transactions')
+  const [tab, setTab] = useState<(typeof TABS)[number][0]>('insights')
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Stock Movements &amp; Transfers</h1>
@@ -82,6 +83,7 @@ export function StockMovementsPage() {
           <Button key={key} role="tab" aria-selected={tab === key} size="sm" variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{text}</Button>
         ))}
       </div>
+      {tab === 'insights' && <InsightsTab />}
       {tab === 'transactions' && <Transactions />}
       {tab === 'receiving' && <ReceivingTab />}
       {tab === 'transfers' && <TransfersTab />}

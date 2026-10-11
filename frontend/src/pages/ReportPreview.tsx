@@ -54,7 +54,7 @@ export function ReportPreview({ doc }: { doc: RecordDoc }) {
               {chart && <p className="text-xs text-ink-muted">{group.legend}</p>}
               {group.meta.find(([label]) => label === 'Initials') && <p className="text-xs text-ink-muted">{group.meta.find(([label]) => label === 'Initials')?.[1]}</p>}
               <Table>
-                <thead><tr>{group.columns.map(([key, label]) => <Th key={key} className={chart && key !== 'task' ? 'px-1 text-center' : undefined}>{label}</Th>)}</tr></thead>
+                <thead><tr>{group.columns.map(([key, label]) => <Th key={key} className={chart && key !== "task" ? "whitespace-pre-line px-1 text-center" : undefined}>{label}</Th>)}</tr></thead>
                 <tbody>
                   {group.rows.slice(0, PREVIEW_ROWS).map((row, i) => (
                     <tr key={i}>{group.columns.map(([key]) => <Td key={key} className={chart && key !== 'task' ? 'px-1' : undefined}><Mark cell={row[key]} /></Td>)}</tr>

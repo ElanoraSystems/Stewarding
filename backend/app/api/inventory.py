@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -31,39 +31,62 @@ class UnitIn(BaseModel):
     name: str = Field(min_length=1, max_length=30)
 
 
+MAX_LEVEL = 1_000_000
+MAX_UNIT_COST = Decimal("100000")
+
+
+def _clean_name(value: str | None) -> str | None:
+    if value is None:
+        return value
+    value = " ".join(value.split())
+    if len(value) < 2:
+        raise ValueError("Enter an item name of at least 2 characters")
+    return value
+
+
 class ItemIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     category_id: int
     unit_id: int
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
     storage_location: str | None = Field(default=None, max_length=80)
-    min_level: int = Field(default=0, ge=0)
-    target_level: int | None = Field(default=None, ge=0)
-    unit_cost: Decimal | None = Field(default=None, ge=0)
+    min_level: int = Field(default=0, ge=0, le=MAX_LEVEL)
+    target_level: int | None = Field(default=None, ge=0, le=MAX_LEVEL)
+    unit_cost: Decimal | None = Field(default=None, ge=0, le=MAX_UNIT_COST)
     supplier_id: int | None = None
     is_tracked_asset: bool = False
-    opening_qty: int = Field(default=0, ge=0)
+    opening_qty: int = Field(default=0, ge=0, le=MAX_LEVEL)
     opening_location_id: int | None = None
+
+    _name = field_validator("name")(_clean_name)
+
+    @model_validator(mode="after")
+    def _levels(self):
+        if self.target_level is not None and self.target_level < self.min_level:
+            raise ValueError("The target level cannot be below the minimum level")
+        return self
 
 
 class ItemUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     category_id: int | None = None
     unit_id: int | None = None
-    description: str | None = None
-    storage_location: str | None = None
-    min_level: int | None = Field(default=None, ge=0)
-    target_level: int | None = Field(default=None, ge=0)
-    unit_cost: Decimal | None = Field(default=None, ge=0)
+    description: str | None = Field(default=None, max_length=2000)
+    storage_location: str | None = Field(default=None, max_length=80)
+    min_level: int | None = Field(default=None, ge=0, le=MAX_LEVEL)
+    target_level: int | None = Field(default=None, ge=0, le=MAX_LEVEL)
+    unit_cost: Decimal | None = Field(default=None, ge=0, le=MAX_UNIT_COST)
     supplier_id: int | None = None
     active: bool | None = None
+
+    _name = field_validator("name")(_clean_name)
 
 
 class TxnIn(BaseModel):
     item_id: int
     location_id: int
     txn_type: Literal["receipt", "issue", "return", "damage", "adjustment"]
-    qty: int
+    qty: int = Field(ge=-MAX_LEVEL, le=MAX_LEVEL)
     reason: str | None = Field(default=None, max_length=500)
 
 
@@ -314,6 +337,10 @@ def update_item(item_id: int, body: ItemUpdate, user: User = Depends(require("in
     if "name" in data:
         data["name"] = " ".join(data["name"].split())
         _check_duplicate(db, data["name"], item.id)
+    minimum = data.get("min_level", item.min_level)
+    target = data.get("target_level", item.target_level)
+    if target is not None and target < minimum:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The target level cannot be below the minimum level")
     before = {k: str(getattr(item, k)) for k in data}
     for key, value in data.items():
         setattr(item, key, value)
@@ -336,6 +363,8 @@ def get_item_or_404(db: Session, item_id: int) -> InventoryItem:
 def post_transaction(body: TxnIn, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
     check_location(user, db, body.location_id)
     item = get_item_or_404(db, body.item_id)
+    if not item.active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{item.name} is retired; restore it before moving stock")
     if body.txn_type == "adjustment":
         if "stock.approve" not in permissions_of(user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a manager can post stock adjustments")

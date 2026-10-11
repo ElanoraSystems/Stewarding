@@ -1,4 +1,6 @@
 import re
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
@@ -12,7 +14,8 @@ from ..models import (ApprovalRecord, InventoryBalance, InventoryCount, Inventor
                       InventoryTransfer, InventoryTransferLine, Location, User)
 from ..pagination import row
 from ..permissions import MANAGER
-from ..services.inventory import StockError, post_txn, received_to_date, reconcile
+from ..services import metrics
+from ..services.inventory import StockError, post_txn, received_to_date, reconcile, variance_summary
 from ..services.notify import notify, recipients
 from .inventory import get_item_or_404
 
@@ -80,10 +83,17 @@ def request_transfer(body: TransferIn, user: User = Depends(require("stock.trans
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Destination location not found")
     if body.from_location_id == body.to_location_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Source and destination must differ")
+    wanted: dict[int, int] = {}
     for line in body.lines:
-        get_item_or_404(db, line.item_id)
+        item = get_item_or_404(db, line.item_id)
+        if not item.active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{item.name} is retired")
+        wanted[item.id] = wanted.get(item.id, 0) + line.qty
+        on_hand = db.scalar(select(InventoryBalance.qty).where(InventoryBalance.item_id == item.id, InventoryBalance.location_id == body.from_location_id)) or 0
+        if wanted[item.id] > on_hand:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"Only {on_hand} of {item.name} are in stock at the source location")
     transfer = InventoryTransfer(from_location_id=body.from_location_id, to_location_id=body.to_location_id,
-                                 requested_by=user.id, note=body.note)
+                                 requested_by=user.id, requested_at=timeutil.utc_now(), note=body.note)
     db.add(transfer)
     db.flush()
     db.add_all(InventoryTransferLine(transfer_id=transfer.id, item_id=ln.item_id, qty=ln.qty) for ln in body.lines)
@@ -218,6 +228,26 @@ def post_count(count_id: int, user: User = Depends(require("inventory.count")), 
     return _count_dict(db, count)
 
 
+@router.get("/insights")
+def insights(location_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
+             user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
+    """Stock in and out, breakage and transfers for charts; the last 30 days unless dates are given."""
+    now = timeutil.utc_now()
+    if location_id is not None:
+        check_location(user, db, location_id)
+    scope = scoped_locations(user, db)
+    first = metrics.windows_by(db, now, scope, location_id, lambda t: (t, t))
+    if not first:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No locations in scope")
+    day_to = date_to or first[0].today
+    day_from = date_from or day_to - timedelta(days=29)
+    try:
+        wins = metrics.windows(db, now, scope, location_id, day_from, day_to)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    return metrics.stock_insights(db, wins, day_from, day_to)
+
+
 @router.get("/reconciliation")
 def reconciliation(location_id: int, month: str,
                    user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
@@ -225,5 +255,5 @@ def reconciliation(location_id: int, month: str,
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "month must be YYYY-MM")
     check_location(user, db, location_id)
     rows = reconcile(db, db.get(Location, location_id), month)
-    return {"location_id": location_id, "month": month, "rows": rows,
+    return {"location_id": location_id, "month": month, "rows": rows, "variance": variance_summary(rows),
             "total_closing": sum(r["closing"] for r in rows)}

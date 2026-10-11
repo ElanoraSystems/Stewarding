@@ -201,7 +201,7 @@ def test_csv_export_has_period_timestamp_and_totals(client, login, db, clock):
     rows = list(csv.reader(io.StringIO(text)))
     flat = [c for r in rows for c in r]
     assert ["Period", "2026-03-02 (2026-03-02 to 2026-03-02)"] in rows
-    assert ["Generated at (UTC)", "2026-03-02T02:05:00Z"] in rows
+    assert ["Generated", "02 Mar 2026 05:05 (Asia/Kuwait)"] in rows  # the default organization zone
     assert "Compliance" in flat and "Employee attendance and shift coverage" in flat
 
 
@@ -211,7 +211,7 @@ def test_xlsx_and_pdf_exports_are_valid_files(client, login, db, clock):
     assert xlsx.headers["content-type"].startswith("application/vnd.openxmlformats")
     book = openpyxl.load_workbook(io.BytesIO(xlsx.content))
     assert book.sheetnames[0] == "Report" and len(book.sheetnames) == 8
-    assert book["Report"]["A5"].value == "Generated at (UTC)"
+    assert book["Report"]["A5"].value == "Generated"
     pdf = export(client, login(MGR), "pdf", "monthly")
     assert pdf.headers["content-type"] == "application/pdf" and pdf.content.startswith(b"%PDF")
 

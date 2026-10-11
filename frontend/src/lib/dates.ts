@@ -9,6 +9,7 @@ function weekStart(d: Date): Date {
 }
 
 export const PRESETS: { key: string; label: string; range: () => Range }[] = [
+  { key: 'last30', label: 'Last 30 days', range: () => [iso(shift(new Date(), -29)), iso(new Date())] },
   { key: 'today', label: 'Today', range: () => [iso(new Date()), iso(new Date())] },
   { key: 'yesterday', label: 'Yesterday', range: () => { const y = iso(shift(new Date(), -1)); return [y, y] } },
   { key: 'week', label: 'This week', range: () => { const s = weekStart(new Date()); return [iso(s), iso(shift(s, 6))] } },

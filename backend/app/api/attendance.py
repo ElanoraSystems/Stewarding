@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,11 +11,12 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import (AttendanceCorrection, AttendanceRecord, ChecklistInstance, ChecklistTask, Employee, Location,
-                      Shift, ShiftAssignment, User)
+from ..models import (AbsenceRecord, AttendanceCorrection, AttendanceRecord, ChecklistInstance, ChecklistTask, Employee,
+                      EmployeeLocation, Location, Shift, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
 from ..security import verify_password
 from ..services.checklists import DONE
+from ..services.notify import notify
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
@@ -44,6 +45,19 @@ class CorrectionIn(BaseModel):
         if v.tzinfo is None:
             raise ValueError("new_value must include a timezone offset")
         return v
+
+
+MANUAL_DAYS_BACK = 62
+MANUAL_PREFIX = "Manual entry by manager"
+
+
+class ManualIn(BaseModel):
+    employee_id: int
+    location_id: int
+    day: date
+    check_in_time: time
+    check_out_time: time
+    reason: str = Field(min_length=5, max_length=500)
 
 
 def _employee(user: User) -> Employee:
@@ -214,6 +228,59 @@ def list_attendance(location_id: int | None = None, employee_id: int | None = No
     ids = {r[0].employee_id for r in rows}
     names = dict(db.execute(select(Employee.id, Employee.full_name).where(Employee.id.in_(ids))).all()) if ids else {}
     return {"total": total, "items": [_serialize(r[0], now, names) for r in rows]}
+
+
+@router.post("/manual", status_code=201)
+def add_manual(body: ManualIn, user: User = Depends(require("attendance.correct")), db: Session = Depends(get_db)):
+    """A manager records the punch in and out an employee missed; it counts as a present day like any other."""
+    check_location(user, db, body.location_id)
+    location = db.get(Location, body.location_id)
+    emp = db.get(Employee, body.employee_id)
+    works_here = emp and db.scalar(select(EmployeeLocation.employee_id).where(
+        EmployeeLocation.employee_id == emp.id, EmployeeLocation.location_id == location.id))
+    if not works_here or emp.status != "active":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Employee is not active at this location")
+    now = timeutil.utc_now()
+    today = timeutil.local_date(now, location.timezone)
+    if not (today - timedelta(days=MANUAL_DAYS_BACK) <= body.day <= today):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"The date must be today or within the last {MANUAL_DAYS_BACK} days")
+    check_in = timeutil.local_to_utc(body.day, body.check_in_time, location.timezone)
+    check_out_day = body.day if body.check_out_time > body.check_in_time else body.day + timedelta(days=1)
+    check_out = timeutil.local_to_utc(check_out_day, body.check_out_time, location.timezone)
+    if body.check_out_time == body.check_in_time:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Check-out must be after check-in")
+    if check_out > now:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The check-out time is in the future")
+    if (check_out - check_in) > timedelta(hours=20):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A shift cannot be longer than 20 hours")
+    if db.scalar(select(AttendanceRecord.id).where(AttendanceRecord.employee_id == emp.id, AttendanceRecord.local_date == body.day)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "There is already an attendance record that day; correct its times instead")
+    if db.scalar(select(AbsenceRecord.id).where(AbsenceRecord.employee_id == emp.id, AbsenceRecord.local_date == body.day,
+                                                AbsenceRecord.voided_at.is_(None))):
+        raise HTTPException(status.HTTP_409_CONFLICT, "An absence or leave is recorded that day; cancel it first")
+    shift = _pick_shift(db, emp, location, check_in)
+    late = 0
+    if shift:
+        after_start = int((check_in - timeutil.local_to_utc(body.day, shift.start_time, location.timezone)).total_seconds() // 60)
+        late = after_start if after_start > shift.grace_minutes else 0
+    reason = " ".join(body.reason.split())
+    record = AttendanceRecord(employee_id=emp.id, location_id=location.id, shift_id=shift.id if shift else None, local_date=body.day,
+                              check_in_at=check_in, check_out_at=check_out, late_minutes=late, open_flag=None,
+                              exception_reason=f"{MANUAL_PREFIX}: {reason}", verified_by=user.id)
+    db.add(record)
+    db.flush()
+    _recompute(record, shift)
+    for field, value in (("check_in_at", check_in), ("check_out_at", check_out)):
+        db.add(AttendanceCorrection(attendance_id=record.id, corrected_by=user.id, field=field, old_value=None,
+                                    new_value=iso(value), reason=f"Manual entry: {reason}"))
+    audit(db, user, "attendance.manual", "attendance_record", record.id, None,
+          {"employee_id": emp.id, "date": body.day.isoformat(), "check_in": iso(check_in), "check_out": iso(check_out), "reason": reason})
+    if emp.user_id:
+        notify(db, [emp.user_id], "attendance_manual", f"Attendance added for {body.day.strftime('%d %b %Y')}",
+               key=f"manual_att:{record.id}", body=f"Your manager recorded your attendance: {reason}", location_id=location.id,
+               link="/attendance")
+    db.commit()
+    return _serialize(record, now)
 
 
 @router.post("/{attendance_id}/correct")

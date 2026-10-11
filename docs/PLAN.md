@@ -1,4 +1,4 @@
-# Stewarding Operations Management System - Plan
+# Scullery - Plan
 
 ## Discovery
 The repository started empty. No existing framework, dependencies, database, or authentication.

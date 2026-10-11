@@ -1,12 +1,16 @@
 import csv
 import io
+from datetime import datetime
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import Flowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Flowable, Image, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+from .organization import stamp
 
 FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
@@ -18,16 +22,50 @@ def safe(value):
     return value
 
 
+def _org_lines(org: dict | None) -> list[str]:
+    """The organization's name and details, one line each, for the head of a report."""
+    if not org or not org.get("name"):
+        return []
+    contact = " | ".join(part for part in (org.get("phone"), org.get("email"), org.get("website")) if part)
+    legal = org.get("legal_name") or ""
+    registration = f"Reg. {org['registration_number']}" if org.get("registration_number") else ""
+    return [line for line in (org["name"], legal if legal != org["name"] else "", org.get("address") or "", contact, registration) if line]
+
+
+def _pdf_masthead(org: dict | None, styles, width: float) -> list:
+    """Logo on the left, organization name and details on the right; nothing when no organization is set."""
+    lines = _org_lines(org)
+    if not lines:
+        return []
+    text = [Paragraph(f"<b>{_esc(lines[0])}</b>", styles["Heading2"])] + [Paragraph(_esc(line), styles["BodyText"].clone("org", fontSize=8, leading=10)) for line in lines[1:]]
+    logo = None
+    if org.get("logo_path"):
+        w, h = ImageReader(org["logo_path"]).getSize()
+        height = 42
+        logo = Image(org["logo_path"], width=height * w / h, height=height)
+    table = Table([[logo or "", text]], colWidths=[(logo.drawWidth + 12) if logo else 0.1, width - ((logo.drawWidth + 12) if logo else 0.1)])
+    table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor("#9ca3af")),
+                               ("BOTTOMPADDING", (0, 0), (-1, 0), 6), ("LEFTPADDING", (0, 0), (0, 0), 0)]))
+    return [table, Spacer(1, 6)]
+
+
+def _generated(report: dict) -> str:
+    tz = (report.get("organization") or {}).get("timezone") or "Asia/Kuwait"
+    return stamp(datetime.fromisoformat(report["generated_at"].rstrip("Z")), tz)
+
+
 def _header(report: dict) -> list[tuple[str, str]]:
     period = report["period"]
     return [("Report", f"{period['type'].title()} report"), ("Period", f"{period['label']} ({period['from']} to {period['to']})"),
-            ("Locations", ", ".join(report["locations"])), ("Time zones", ", ".join(report["timezones"])),
-            ("Generated at (UTC)", report["generated_at"])]
+            ("Locations", ", ".join(report["locations"])), ("Location time zones", ", ".join(report["timezones"])),
+            ("Generated", _generated(report))]
 
 
 def to_csv(report: dict) -> bytes:
     buf = io.StringIO()
     out = csv.writer(buf)
+    for line in _org_lines(report.get("organization")):
+        out.writerow([safe(line)])
     for label, value in _header(report):
         out.writerow([label, safe(value)])
     for sec in report["sections"]:
@@ -45,6 +83,11 @@ def to_xlsx(report: dict) -> bytes:
     book = Workbook()
     info = book.active
     info.title = "Report"
+    org_lines = _org_lines(report.get("organization"))
+    for line in org_lines:
+        info.append([safe(line)])
+    if org_lines:
+        info["A1"].font = Font(bold=True, size=13)
     for label, value in _header(report):
         info.append([label, safe(value)])
     info.column_dimensions["A"].width = 22
@@ -77,7 +120,8 @@ def to_pdf(report: dict) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=24, rightMargin=24, topMargin=24, bottomMargin=24,
                             title=f"{report['period']['type'].title()} report")
-    story = [Paragraph(f"{report['period']['type'].title()} operations report", styles["Title"])]
+    story = _pdf_masthead(report.get("organization"), styles, landscape(A4)[0] - 48)
+    story.append(Paragraph(f"{report['period']['type'].title()} operations report", styles["Title"]))
     story += [Paragraph(f"<b>{label}:</b> {_esc(value)}", styles["Normal"]) for label, value in _header(report)[1:]]
     for sec in report["sections"]:
         story += [Spacer(1, 12), Paragraph(_esc(sec["title"]), styles["Heading3"])]
@@ -92,8 +136,22 @@ def to_pdf(report: dict) -> bytes:
             story.append(table)
         if sec["totals"]:
             story.append(Paragraph(" | ".join(f"<b>{_esc(t['label'])}:</b> {_esc(t['value'])}" for t in sec["totals"]), styles["Normal"]))
-    doc.build(story)
+    doc.build(story, onFirstPage=_footer_for(report), onLaterPages=_footer_for(report))
     return buf.getvalue()
+
+
+def _footer_for(report: dict, title: str | None = None):
+    org = report.get("organization") or {}
+    left = " - ".join(part for part in (org.get("name"), title or f"{report['period']['type'].title()} report", org.get("report_footer")) if part)
+
+    def draw(canvas, document):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(24, 14, left[:170])
+        canvas.drawRightString(landscape(A4)[0] - 24, 14, f"Page {document.page}")
+        canvas.restoreState()
+
+    return draw
 
 
 def _esc(value) -> str:
@@ -146,6 +204,15 @@ def _flat(value):
     return value
 
 
+def _signature(width: float) -> Table:
+    sign = Table([["Prepared by", "", "Reviewed and approved by", "", "Date", ""]], colWidths=[width * f for f in (.12, .22, .2, .22, .06, .18)],
+                 rowHeights=28)
+    sign.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 8),
+                              ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#e8eef0")),
+                              ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#e8eef0")), ("BACKGROUND", (4, 0), (4, 0), colors.HexColor("#e8eef0"))]))
+    return sign
+
+
 def _mark(key: str, value, style) -> object:
     if isinstance(value, dict):
         state = value["s"]
@@ -166,6 +233,8 @@ def _record_meta(doc: dict) -> list[tuple[str, str]]:
 def record_to_csv(doc: dict) -> bytes:
     buf = io.StringIO()
     out = csv.writer(buf)
+    for line in _org_lines(doc.get("organization")):
+        out.writerow([safe(line)])
     out.writerow([safe(doc["title"])])
     for label, value in _record_meta(doc):
         out.writerow([label, safe(value)])
@@ -190,10 +259,15 @@ def record_to_xlsx(doc: dict) -> bytes:
             name = f"{name[:25]}_{index}"
         used.add(name)
         sheet = book.create_sheet(name)
+        org_lines = _org_lines(doc.get("organization"))
+        for line in org_lines:
+            sheet.append([safe(line)])
+        if org_lines:
+            sheet["A1"].font = Font(bold=True, size=14)
         sheet.append([safe(doc["title"])])
-        sheet["A1"].font = Font(bold=True, size=14)
+        sheet.cell(row=sheet.max_row, column=1).font = Font(bold=True, size=13)
         sheet.append([safe(group["title"])])
-        sheet["A2"].font = Font(bold=True)
+        sheet.cell(row=sheet.max_row, column=1).font = Font(bold=True)
         for label, value in [*_record_meta(doc), *group["meta"]]:
             sheet.append([label, safe(value)])
         sheet.append([])
@@ -230,43 +304,54 @@ def record_to_pdf(doc: dict) -> bytes:
     page = landscape(A4)
     width = page[0] - 48
 
+    org = doc.get("organization") or {}
+    note = " - ".join(part for part in (org.get("name"), f"{doc['title']} - {doc['period']['label']}", org.get("report_footer")) if part)
+
     def footer(canvas, document):
         canvas.saveState()
         canvas.setFont("Helvetica", 7)
-        canvas.drawString(24, 14, f"{doc['title']} - {doc['period']['label']}")
+        canvas.drawString(24, 14, note[:170])
         canvas.drawRightString(page[0] - 24, 14, f"Page {document.page}")
         canvas.restoreState()
 
     pdf = SimpleDocTemplate(buf, pagesize=page, leftMargin=24, rightMargin=24, topMargin=24, bottomMargin=30, title=doc["title"])
-    story = [Paragraph(_esc(doc["title"]), title_style)]
+    story = _pdf_masthead(org, styles, width) + [Paragraph(_esc(doc["title"]), title_style)]
     info = Table([[Paragraph(f"<b>{_esc(label)}</b>", cell), Paragraph(_esc(value), cell)] for label, value in _record_meta(doc)],
                  colWidths=[90, width - 90])
     info.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e8eef0"))]))
     story.append(info)
     if not doc["groups"]:
         story += [Spacer(1, 14), Paragraph("No records for this period.", styles["Normal"])]
-    for group in doc["groups"]:
+    for number, group in enumerate(doc["groups"]):
+        if group.get("page_break") and number:
+            story.append(PageBreak())
         chart = group.get("layout") == "chart"
         weights = [(8 if key == "task" else 1) if chart else WIDE.get(key, 1) for key, _ in group["columns"]]
         widths = [width * w / sum(weights) for w in weights]
         story += [Spacer(1, 14), Paragraph(_esc(group["title"]), styles["Heading3"]),
                   Paragraph(" | ".join(f"<b>{_esc(label)}:</b> {_esc(value)}" for label, value in group["meta"]), styles["Normal"]),
                   Spacer(1, 4)]
+        if group.get("summary_first"):
+            box = Table([[Paragraph(_esc(label), cell) for label, _ in group["totals"]],
+                         [Paragraph(f"<b>{_esc(value)}</b>", cell.clone("big", fontSize=13, leading=15)) for _, value in group["totals"]]],
+                        colWidths=[width / len(group["totals"])] * len(group["totals"]))
+            box.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef0")),
+                                     ("ALIGN", (0, 0), (-1, -1), "CENTER")]))
+            story += [box, Spacer(1, 8)]
         if group.get("legend"):
             story.append(Paragraph(_esc(group["legend"]), cell))
-        data = [[Paragraph(_esc(label), head if not chart else head.clone("chart_head", alignment=1 if label != "Task" else 0)) for _, label in group["columns"]]]
+        data = [[Paragraph(_esc(label).replace("\n", "<br/>"), head if not chart else head.clone("chart_head", alignment=1 if label != "Task" else 0)) for _, label in group["columns"]]]
         data += [[_mark(key, row.get(key), cell) for key, _ in group["columns"]] for row in group["rows"]]
         table = Table(data, colWidths=widths, repeatRows=1)
         style = [("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef0")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
                  ("VALIGN", (0, 0), (-1, -1), "TOP")]
         table.setStyle(TableStyle(style))
-        story += [table, Spacer(1, 4),
-                  Paragraph(" | ".join(f"<b>{_esc(label)}:</b> {_esc(value)}" for label, value in group["totals"]), styles["Normal"])]
-    sign = Table([["Prepared by", "", "Reviewed and approved by", "", "Date", ""]], colWidths=[width * f for f in (.12, .22, .2, .22, .06, .18)],
-                 rowHeights=28)
-    sign.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 8),
-                              ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#e8eef0")),
-                              ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#e8eef0")), ("BACKGROUND", (4, 0), (4, 0), colors.HexColor("#e8eef0"))]))
-    story += [Spacer(1, 22), KeepTogether(sign)]
+        story += [table, Spacer(1, 4)]
+        if not group.get("summary_first"):
+            story.append(Paragraph(" | ".join(f"<b>{_esc(label)}:</b> {_esc(value)}" for label, value in group["totals"]), styles["Normal"]))
+        if group.get("layout") == "sheet":
+            story += [Spacer(1, 16), KeepTogether(_signature(width))]
+    if not (doc["groups"] and all(g.get("layout") == "sheet" for g in doc["groups"])):
+        story += [Spacer(1, 22), KeepTogether(_signature(width))]
     pdf.build(story, onFirstPage=footer, onLaterPages=footer)
     return buf.getvalue()

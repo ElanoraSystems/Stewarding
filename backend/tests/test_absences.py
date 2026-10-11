@@ -76,3 +76,29 @@ def test_absence_and_leave_feed_the_dashboard_counts(client, login, db, clock):
     today = k["charts"]["attendance_trend"][-1]
     assert today["absent"] == 1 and today["on_leave"] == 1
     assert today["scheduled"] == 2  # the absent steward stays scheduled, the one on leave does not
+
+
+def test_manager_assigns_a_day_off_that_counts_as_week_off(client, login, db, clock):
+    mgr = login(MGR)
+    r = record(client, mgr, db, kind="day_off", note="Swapped with Friday")
+    assert r.status_code == 201 and r.json()["absence_type"] == "day_off"
+    assert day_row(client, mgr, db)["day_type"] == "week_off"
+    doc = client.get("/api/reports/records/attendance?date_from=2026-03-02&date_to=2026-03-02", headers=mgr).json()
+    sid = next(x for g in doc["groups"] for x in g["rows"] if x["employee"] == "Sid Steward")
+    assert sid["status"] == "Week off" and sid["note"] == "Swapped with Friday"
+    mk = next(g for g in doc["groups"] if "Main Kitchen" in g["title"])
+    assert dict(mk["totals"])["Week off"] == 1 and dict(mk["totals"])["Absent"] == 0
+
+
+def test_a_range_of_days_is_recorded_together_or_not_at_all(client, login, db, clock):
+    mgr = login(MGR)
+    base = {"employee_id": emp_id(client, mgr, "E005"), "location_id": loc_id(db, "BQ"), "day": "2026-03-03", "day_to": "2026-03-05",
+            "absence_type": "annual_leave"}
+    done = client.post("/api/absences", json=base, headers=mgr)
+    assert done.status_code == 201 and done.json()["created"] == 3
+    overlap = client.post("/api/absences", json={**base, "day": "2026-03-05", "day_to": "2026-03-07"}, headers=mgr)
+    assert overlap.status_code == 409 and "2026-03-05" in overlap.json()["detail"]
+    listed = client.get("/api/absences?size=50", headers=mgr).json()["items"]
+    assert sorted(a["local_date"] for a in listed) == ["2026-03-03", "2026-03-04", "2026-03-05"]  # nothing from the failed call
+    assert client.post("/api/absences", json={**base, "day": "2026-03-10", "day_to": "2026-03-09"}, headers=mgr).status_code == 400
+    assert client.post("/api/absences", json={**base, "day": "2026-03-10", "day_to": "2026-05-10"}, headers=mgr).status_code == 400

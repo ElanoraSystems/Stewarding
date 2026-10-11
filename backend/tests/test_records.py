@@ -124,7 +124,7 @@ def test_checklist_chart_has_tasks_down_and_dates_across_with_ticks_and_initials
     clock.set(2026, 3, 2, 10, 0)  # after the 13:30 deadline the untouched tasks are overdue
     doc = get(client, login(MGR), "checklist_chart", date_to="2026-03-04", location_id=loc_id(db, "MK")).json()
     chart = next(g for g in doc["groups"] if g.get("layout") == "chart" and "daily" in g["title"])
-    assert [label for _, label in chart["columns"]][:4] == ["Task", "2", "3", "4"]
+    assert [label for _, label in chart["columns"]][:4] == ["Task", "Mon\n2", "Tue\n3", "Wed\n4"]
     rows = {r["task"]: r for r in chart["rows"]}
     assert rows["Clean drains and remove debris"]["d0"] == {"s": "ok", "by": "SS", "ver": "SS2"} or rows["Clean drains and remove debris"]["d0"]["s"] == "ok"
     assert rows["Clean drains and remove debris"]["d1"] == {"s": "na"}
@@ -209,3 +209,30 @@ def test_movements_record_filters_by_type_and_totals_in_and_out(client, login, d
     assert get(client, mgr, "movements", movement="nonsense").status_code == 400
     one = get(client, mgr, "movements", item_id=item_id(db, "BW-001"), location_id=loc_id(db, "MK")).json()
     assert all("BW-001" in r["item"] for g in one["groups"] for r in g["rows"])
+
+
+def test_attendance_sheet_has_one_page_per_employee_with_day_totals(client, login, db, clock):
+    from .test_absences import emp_id, record as absence
+    mgr = login(MGR)
+    manual_body = {"employee_id": emp_id(client, mgr, "E004"), "location_id": loc_id(db, "MK"), "day": "2026-02-27",
+                   "check_in_time": "06:00:00", "check_out_time": "14:00:00", "reason": "Forgot to punch, confirmed"}
+    assert client.post("/api/attendance/manual", json=manual_body, headers=mgr).status_code == 201
+    assert absence(client, mgr, db, day="2026-02-28", kind="absent").status_code == 201
+    assert absence(client, mgr, db, day="2026-03-01", kind="day_off").status_code == 201
+    client.post("/api/attendance/check-in", json={"location_id": loc_id(db, "MK")}, headers=login(STEWARD))
+    doc = client.get(f"{URL}/attendance_sheet?date_from=2026-02-27&date_to=2026-03-02&employee_id={emp_id(client, mgr, 'E004')}", headers=mgr).json()
+    assert doc["title"] == "Employee Attendance Sheet" and len(doc["groups"]) == 1
+    sheet = doc["groups"][0]
+    assert sheet["title"] == "Sid Steward (E004)" and sheet["page_break"] and dict(sheet["meta"])["Job title"] == "Steward"
+    assert dict(sheet["totals"]) == {"Days present": 2, "Late arrivals": 0, "Week off": 1, "Absent": 1, "On leave": 0,
+                                     "Hours worked": "8:00", "Overtime": "0:00"}
+    assert [(r["date"], r["weekday"], r["status"]) for r in sheet["rows"]][:3] == [
+        ("27 Feb 2026", "Fri", "Present"), ("28 Feb 2026", "Sat", "Absent"), ("01 Mar 2026", "Sun", "Week off")]
+    everyone = client.get(f"{URL}/attendance_sheet?date_from=2026-02-27&date_to=2026-03-02", headers=mgr).json()
+    names = [g["title"] for g in everyone["groups"]]
+    assert names == sorted(names) and len(names) >= 3
+    pdf = client.get(f"{URL}/attendance_sheet/export?fmt=pdf&date_from=2026-02-27&date_to=2026-03-02", headers=mgr)
+    import re
+    assert pdf.content.startswith(b"%PDF") and len(re.findall(rb"/Type\s*/Page[^s]", pdf.content)) >= len(names)
+    xlsx = client.get(f"{URL}/attendance_sheet/export?fmt=xlsx&date_from=2026-02-27&date_to=2026-03-02", headers=mgr)
+    assert len(load_workbook(io.BytesIO(xlsx.content)).worksheets) == len(names)

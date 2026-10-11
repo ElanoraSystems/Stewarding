@@ -33,14 +33,15 @@ Or leave out `STW_BOOTSTRAP_PASSWORD` and use `docker compose run --rm backend .
 ## First-time setup (Settings, in this order)
 Sign in as the manager and open **Settings**. Each tab manages one kind of data:
 
-1. **Locations** - kitchens, bars, banquet areas; time zone and optional check-in PIN.
-2. **Shifts** - hours, late-after minutes, break and overtime rules.
-3. **Categories & units** - item categories, units of measure.
-4. **Suppliers** - the companies you receive stock from.
-5. **Item master** - every item once (names are checked for duplicates and the item ID is generated automatically), linked to a category, unit and supplier.
-6. **Monitoring setup** - for each chiller, freezer, machine or log you keep: its checks, what each measures, how often it is due, and the limits. Start from a template where one fits. Limits are not pre-filled in production; set them from the manufacturer's instructions and your food-safety procedure.
-7. **Rules & alerts** - reminder, escalation, retest and approval thresholds.
-8. **Dropdown lists** - job titles, checklist categories, breakage reasons and standard corrective actions.
+1. **Organization** - your organization's name, address, contact details, registration number, report footer note and logo. They head the app and every PDF, Excel and CSV report.
+2. **Locations** - kitchens, bars, banquet areas; time zone and optional check-in PIN.
+3. **Shifts** - hours, late-after minutes, break and overtime rules.
+4. **Categories & units** - item categories, units of measure.
+5. **Suppliers** - the companies you receive stock from.
+6. **Item master** - every item once (names are checked for duplicates and the item ID is generated automatically), linked to a category, unit and supplier.
+7. **Monitoring setup** - for each chiller, freezer, machine or log you keep: its checks, what each measures, how often it is due, and the limits. Start from a template where one fits. Limits are not pre-filled in production; set them from the manufacturer's instructions and your food-safety procedure.
+8. **Rules & alerts** - reminder, escalation, retest and approval thresholds.
+9. **Dropdown lists** - job titles, checklist categories, breakage reasons and standard corrective actions.
 
 Then add employees and checklist templates (Daily Checklists, Configure) and receive opening stock under **Stock Movements, Receiving**.
 

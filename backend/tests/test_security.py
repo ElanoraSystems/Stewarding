@@ -12,7 +12,7 @@ from app.models import Employee, User
 from .conftest import PASSWORD
 from .helpers import MGR, STEWARD, STEWARD_RB, SUP, SUP_RB, item_id, loc_id
 
-PUBLIC = {("POST", "/api/auth/login"), ("GET", "/api/health")}
+PUBLIC = {("POST", "/api/auth/login"), ("GET", "/api/health"), ("GET", "/api/organization/public"), ("GET", "/api/organization/logo")}
 
 
 def api_routes():
@@ -48,7 +48,7 @@ def test_every_protected_route_rejects_a_garbage_token(client):
 MANAGER_ONLY = [
     ("POST", "/api/employees", {}), ("PUT", "/api/employees/1", {}), ("POST", "/api/employees/1/deactivate", None),
     ("POST", "/api/roster/shifts", {}), ("POST", "/api/roster/assignments", {}),
-    ("POST", "/api/attendance/1/correct", {}), ("POST", "/api/checklists/templates", {}),
+    ("POST", "/api/attendance/1/correct", {}), ("POST", "/api/attendance/manual", {}), ("POST", "/api/checklists/templates", {}),
     ("POST", "/api/checklists/generate", {}), ("POST", "/api/equipment", {}), ("PUT", "/api/equipment/1", {}),
     ("PUT", "/api/equipment/schedules/1", {}), ("POST", "/api/inventory/items", {}), ("POST", "/api/inventory/categories", {}),
     ("POST", "/api/inventory/units", {}), ("POST", "/api/inventory/assets", {}), ("POST", "/api/stock/transfers/1/decision", {}),
@@ -57,7 +57,7 @@ MANAGER_ONLY = [
     ("POST", "/api/suppliers", {}), ("PUT", "/api/suppliers/1", {}), ("PUT", "/api/inventory/categories/1", {}),
     ("PUT", "/api/inventory/units/1", {}), ("POST", "/api/lookups", {}), ("PUT", "/api/lookups/1", {}),
     ("POST", "/api/receipts/1/void", {"reason": "Entered by mistake"}),
-    ("GET", "/api/equipment/templates", None), ("POST", "/api/equipment/from-template", {}),
+    ("GET", "/api/equipment/templates", None), ("PUT", "/api/organization", {"name": "Test Org"}), ("POST", "/api/organization/logo", None), ("DELETE", "/api/organization/logo", None), ("POST", "/api/equipment/from-template", {}),
 ]
 
 SUPERVISOR_UP = [
