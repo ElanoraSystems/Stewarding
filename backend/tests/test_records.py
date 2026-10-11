@@ -107,3 +107,105 @@ def test_checklist_record_shows_completion_and_approval(client, login, db, clock
     assert totals["Approved"] == 1 and totals["Awaiting approval"] == 1
     pdf = client.get(f"{URL}/checklists/export?fmt=pdf&date_from=2026-03-02&date_to=2026-03-02", headers=login(MGR))
     assert pdf.content.startswith(b"%PDF")
+
+
+def get(client, h, kind, **params):
+    base = {"date_from": "2026-03-02", "date_to": "2026-03-02", **params}
+    return client.get(f"{URL}/{kind}?" + "&".join(f"{k}={v}" for k, v in base.items() if v is not None), headers=h)
+
+
+def test_checklist_chart_has_tasks_down_and_dates_across_with_ticks_and_initials(client, login, db, clock):
+    generate(client, login, db)
+    steward = login(STEWARD)
+    done = find(client, steward, "Clean drains")
+    complete(client, steward, done)
+    verify(client, login(SUP), done)
+    complete(client, steward, find(client, steward, "Separate and remove waste"))
+    clock.set(2026, 3, 2, 10, 0)  # after the 13:30 deadline the untouched tasks are overdue
+    doc = get(client, login(MGR), "checklist_chart", date_to="2026-03-04", location_id=loc_id(db, "MK")).json()
+    chart = next(g for g in doc["groups"] if g.get("layout") == "chart" and "daily" in g["title"])
+    assert [label for _, label in chart["columns"]][:4] == ["Task", "2", "3", "4"]
+    rows = {r["task"]: r for r in chart["rows"]}
+    assert rows["Clean drains and remove debris"]["d0"] == {"s": "ok", "by": "SS", "ver": "SS2"} or rows["Clean drains and remove debris"]["d0"]["s"] == "ok"
+    assert rows["Clean drains and remove debris"]["d1"] == {"s": "na"}
+    assert rows["Separate and remove waste"]["d0"]["s"] == "pending"
+    assert rows["Clean worktables and food preparation surfaces"]["d0"]["s"] == "fail"
+    assert "SS = Sid Steward" in dict(chart["meta"])["Initials"]
+    exceptions = next(g for g in doc["groups"] if "Exceptions" in g["title"])
+    assert {"Not done"} == {r["status"] for r in exceptions["rows"]}
+    for fmt in ("pdf", "xlsx", "csv"):
+        out = client.get(f"{URL}/checklist_chart/export?fmt={fmt}&date_from=2026-03-02&date_to=2026-03-04", headers=login(MGR))
+        assert out.status_code == 200 and len(out.content) > 500
+    csv = client.get(f"{URL}/checklist_chart/export?fmt=csv&date_from=2026-03-02&date_to=2026-03-04", headers=login(MGR)).content.decode("utf-8-sig")
+    assert "✓" in csv and "✗" in csv
+
+
+def test_checklist_chart_is_limited_to_a_month_and_can_filter_by_frequency(client, login, db, clock):
+    generate(client, login, db)
+    h = login(MGR)
+    assert get(client, h, "checklist_chart", date_from="2026-03-01", date_to="2026-04-15").status_code == 400
+    weekly = get(client, h, "checklist_chart", frequency="weekly", location_id=loc_id(db, "MK")).json()
+    assert all("weekly" in g["title"] for g in weekly["groups"] if g.get("layout") == "chart")
+    assert get(client, h, "checklist_chart", frequency="monthly").status_code == 400
+
+
+def test_attendance_record_shows_presence_absence_and_leave(client, login, db, clock):
+    client.post("/api/attendance/check-in", json={"location_id": loc_id(db, "MK")}, headers=login(STEWARD))
+    mgr = login(MGR)
+    emp = next(e["id"] for e in client.get("/api/employees?size=50", headers=mgr).json()["items"] if e["employee_code"] == "E005")
+    client.post("/api/absences", json={"employee_id": emp, "location_id": loc_id(db, "BQ"), "day": "2026-03-02", "absence_type": "sick_leave"}, headers=mgr)
+    clock.advance(hours=10)
+    doc = get(client, mgr, "attendance").json()
+    rows = [r for g in doc["groups"] for r in g["rows"]]
+    by = {r["employee"]: r for r in rows}
+    assert by["Sid Steward"]["status"] in ("Present", "On duty", "Missed checkout") and by["Sid Steward"]["check_in"] == "06:05"
+    assert by["Bina Steward"]["status"] == "Sick leave"
+    mk = next(g for g in doc["groups"] if "Main Kitchen" in g["title"])
+    assert dict(mk["totals"])["Scheduled"] >= 1
+    only = get(client, mgr, "attendance", employee_id=emp).json()
+    assert {r["employee"] for g in only["groups"] for r in g["rows"]} == {"Bina Steward"}
+    assert client.get(f"{URL}/attendance/export?fmt=pdf&date_from=2026-03-02&date_to=2026-03-02", headers=mgr).content.startswith(b"%PDF")
+
+
+def test_receipts_record_totals_discounts_and_supplier_filter(client, login, db, clock):
+    from .test_receiving import receive, suppliers
+    from .helpers import item_id
+    h = login(SUP)
+    lines = [{"item_id": item_id(db, "PL-001"), "qty": 10, "unit_cost": 5, "discount_type": "percent", "discount": 10}]
+    assert receive(client, h, db, lines, invoice="R-1").status_code == 201
+    other = receive(client, h, db, [{"item_id": item_id(db, "BW-001"), "qty": 4, "unit_cost": 2.5}], invoice="R-2", supplier="Hotel Ware Trading")
+    assert other.status_code == 201
+    mgr = login(MGR)
+    doc = get(client, mgr, "receipts", location_id=loc_id(db, "MK")).json()
+    group = doc["groups"][0]
+    first = next(r for r in group["rows"] if r["invoice"] == "R-1")
+    assert (first["supplier"], first["qty"], first["unit_cost"], first["discount"], first["line_total"], first["received_by"]) == (
+        "Gulf Catering Supplies", 10, "5.00", "5.00", "45.00", "Sam Supervisor")
+    totals = dict(group["totals"])
+    assert totals["Documents"] == 2 and totals["Sub total"] == "60.00" and totals["Total discount"] == "5.00" and totals["Invoice total (posted receipts)"] == "55.00"
+    gulf = suppliers(client)["Gulf Catering Supplies"]
+    filtered = get(client, mgr, "receipts", supplier_id=gulf, location_id=loc_id(db, "MK")).json()
+    assert {r["invoice"] for g in filtered["groups"] for r in g["rows"]} == {"R-1"}
+    rec = next(r["id"] for r in client.get("/api/receipts", headers=mgr).json()["items"] if r["invoice_number"] == "R-1")
+    client.post(f"/api/receipts/{rec}/void", json={"reason": "Entered by mistake"}, headers=mgr)
+    after = dict(get(client, mgr, "receipts", location_id=loc_id(db, "MK")).json()["groups"][0]["totals"])
+    assert after["Invoice total (posted receipts)"] == "10.00"
+
+
+def test_movements_record_filters_by_type_and_totals_in_and_out(client, login, db, clock):
+    from .helpers import item_id
+    sup = login(SUP)
+    base = {"item_id": item_id(db, "PL-001"), "location_id": loc_id(db, "MK")}
+    client.post("/api/inventory/transactions", json={**base, "txn_type": "receipt", "qty": 30}, headers=sup)
+    client.post("/api/inventory/transactions", json={**base, "txn_type": "issue", "qty": 8, "reason": "Banquet"}, headers=sup)
+    mgr = login(MGR)
+    issues = get(client, mgr, "movements", movement="issues", location_id=loc_id(db, "MK")).json()
+    group = issues["groups"][0]
+    assert [r["type"] for r in group["rows"]] == ["Issue"] and group["rows"][0]["qty"] == -8 and group["rows"][0]["reason"] == "Banquet"
+    assert dict(group["totals"]) == {"Movements": 1, "Stock in": 0, "Stock out": 8, "Net": -8}
+    everything = get(client, mgr, "movements", location_id=loc_id(db, "MK")).json()["groups"][0]
+    assert any(r["type"] == "Opening" for r in everything["rows"])
+    assert dict(everything["totals"])["Net"] == sum(r["qty"] for r in everything["rows"])
+    assert get(client, mgr, "movements", movement="nonsense").status_code == 400
+    one = get(client, mgr, "movements", item_id=item_id(db, "BW-001"), location_id=loc_id(db, "MK")).json()
+    assert all("BW-001" in r["item"] for g in one["groups"] for r in g["rows"])

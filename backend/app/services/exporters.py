@@ -6,7 +6,7 @@ from openpyxl.styles import Font, PatternFill
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Flowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
@@ -101,13 +101,61 @@ def _esc(value) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+FILLS = {"ok": "DCFCE7", "pending": "FEF3C7", "fail": "FEE2E2"}
 WIDE = {"corrective_action": 3, "task": 3, "comment": 2, "approved_by": 2, "check": 1.8, "verified_by": 1.5, "limits": 1.4,
         "measure": 1.5, "date": 1.3, "time": 0.8, "result": 0.9, "value": 1.1}
 
 
-def _mark(key: str, value) -> str:
+SYMBOLS = {"ok": "\u2713", "pending": "\u2713?", "fail": "\u2717", "waived": "W", "na": "-"}
+COLORS = {"ok": "#15803d", "pending": "#b45309", "fail": "#b91c1c"}
+
+
+class Mark(Flowable):
+    """A tick or a cross drawn as lines, so it prints the same in every viewer."""
+
+    def __init__(self, state: str):
+        super().__init__()
+        self.state, self.width, self.height = state, 14, 9
+
+    def wrap(self, *_):
+        return self.width, self.height
+
+    def draw(self):
+        canvas = self.canv
+        canvas.setStrokeColor(colors.HexColor(COLORS[self.state]))
+        canvas.setLineWidth(1.4)
+        if self.state == "fail":
+            canvas.line(4, 1, 10, 8)
+            canvas.line(4, 8, 10, 1)
+        else:
+            path = canvas.beginPath()
+            path.moveTo(3.5, 4.5)
+            path.lineTo(6, 1.5)
+            path.lineTo(11, 8)
+            canvas.drawPath(path, stroke=1, fill=0)
+            if self.state == "pending":
+                canvas.setDash(1, 1)
+                canvas.line(2, 0, 12, 0)
+
+
+def _flat(value):
+    """A chart cell as text for spreadsheets: a symbol plus the initials of who did it and who approved it."""
+    if isinstance(value, dict):
+        who = "/".join(part for part in (value.get("by"), value.get("ver")) if part)
+        return f"{SYMBOLS[value['s']]} {who}".strip()
+    return value
+
+
+def _mark(key: str, value, style) -> object:
+    if isinstance(value, dict):
+        state = value["s"]
+        center = style.clone("center", alignment=1)
+        if state in COLORS:
+            who = "/".join(part for part in (value.get("by"), value.get("ver")) if part)
+            return [Mark(state), Paragraph(_esc(who), center.clone("tiny", fontSize=4.5, leading=5))]
+        return Paragraph(f'<font color="#6b7280">{SYMBOLS[state]}</font>', center)
     text = _esc(value)
-    return f'<font color="#b91c1c"><b>{text}</b></font>' if key == "result" and value == "FAIL" else text
+    return Paragraph(f'<font color="#b91c1c"><b>{text}</b></font>' if key == "result" and value == "FAIL" else text, style)
 
 
 def _record_meta(doc: dict) -> list[tuple[str, str]]:
@@ -126,7 +174,7 @@ def record_to_csv(doc: dict) -> bytes:
         out.writerow([safe(group["title"])])
         out.writerow([safe(label) for _, label in group["columns"]])
         for row in group["rows"]:
-            out.writerow([safe(row.get(key)) for key, _ in group["columns"]])
+            out.writerow([safe(_flat(row.get(key))) for key, _ in group["columns"]])
         for label, value in group["totals"]:
             out.writerow([label, value])
     return buf.getvalue().encode("utf-8-sig")
@@ -155,13 +203,19 @@ def record_to_xlsx(doc: dict) -> bytes:
             cell.font = Font(bold=True)
             cell.fill = PatternFill("solid", fgColor="E8EEF0")
         for row in group["rows"]:
-            sheet.append([safe(row.get(key)) for key, _ in group["columns"]])
+            sheet.append([safe(_flat(row.get(key))) for key, _ in group["columns"]])
+            if group.get("layout") == "chart":
+                for cell in sheet[sheet.max_row]:
+                    state = next((s for s, sym in SYMBOLS.items() if isinstance(cell.value, str) and cell.value.startswith(sym) and s != "na"), None)
+                    if state in FILLS:
+                        cell.fill = PatternFill("solid", fgColor=FILLS[state])
         sheet.append([])
         for label, value in group["totals"]:
             sheet.append([label, value])
         sheet.freeze_panes = sheet.cell(row=header_row + 1, column=1)
         for i, (key, _) in enumerate(group["columns"]):
-            sheet.column_dimensions[chr(65 + i % 26)].width = 16 * WIDE.get(key, 1)
+            letter = sheet.cell(row=1, column=i + 1).column_letter
+            sheet.column_dimensions[letter].width = 9 if group.get("layout") == "chart" and key != "task" else 16 * WIDE.get(key, 1)
     buf = io.BytesIO()
     book.save(buf)
     return buf.getvalue()
@@ -192,13 +246,16 @@ def record_to_pdf(doc: dict) -> bytes:
     if not doc["groups"]:
         story += [Spacer(1, 14), Paragraph("No records for this period.", styles["Normal"])]
     for group in doc["groups"]:
-        weights = [WIDE.get(key, 1) for key, _ in group["columns"]]
+        chart = group.get("layout") == "chart"
+        weights = [(8 if key == "task" else 1) if chart else WIDE.get(key, 1) for key, _ in group["columns"]]
         widths = [width * w / sum(weights) for w in weights]
         story += [Spacer(1, 14), Paragraph(_esc(group["title"]), styles["Heading3"]),
                   Paragraph(" | ".join(f"<b>{_esc(label)}:</b> {_esc(value)}" for label, value in group["meta"]), styles["Normal"]),
                   Spacer(1, 4)]
-        data = [[Paragraph(_esc(label), head) for _, label in group["columns"]]]
-        data += [[Paragraph(_mark(key, row.get(key)), cell) for key, _ in group["columns"]] for row in group["rows"]]
+        if group.get("legend"):
+            story.append(Paragraph(_esc(group["legend"]), cell))
+        data = [[Paragraph(_esc(label), head if not chart else head.clone("chart_head", alignment=1 if label != "Task" else 0)) for _, label in group["columns"]]]
+        data += [[_mark(key, row.get(key), cell) for key, _ in group["columns"]] for row in group["rows"]]
         table = Table(data, colWidths=widths, repeatRows=1)
         style = [("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef0")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
                  ("VALIGN", (0, 0), (-1, -1), "TOP")]

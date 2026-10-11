@@ -1,16 +1,34 @@
 """Printable record documents: one titled table per location and monitoring point or checklist, for audits and month end."""
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment, Location,
+from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
+                      InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction, Supplier,
                       TemperatureReading)
+from . import metrics
 from .monitoring import describe
 
-KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record"}
+KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
+         "attendance": "Attendance Record", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements"}
 MAX_DAYS = 366
+CHART_DAYS = 31
+MOVEMENTS = {"receipts": ("receipt",), "issues": ("issue",), "returns": ("return",), "transfers": ("transfer_in", "transfer_out"),
+             "breakage": ("damage", "breakage"), "adjustments": ("adjustment",), "opening": ("opening",)}
+
+
+@dataclass
+class Filters:
+    location_id: int | None = None
+    equipment_id: int | None = None
+    employee_id: int | None = None
+    supplier_id: int | None = None
+    item_id: int | None = None
+    movement: str | None = None
+    frequency: str | None = None
 
 
 def _local(dt: datetime | None, tz: str) -> str:
@@ -84,7 +102,8 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
     return groups
 
 
-def _checklist_groups(db: Session, locations: list[Location], day_from: date, day_to: date) -> list[dict]:
+def _checklist_groups(db: Session, locations: list[Location], day_from: date, day_to: date,
+                      frequency: str | None = None, employee_id: int | None = None) -> list[dict]:
     names = _names(db)
     groups = []
     for loc in locations:
@@ -95,6 +114,11 @@ def _checklist_groups(db: Session, locations: list[Location], day_from: date, da
                 .where(ChecklistInstance.location_id == loc.id, ChecklistInstance.local_date >= day_from,
                        ChecklistInstance.local_date <= day_to)
                 .order_by(ChecklistInstance.local_date, ChecklistTemplate.name, ChecklistTask.id))
+        if frequency:
+            stmt = stmt.where(ChecklistTemplate.frequency == frequency)
+        if employee_id is not None:
+            emp_user = db.scalar(select(Employee.user_id).where(Employee.id == employee_id))
+            stmt = stmt.where((ChecklistInstance.assigned_employee_id == employee_id) | (ChecklistInstance.completed_by == (emp_user or -1)))
         for inst, task, template in db.execute(stmt):
             rows_by_template.setdefault(f"{template.name} ({template.frequency})", []).append({
                 "date": inst.local_date.strftime("%d %b %Y"), "task": task.description, "status": inst.status.replace("_", " "),
@@ -116,17 +140,196 @@ def _checklist_groups(db: Session, locations: list[Location], day_from: date, da
     return groups
 
 
+def _initials(name: str | None, legend: dict[str, str]) -> str:
+    if not name:
+        return ""
+    base = "".join(part[0] for part in name.split()[:2]).upper() or "?"
+    code, n = base, 2
+    while legend.get(code, name) != name:
+        code, n = f"{base}{n}", n + 1
+    legend[code] = name
+    return code
+
+
+CHART_KEY = "Key: tick = done and approved, amber dotted tick = done, awaiting approval, cross = not done or rejected, W = waived, - = not due"
+
+
+def _chart_groups(db: Session, now: datetime, scope, f: Filters, day_from: date, day_to: date) -> list[dict]:
+    if (day_to - day_from).days >= CHART_DAYS:
+        raise ValueError(f"The completion chart covers at most {CHART_DAYS} days; use the checklist record for longer periods")
+    names = _names(db)
+    days = list(metrics.daterange(day_from, day_to))
+    groups = []
+    for win in metrics.windows(db, now, scope, f.location_id, day_from, day_to):
+        stats = metrics.checklist_stats(db, win, now, f.employee_id, f.frequency)
+        by_template: dict[str, dict[tuple[int, str], dict]] = {}
+        exceptions: list[dict] = []
+        for inst, task, tpl, state in stats["rows"]:
+            title = f"{tpl.name} ({tpl.frequency})"
+            row = by_template.setdefault(title, {}).setdefault((task.id, task.description), {})
+            row.setdefault(inst.local_date, []).append((inst, state))
+            if state in ("failed", "overdue", "waived"):
+                exceptions.append({"date": inst.local_date.strftime("%d %b %Y"), "task": task.description,
+                                   "status": {"failed": "Rejected", "overdue": "Not done", "waived": "Waived"}[state],
+                                   "completed_by": names.get(inst.completed_by, ""), "approved_by": names.get(inst.verified_by, ""),
+                                   "reason": inst.comment or inst.waive_reason or ""})
+        for title, tasks in by_template.items():
+            legend: dict[str, str] = {}
+            rows, done, expected = [], 0, 0
+            for (_, description), by_day in tasks.items():
+                row = {"task": description}
+                for i, day in enumerate(days):
+                    items = by_day.get(day)
+                    if not items:
+                        row[f"d{i}"] = {"s": "na"}
+                        continue
+                    states = {state for _, state in items}
+                    symbol = ("fail" if states & {"failed", "overdue"} else "pending" if "pending_verification" in states
+                              else "waived" if states == {"waived"} else "ok" if states & {"verified", "completed"} else "na")
+                    first = next((inst for inst, _ in items if inst.completed_by), items[0][0])
+                    row[f"d{i}"] = {"s": symbol, "by": _initials(names.get(first.completed_by), legend),
+                                    "ver": _initials(names.get(first.verified_by), legend)}
+                    if symbol != "na" and symbol != "waived":
+                        expected += 1
+                        done += symbol in ("ok", "pending")
+                rows.append(row)
+            groups.append({
+                "title": f"{win.loc.name} - {title}", "layout": "chart",
+                "meta": [("Location", win.loc.name), ("Checklist", title), ("Initials", ", ".join(f"{k} = {v}" for k, v in sorted(legend.items())) or "-")],
+                "legend": CHART_KEY,
+                "columns": [("task", "Task")] + [(f"d{i}", str(day.day)) for i, day in enumerate(days)],
+                "rows": rows,
+                "totals": [("Tasks", len(rows)), ("Completed", f"{done}/{expected}" if expected else "0/0"),
+                           ("Compliance", f"{metrics.pct(done, expected)}%" if expected else "n/a")]})
+        if exceptions:
+            groups.append({
+                "title": f"{win.loc.name} - Exceptions and follow-up", "meta": [("Location", win.loc.name)],
+                "columns": [("date", "Date"), ("task", "Task"), ("status", "Status"), ("completed_by", "Completed by"),
+                            ("approved_by", "Approved by"), ("reason", "Reason or comment")],
+                "rows": exceptions, "totals": [("Exceptions", len(exceptions))]})
+    return groups
+
+
+def _attendance_groups(db: Session, now: datetime, scope, f: Filters, day_from: date, day_to: date) -> list[dict]:
+    groups = []
+    for win in metrics.windows(db, now, scope, f.location_id, day_from, day_to):
+        stats = metrics.attendance_stats(db, win, now, f.employee_id)
+        if not stats["rows"]:
+            continue
+        tz = win.loc.timezone
+        rows = [{"date": r["day"].strftime("%d %b %Y"), "employee": r["name"], "shift": r["shift"] or "",
+                 "status": r["status"].replace("_", " ").capitalize(),
+                 "check_in": timeutil.to_local(r["check_in"], tz).strftime("%H:%M") if r["check_in"] else "",
+                 "check_out": timeutil.to_local(r["check_out"], tz).strftime("%H:%M") if r["check_out"] else "",
+                 "late": r["late_minutes"] or "", "worked": _hm(r["payable_minutes"]), "overtime": _hm(r["overtime_minutes"]),
+                 "note": r["note"] or ""} for r in stats["rows"]]
+        groups.append({
+            "title": f"{win.loc.name} - Attendance", "meta": [("Location", win.loc.name)],
+            "columns": [("date", "Date"), ("employee", "Employee"), ("shift", "Shift"), ("status", "Status"), ("check_in", "In"),
+                        ("check_out", "Out"), ("late", "Late (min)"), ("worked", "Worked"), ("overtime", "Overtime"), ("note", "Note")],
+            "rows": rows,
+            "totals": [("Scheduled", stats["scheduled"]), ("Present", stats["present"]), ("Late", stats["late"]),
+                       ("Absent", stats["absent"]), ("On leave", stats["on_leave"]), ("Week off", stats["week_off"])]})
+    return groups
+
+
+def _hm(minutes: int | None) -> str:
+    return "" if minutes is None else f"{minutes // 60}:{minutes % 60:02d}"
+
+
+def _money(value) -> str:
+    return "" if value is None else f"{value:.2f}"
+
+
+def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from: date, day_to: date) -> list[dict]:
+    names, suppliers = _names(db), {s.id: s.name for s in db.scalars(select(Supplier))}
+    items = {i.id: i for i in db.scalars(select(InventoryItem))}
+    groups = []
+    for loc in locations:
+        start, end = _bounds(day_from, day_to, loc.timezone)
+        stmt = select(Receipt).where(Receipt.location_id == loc.id, Receipt.received_at >= start, Receipt.received_at < end)
+        if f.supplier_id is not None:
+            stmt = stmt.where(Receipt.supplier_id == f.supplier_id)
+        docs = list(db.scalars(stmt.order_by(Receipt.received_at)))
+        if not docs:
+            continue
+        rows = []
+        for doc in docs:
+            kind = "Return" if doc.doc_type == "supplier_return" else "Receipt"
+            for ln in db.scalars(select(ReceiptLine).where(ReceiptLine.receipt_id == doc.id).order_by(ReceiptLine.id)):
+                item = items[ln.item_id]
+                rows.append({"date": _local(doc.received_at, loc.timezone)[:11], "type": kind, "supplier": suppliers.get(doc.supplier_id, ""),
+                             "invoice": doc.invoice_number, "item": f"{item.code} - {item.name}", "qty": ln.qty,
+                             "unit_cost": _money(ln.unit_cost), "discount": _money(ln.discount_amount), "line_total": _money(ln.line_total),
+                             "received_by": names.get(doc.received_by, ""), "status": "Void" if doc.status == "void" else "Posted"})
+        posted = [d for d in docs if d.status == "posted" and d.doc_type == "receipt" and d.total is not None]
+        sub = sum((d.subtotal or 0 for d in posted), 0)
+        disc = sum(((d.line_discount_total or 0) + (d.discount_amount or 0) for d in posted), 0)
+        groups.append({
+            "title": f"{loc.name} - Receipts and invoices", "meta": [("Location", loc.name)],
+            "columns": [("date", "Date"), ("type", "Type"), ("supplier", "Supplier"), ("invoice", "Invoice"), ("item", "Item"),
+                        ("qty", "Qty"), ("unit_cost", "Unit cost"), ("discount", "Discount"), ("line_total", "Line total"),
+                        ("received_by", "Received by"), ("status", "Status")],
+            "rows": rows,
+            "totals": [("Documents", len(docs)), ("Sub total", _money(sub)), ("Total discount", _money(disc)),
+                       ("Invoice total (posted receipts)", _money(sum((d.total for d in posted), 0)))]})
+    return groups
+
+
+def _movement_groups(db: Session, locations: list[Location], f: Filters, day_from: date, day_to: date) -> list[dict]:
+    names = _names(db)
+    items = {i.id: i for i in db.scalars(select(InventoryItem))}
+    categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
+    groups = []
+    for loc in locations:
+        start, end = _bounds(day_from, day_to, loc.timezone)
+        stmt = select(StockTransaction).where(StockTransaction.location_id == loc.id, StockTransaction.occurred_at >= start,
+                                              StockTransaction.occurred_at < end)
+        if f.movement in MOVEMENTS:
+            stmt = stmt.where(StockTransaction.txn_type.in_(MOVEMENTS[f.movement]))
+        if f.item_id is not None:
+            stmt = stmt.where(StockTransaction.item_id == f.item_id)
+        txns = list(db.scalars(stmt.order_by(StockTransaction.occurred_at, StockTransaction.id)))
+        if not txns:
+            continue
+        rows = []
+        for t in txns:
+            item = items[t.item_id]
+            when = _local(t.occurred_at, loc.timezone)
+            rows.append({"date": when[:11], "time": when[12:], "item": f"{item.code} - {item.name}", "category": categories.get(item.category_id, ""),
+                         "type": t.txn_type.replace("_", " ").capitalize(), "qty": t.qty_delta, "by": names.get(t.user_id, ""),
+                         "reason": t.reason or "", "reference": f"{t.ref_type} #{t.ref_id}" if t.ref_type else ""})
+        groups.append({
+            "title": f"{loc.name} - Stock movements", "meta": [("Location", loc.name)],
+            "columns": [("date", "Date"), ("time", "Time"), ("item", "Item"), ("category", "Category"), ("type", "Movement"),
+                        ("qty", "Qty"), ("by", "By"), ("reason", "Reason"), ("reference", "Reference")],
+            "rows": rows,
+            "totals": [("Movements", len(txns)), ("Stock in", sum(t.qty_delta for t in txns if t.qty_delta > 0)),
+                       ("Stock out", -sum(t.qty_delta for t in txns if t.qty_delta < 0)), ("Net", sum(t.qty_delta for t in txns))]})
+    return groups
+
+
 def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, day_from: date, day_to: date,
-                 location_id: int | None, equipment_id: int | None, prepared_by: str) -> dict:
+                 f: Filters, prepared_by: str) -> dict:
     if kind not in KINDS:
         raise ValueError("Unknown record type")
     if day_from > day_to:
         raise ValueError("The start date is after the end date")
     if (day_to - day_from).days >= MAX_DAYS:
         raise ValueError(f"A record covers at most {MAX_DAYS} days")
-    locations = _locations(db, scope, location_id)
-    groups = (_monitoring_groups(db, locations, day_from, day_to, equipment_id) if kind == "monitoring"
-              else _checklist_groups(db, locations, day_from, day_to))
+    locations = _locations(db, scope, f.location_id)
+    if kind == "monitoring":
+        groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id)
+    elif kind == "checklists":
+        groups = _checklist_groups(db, locations, day_from, day_to, f.frequency, f.employee_id)
+    elif kind == "checklist_chart":
+        groups = _chart_groups(db, now, scope, f, day_from, day_to)
+    elif kind == "attendance":
+        groups = _attendance_groups(db, now, scope, f, day_from, day_to)
+    elif kind == "receipts":
+        groups = _receipt_groups(db, locations, f, day_from, day_to)
+    else:
+        groups = _movement_groups(db, locations, f, day_from, day_to)
     label = day_from.strftime("%d %b %Y") if day_from == day_to else f"{day_from.strftime('%d %b %Y')} to {day_to.strftime('%d %b %Y')}"
     return {"kind": kind, "title": KINDS[kind], "period": {"from": day_from.isoformat(), "to": day_to.isoformat(), "label": label},
             "locations": [loc.name for loc in locations], "prepared_by": prepared_by,

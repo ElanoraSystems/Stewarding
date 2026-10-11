@@ -1,104 +1,177 @@
-import { Download } from 'lucide-react'
+import { Download, FileText } from 'lucide-react'
 import { useState } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-import { EmptyState, Skeleton, Table, Td, Th } from '@/components/ui/table'
+import { Skeleton } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth'
+import { PRESETS, type Range } from '@/lib/dates'
 import { downloadFile } from '@/lib/download'
-import { fmtDateTime } from '@/lib/format'
+import { MOVEMENTS, REPORTS, SECTIONS, type ReportDef } from '@/lib/reportCatalog'
 import { useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
-import { RecordDownloads } from '@/pages/RecordDownloads'
+import { useAllItems } from '@/lib/useItems'
+import { cn } from '@/lib/utils'
+import { OperationsSummary } from '@/pages/OperationsSummary'
+import { ReportPreview, type RecordDoc } from '@/pages/ReportPreview'
 
-interface Section {
-  id: string
-  title: string
-  columns: { key: string; label: string }[]
-  rows: Record<string, string | number | null>[]
-  totals: { label: string; value: string | number }[]
-}
-
-interface Report {
-  period: { type: string; label: string; from: string; to: string }
-  locations: string[]
-  timezones: string[]
-  generated_at: string
-  sections: Section[]
-}
-
-const FORMATS = [['xlsx', 'Excel'], ['csv', 'CSV'], ['pdf', 'PDF']] as const
+type Named = { id: number; name?: string; full_name?: string }
 
 export function ReportsPage() {
   const { me } = useAuth()
   const toast = useToast()
   const canExport = me?.permissions.includes('report.export') ?? false
-  const [period, setPeriod] = useState('daily')
-  const [anchor, setAnchor] = useState('')
+  const [key, setKey] = useState('attendance')
+  const [range, setRange] = useState<Range>(() => PRESETS[0].range() as Range)
   const [locationId, setLocationId] = useState<number | null>(null)
-  const params = { anchor, location_id: locationId }
-  const { data, loading, error } = useApi<Report>(`/reports/${period}${qs(params)}`)
+  const [extra, setExtra] = useState<Record<string, string>>({})
+  const def = REPORTS.find((r) => r.key === key) as ReportDef
+  const has = (f: ReportDef['filters'][number]) => def.filters.includes(f)
+
+  const employees = useApi<{ items: Named[] }>(has('employee') ? '/employees?size=200' : null)
+  const suppliers = useApi<Named[]>(has('supplier') ? '/suppliers' : null)
+  const points = useApi<Named[]>(has('monitoringPoint') && locationId ? `/equipment${qs({ location_id: locationId })}` : null)
+  const { items } = useAllItems()
+
+  const params = {
+    date_from: range[0], date_to: range[1], location_id: locationId, employee_id: extra.employee, frequency: extra.frequency,
+    equipment_id: has('monitoringPoint') && locationId ? extra.monitoringPoint : '', supplier_id: extra.supplier,
+    movement: extra.movement, item_id: extra.item,
+  }
+  const preview = useApi<RecordDoc>(def.summary ? null : `/reports/records/${key}${qs(params)}`)
+  const setFilter = (name: string, value: string) => setExtra((e) => ({ ...e, [name]: value }))
+  const choose = (next: string) => { setKey(next); setExtra({}) }
+  const activePreset = PRESETS.find((p) => p.range()[0] === range[0] && p.range()[1] === range[1])?.key
 
   async function download(fmt: string) {
-    if (!(await downloadFile(`/api/reports/${period}/export${qs({ ...params, fmt })}`, `report.${fmt}`))) toast('error', 'Export failed')
+    const ok = await downloadFile(`/api/reports/records/${key}/export${qs({ ...params, fmt })}`, `${key}.${fmt}`)
+    if (!ok) toast('error', 'Could not create the report. Check the dates and filters.')
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Reports &amp; Analytics</h1>
-        {canExport && (
-          <div className="flex flex-wrap gap-2">
-            {FORMATS.map(([fmt, text]) => (
-              <Button key={fmt} variant="outline" size="sm" onClick={() => download(fmt)}><Download className="h-4 w-4" /> {text}</Button>
+    <div className="space-y-5">
+      <header>
+        <h1 className="text-2xl font-semibold">Reports</h1>
+        <p className="text-sm text-ink-muted">Pick a report, choose the dates, then download it as a PDF or Excel file.</p>
+      </header>
+
+      <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
+        <nav aria-label="Reports" className="space-y-4">
+          <Select aria-label="Report" className="lg:hidden" value={key} onChange={(e) => choose(e.target.value)}>
+            {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.title}</option>)}
+          </Select>
+          <div className="hidden space-y-4 lg:block">
+            {SECTIONS.map((section) => (
+              <div key={section}>
+                <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">{section}</p>
+                <ul className="space-y-1">
+                  {REPORTS.filter((r) => r.section === section).map((r) => (
+                    <li key={r.key}>
+                      <button type="button" onClick={() => choose(r.key)} aria-current={r.key === key}
+                        className={cn('flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-muted',
+                          r.key === key && 'bg-surface-muted font-medium ring-1 ring-brand')}>
+                        <FileText className="h-4 w-4 shrink-0 text-brand" aria-hidden /> {r.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
           </div>
-        )}
-      </div>
+        </nav>
 
-      {canExport && <RecordDownloads />}
-
-      <div className="flex flex-wrap gap-3">
-        <Select aria-label="Report period" className="w-auto" value={period} onChange={(e) => setPeriod(e.target.value)}>
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
-        </Select>
-        <Input aria-label="Report date" type="date" className="w-auto" value={anchor} onChange={(e) => setAnchor(e.target.value)} />
-        <LocationSelect allowAll value={locationId} onChange={setLocationId} />
-      </div>
-
-      {error && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}
-      {loading && !data ? <Skeleton className="h-48 w-full" /> : data && (
-        <>
-          <div className="rounded-md border border-border bg-surface p-3 text-sm">
-            <p><strong>{data.period.label}</strong> ({data.period.from} to {data.period.to})</p>
-            <p className="text-ink-muted">Locations: {data.locations.join(', ')} - Time zones: {data.timezones.join(', ')}</p>
-            <p className="text-ink-muted">Generated {fmtDateTime(data.generated_at)}</p>
+        <section className="min-w-0 space-y-4" aria-label={def.title}>
+          <div>
+            <h2 className="text-xl font-semibold">{def.title}</h2>
+            <p className="text-sm text-ink-muted">{def.blurb}</p>
           </div>
-          {data.sections.map((s) => (
-            <Card key={s.id}>
-              <CardHeader><CardTitle>{s.title}</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                {s.totals.length > 0 && (
-                  <div className="flex flex-wrap gap-2">{s.totals.map((t) => <Badge key={t.label}>{t.label}: {String(t.value)}</Badge>)}</div>
+
+          {def.summary ? <OperationsSummary /> : (
+            <>
+              <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Quick date ranges">
+                  {PRESETS.map((p) => (
+                    <Button key={p.key} size="sm" variant={activePreset === p.key ? 'default' : 'outline'} onClick={() => setRange(p.range() as Range)}>{p.label}</Button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-end gap-3">
+                  <Field label="From"><Input type="date" value={range[0]} max={range[1] || undefined} onChange={(e) => setRange([e.target.value, range[1]])} /></Field>
+                  <Field label="To"><Input type="date" value={range[1]} min={range[0]} onChange={(e) => setRange([range[0], e.target.value])} /></Field>
+                  <Field label="Location"><LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setFilter('monitoringPoint', '') }} /></Field>
+                  {has('employee') && (
+                    <Field label="Employee">
+                      <Select value={extra.employee ?? ''} onChange={(e) => setFilter('employee', e.target.value)}>
+                        <option value="">Everyone</option>
+                        {employees.data?.items.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                  {has('frequency') && (
+                    <Field label="Checklist">
+                      <Select value={extra.frequency ?? ''} onChange={(e) => setFilter('frequency', e.target.value)}>
+                        <option value="">Daily and weekly</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                      </Select>
+                    </Field>
+                  )}
+                  {has('monitoringPoint') && locationId && (
+                    <Field label="Monitoring point">
+                      <Select value={extra.monitoringPoint ?? ''} onChange={(e) => setFilter('monitoringPoint', e.target.value)}>
+                        <option value="">All points</option>
+                        {points.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                  {has('supplier') && (
+                    <Field label="Supplier">
+                      <Select value={extra.supplier ?? ''} onChange={(e) => setFilter('supplier', e.target.value)}>
+                        <option value="">All suppliers</option>
+                        {suppliers.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                  {has('movement') && (
+                    <Field label="Movement">
+                      <Select value={extra.movement ?? ''} onChange={(e) => setFilter('movement', e.target.value)}>
+                        <option value="">All movements</option>
+                        {MOVEMENTS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                  {has('item') && (
+                    <Field label="Item">
+                      <Select value={extra.item ?? ''} onChange={(e) => setFilter('item', e.target.value)}>
+                        <option value="">All items</option>
+                        {items.map((i) => <option key={i.id} value={i.id}>{i.code} - {i.name}</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                </div>
+                {canExport && (
+                  <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                    <Button onClick={() => download('pdf')}><Download className="h-4 w-4" /> Download PDF</Button>
+                    <Button variant="outline" onClick={() => download('xlsx')}><Download className="h-4 w-4" /> Excel</Button>
+                    <Button variant="outline" onClick={() => download('csv')}><Download className="h-4 w-4" /> CSV</Button>
+                  </div>
                 )}
-                {s.rows.length === 0 ? <EmptyState title="No records for this period" /> : (
-                  <Table>
-                    <thead><tr>{s.columns.map((c) => <Th key={c.key}>{c.label}</Th>)}</tr></thead>
-                    <tbody>
-                      {s.rows.map((r, i) => <tr key={i}>{s.columns.map((c) => <Td key={c.key}>{r[c.key] ?? '-'}</Td>)}</tr>)}
-                    </tbody>
-                  </Table>
+              </div>
+
+              <div aria-live="polite">
+                {preview.error && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{preview.error}</p>}
+                {preview.loading && !preview.data ? <Skeleton className="h-48 w-full" /> : preview.data && (
+                  <div className="space-y-3">
+                    <p className="text-sm text-ink-muted">{preview.data.period.label}{preview.data.locations.length > 0 && ` - ${preview.data.locations.join(', ')}`}</p>
+                    <ReportPreview doc={preview.data} />
+                  </div>
                 )}
-              </CardContent>
-            </Card>
-          ))}
-        </>
-      )}
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </div>
   )
 }

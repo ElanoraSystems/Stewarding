@@ -11,7 +11,7 @@ from ..db import get_db
 from ..deps import check_location, require, scoped_locations
 from ..models import Employee, User
 from ..services import exporters
-from ..services.records import KINDS, build_record
+from ..services.records import KINDS, MOVEMENTS, Filters, build_record
 from ..services.reports import PERIODS, REPORTS, build_report
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -34,33 +34,42 @@ def _build(db: Session, user: User, period: str, anchor: date | None, location_i
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
 
 
-def _record(db: Session, user: User, kind: str, date_from: date | None, date_to: date | None, location_id: int | None,
-            equipment_id: int | None) -> dict:
+def _record(db: Session, user: User, kind: str, date_from: date | None, date_to: date | None, f: Filters) -> dict:
     if kind not in KINDS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown record type")
-    if location_id is not None:
-        check_location(user, db, location_id)
+    if f.location_id is not None:
+        check_location(user, db, f.location_id)
+    if f.movement and f.movement not in MOVEMENTS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown movement type")
+    if f.frequency and f.frequency not in ("daily", "weekly"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown checklist frequency")
     now = timeutil.utc_now()
     day_to = date_to or now.date()
     day_from = date_from or day_to
     name = db.scalar(select(Employee.full_name).where(Employee.user_id == user.id)) or user.email
     try:
-        return build_record(db, now, scoped_locations(user, db), kind, day_from, day_to, location_id, equipment_id, name)
+        return build_record(db, now, scoped_locations(user, db), kind, day_from, day_to, f, name)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
 
 
 @router.get("/records/{kind}")
 def record(kind: str, date_from: date | None = None, date_to: date | None = None, location_id: int | None = None,
-           equipment_id: int | None = None, user: User = Depends(require("report.view")), db: Session = Depends(get_db)):
-    return _record(db, user, kind, date_from, date_to, location_id, equipment_id)
+           equipment_id: int | None = None, employee_id: int | None = None, supplier_id: int | None = None,
+           item_id: int | None = None, movement: str | None = None, frequency: str | None = None,
+           user: User = Depends(require("report.view")), db: Session = Depends(get_db)):
+    f = Filters(location_id, equipment_id, employee_id, supplier_id, item_id, movement, frequency)
+    return _record(db, user, kind, date_from, date_to, f)
 
 
 @router.get("/records/{kind}/export")
 def export_record(kind: str, fmt: Literal["csv", "xlsx", "pdf"] = "pdf", date_from: date | None = None,
                   date_to: date | None = None, location_id: int | None = None, equipment_id: int | None = None,
+                  employee_id: int | None = None, supplier_id: int | None = None, item_id: int | None = None,
+                  movement: str | None = None, frequency: str | None = None,
                   user: User = Depends(require("report.export")), db: Session = Depends(get_db)):
-    doc = _record(db, user, kind, date_from, date_to, location_id, equipment_id)
+    f = Filters(location_id, equipment_id, employee_id, supplier_id, item_id, movement, frequency)
+    doc = _record(db, user, kind, date_from, date_to, f)
     audit(db, user, "report.export", "record", None, None, {"kind": kind, "format": fmt, "from": doc["period"]["from"],
                                                            "to": doc["period"]["to"], "location_id": location_id})
     db.commit()

@@ -59,6 +59,8 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
   }, [form.name, item?.id])
 
   const shownSimilar = form.name.trim().length >= 3 ? similar : []
+  const squash = (text: string) => text.toLowerCase().split(/\s+/).filter(Boolean).join(' ')
+  const exact = shownSimilar.find((s) => squash(s.name) === squash(form.name))
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -82,7 +84,13 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
         <Field label="Name" hint={editing ? `Item ID ${item.code}` : 'The item ID is generated automatically.'}>
           <Input required value={form.name} onChange={(e) => set('name', e.target.value)} />
         </Field>
-        {shownSimilar.length > 0 && (
+        {exact && (
+          <div role="alert" className="rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-sm text-danger">
+            <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> This item already exists</p>
+            <p className="mt-1">{exact.code} - {exact.name}{!exact.active && ' (inactive, restore it from Settings, Item master)'}. Use the existing item instead of adding it again.</p>
+          </div>
+        )}
+        {!exact && shownSimilar.length > 0 && (
           <div role="status" className="rounded-md border border-warn/50 bg-warn-soft px-3 py-2 text-sm text-warn">
             <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> Similar items already exist</p>
             <ul className="mt-1 list-inside list-disc">{shownSimilar.map((s) => <li key={s.id}>{s.code} - {s.name}{!s.active && ' (inactive)'}</li>)}</ul>
@@ -128,7 +136,7 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
         )}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit">Save</Button>
+          <Button type="submit" disabled={!!exact}>Save</Button>
         </div>
       </form>
     </Modal>
