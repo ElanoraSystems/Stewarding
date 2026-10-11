@@ -1,4 +1,4 @@
-# Scullery - Plan
+# Plato - Plan
 
 ## Discovery
 The repository started empty. No existing framework, dependencies, database, or authentication.

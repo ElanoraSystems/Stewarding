@@ -9,8 +9,8 @@ from app.models import AuditLog
 from .helpers import MGR, STEWARD, SUP, loc_id
 
 URL = "/api/organization"
-BODY = {"name": "Hadlaan House Kitchens", "legal_name": "Hadlaan House Catering LLC", "address": "12 Corniche Road, Kuwait City",
-        "phone": "+965 1234 5678", "email": "ops@hadlaan.example", "website": "https://hadlaan.example",
+BODY = {"name": "Example Kitchens", "legal_name": "Example Catering LLC", "address": "12 Corniche Road, Kuwait City",
+        "phone": "+965 1234 5678", "email": "ops@example.com", "website": "https://example.com",
         "registration_number": "CR-998877", "report_footer": "Confidential - for internal audit use"}
 
 
@@ -24,8 +24,8 @@ def test_organization_starts_blank_and_the_manager_can_set_it(client, login, db)
     assert client.get(f"{URL}/public").json() == {"name": "", "has_logo": False}
     assert client.get(URL, headers=login(SUP)).json()["name"] == ""
     saved = client.put(URL, json=BODY, headers=login(MGR))
-    assert saved.status_code == 200 and saved.json()["name"] == "Hadlaan House Kitchens" and saved.json()["logo"] is None
-    assert client.get(f"{URL}/public").json()["name"] == "Hadlaan House Kitchens"
+    assert saved.status_code == 200 and saved.json()["name"] == "Example Kitchens" and saved.json()["logo"] is None
+    assert client.get(f"{URL}/public").json()["name"] == "Example Kitchens"
     assert client.get(URL, headers=login(STEWARD)).json()["registration_number"] == "CR-998877"
     assert db.scalar(select(AuditLog.id).where(AuditLog.action == "organization.update"))
 
@@ -42,10 +42,10 @@ def test_organization_fields_are_validated_and_trimmed(client, login):
     assert client.put(URL, json={**BODY, "name": "  "}, headers=h).status_code == 422
     assert client.put(URL, json={**BODY, "email": "not-an-email"}, headers=h).status_code == 422
     assert client.put(URL, json={**BODY, "phone": "call me"}, headers=h).status_code == 422
-    assert client.put(URL, json={**BODY, "website": "hadlaan.example"}, headers=h).status_code == 422
+    assert client.put(URL, json={**BODY, "website": "example.com"}, headers=h).status_code == 422
     assert client.put(URL, json={**BODY, "address": "x" * 501}, headers=h).status_code == 422
-    ok = client.put(URL, json={"name": "  Hadlaan  ", "email": "", "website": "", "legal_name": "  "}, headers=h).json()
-    assert ok["name"] == "Hadlaan" and ok["email"] == "" and ok["legal_name"] == ""
+    ok = client.put(URL, json={"name": "  Example  ", "email": "", "website": "", "legal_name": "  "}, headers=h).json()
+    assert ok["name"] == "Example" and ok["email"] == "" and ok["legal_name"] == ""
 
 
 def test_logo_upload_serves_publicly_and_can_be_removed(client, login):
@@ -67,14 +67,14 @@ def test_reports_carry_the_organization_in_every_format(client, login, db, clock
     client.post(f"{URL}/logo", files={"file": ("logo.png", png(), "image/png")}, headers=h)
     q = "date_from=2026-03-02&date_to=2026-03-02"
     doc = client.get(f"/api/reports/records/attendance?{q}", headers=h).json()
-    assert doc["organization"]["name"] == "Hadlaan House Kitchens" and doc["organization"]["logo_path"]
+    assert doc["organization"]["name"] == "Example Kitchens" and doc["organization"]["logo_path"]
     for kind in ("attendance", "monitoring", "checklist_chart"):
         pdf = client.get(f"/api/reports/records/{kind}/export?fmt=pdf&{q}", headers=h)
         assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
     csv = client.get(f"/api/reports/records/attendance/export?fmt=csv&{q}", headers=h).content.decode("utf-8-sig")
-    assert csv.splitlines()[0] == "Hadlaan House Kitchens" and "CR-998877" in csv
+    assert csv.splitlines()[0] == "Example Kitchens" and "CR-998877" in csv
     sheet = load_workbook(io.BytesIO(client.get(f"/api/reports/records/attendance/export?fmt=xlsx&{q}", headers=h).content)).worksheets[0]
-    assert sheet["A1"].value == "Hadlaan House Kitchens"
+    assert sheet["A1"].value == "Example Kitchens"
     period = client.get(f"/api/reports/daily/export?fmt=pdf&location_id={loc_id(db, 'MK')}", headers=h)
     assert period.content.startswith(b"%PDF")
     summary = client.get("/api/reports/daily", headers=h).json()
