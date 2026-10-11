@@ -145,7 +145,7 @@ def test_reading_and_photo_evidence_are_enforced(client, login, db, clock):
     up = client.post("/api/uploads", files={"file": ("a.png", PNG, "image/png")}, headers=h)
     assert up.status_code == 201
     ok = client.post(url, json={"reading": 200, "evidence_path": up.json()["name"]}, headers=h)
-    assert ok.status_code == 200 and ok.json()["status"] == "completed"
+    assert ok.status_code == 200 and ok.json()["status"] == "pending_verification"
     assert client.get(f"/api/uploads/{up.json()['name']}", headers=h).status_code == 200
     assert client.get(f"/api/uploads/{up.json()['name']}").status_code == 401
 

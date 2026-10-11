@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee,
@@ -56,6 +56,15 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
         add("corrective_action", reading.location_id, "critical", user_names.get(action.taken_by, "Supervisor"),
             f"Failed reading {describe(reading.value, reading.value_type, reading.unit)} ({reading.stage}) - {action.status.replace('_', ' ')}",
             reading.recorded_at, "/monitoring")
+
+    cutoff = now - timedelta(days=14)
+    for loc_id, count, oldest in db.execute(
+            select(TemperatureReading.location_id, func.count(), func.min(TemperatureReading.recorded_at))
+            .where(TemperatureReading.location_id.in_(locations), TemperatureReading.reviewed_at.is_(None),
+                   TemperatureReading.retest_of_id.is_(None), TemperatureReading.recorded_at >= cutoff)
+            .group_by(TemperatureReading.location_id)):
+        add("monitoring_review", loc_id, "normal", "Supervisor or manager", f"{count} monitoring reading(s) awaiting approval",
+            oldest, "/monitoring")
 
     for incident in db.scalars(select(BreakageIncident).where(
             BreakageIncident.location_id.in_(locations), BreakageIncident.status.in_(("reported", "pending_approval")))):

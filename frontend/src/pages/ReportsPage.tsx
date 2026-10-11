@@ -7,11 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, Skeleton, Table, Td, Th } from '@/components/ui/table'
-import { tokenStore } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { downloadFile } from '@/lib/download'
 import { fmtDateTime } from '@/lib/format'
 import { useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
+import { RecordDownloads } from '@/pages/RecordDownloads'
 
 interface Section {
   id: string
@@ -42,19 +43,7 @@ export function ReportsPage() {
   const { data, loading, error } = useApi<Report>(`/reports/${period}${qs(params)}`)
 
   async function download(fmt: string) {
-    const response = await fetch(`/api/reports/${period}/export${qs({ ...params, fmt })}`, {
-      headers: { Authorization: `Bearer ${tokenStore.get()}` },
-    })
-    if (!response.ok) {
-      toast('error', 'Export failed')
-      return
-    }
-    const url = URL.createObjectURL(await response.blob())
-    const link = document.createElement('a')
-    link.href = url
-    link.download = response.headers.get('content-disposition')?.match(/filename="(.+)"/)?.[1] ?? `report.${fmt}`
-    link.click()
-    URL.revokeObjectURL(url)
+    if (!(await downloadFile(`/api/reports/${period}/export${qs({ ...params, fmt })}`, `report.${fmt}`))) toast('error', 'Export failed')
   }
 
   return (
@@ -69,6 +58,8 @@ export function ReportsPage() {
           </div>
         )}
       </div>
+
+      {canExport && <RecordDownloads />}
 
       <div className="flex flex-wrap gap-3">
         <Select aria-label="Report period" className="w-auto" value={period} onChange={(e) => setPeriod(e.target.value)}>

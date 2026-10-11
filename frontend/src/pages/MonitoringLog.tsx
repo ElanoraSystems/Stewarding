@@ -29,6 +29,7 @@ interface Reading {
   recorded_by_name: string | null
   retest_of_id: number | null
   reviewed_at: string | null
+  reviewed_by_name: string | null
   corrective_action: { status: string } | null
 }
 
@@ -49,12 +50,23 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState<number[]>([])
   const timezone = me?.locations.find((l) => l.id === locationId)?.timezone
   const names = new Map(equipment.map((e) => [e.id, e.name]))
 
   const { data, loading, reload } = useApi<{ total: number; items: Reading[] }>(
     `/monitoring/readings${qs({ location_id: locationId, equipment_id: equipmentId, passed: result, date_from: from, date_to: to, page, size: SIZE, k: refreshKey })}`,
   )
+
+  const pending = (data?.items ?? []).filter((r) => !r.reviewed_at && r.recorded_by !== me?.id)
+  const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  async function approveSelected() {
+    if (await run(() => api('/monitoring/readings/review', { body: { reading_ids: selected } }), 'Approved')) {
+      setSelected([])
+      reload()
+    }
+  }
 
   async function review(id: number) {
     if (await run(() => api(`/monitoring/readings/${id}/review`, { method: 'POST' }), 'Check reviewed')) reload()
@@ -75,13 +87,23 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
         <Input aria-label="From date" type="date" className="w-auto" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
         <Input aria-label="To date" type="date" className="w-auto" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
       </div>
+      {canReview && pending.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
+          <span>{pending.length} on this page awaiting approval</span>
+          <Button size="sm" variant="outline" onClick={() => setSelected(pending.map((r) => r.id))}>Select all</Button>
+          <Button size="sm" disabled={selected.length === 0} onClick={approveSelected}>Approve selected ({selected.length})</Button>
+        </div>
+      )}
       <Table>
         <thead>
-          <tr><Th>Time</Th><Th>Monitoring point</Th><Th>Check</Th><Th>Value</Th><Th>Reference</Th><Th>Limits</Th><Th>Result</Th><Th>By</Th><Th>Review</Th></tr>
+          <tr>{canReview && <Th />}<Th>Time</Th><Th>Monitoring point</Th><Th>Check</Th><Th>Value</Th><Th>Reference</Th><Th>Limits</Th><Th>Result</Th><Th>By</Th><Th>Approval</Th></tr>
         </thead>
         <tbody>
-          {loading && !data ? <SkeletonRows cols={9} /> : data?.items.map((r) => (
+          {loading && !data ? <SkeletonRows cols={10} /> : data?.items.map((r) => (
             <tr key={r.id} className={r.passed ? undefined : 'bg-danger-soft/50'}>
+              {canReview && (
+                <Td>{!r.reviewed_at && r.recorded_by !== me?.id && <input type="checkbox" aria-label={`Select reading ${r.id}`} checked={selected.includes(r.id)} onChange={() => toggle(r.id)} />}</Td>
+              )}
               <Td>{fmtDateTime(r.recorded_at, timezone)}</Td>
               <Td className="font-medium">{names.get(r.equipment_id)}</Td>
               <Td>{label(r.stage)}{r.retest_of_id && <Badge className="ml-1">Retest</Badge>}</Td>
@@ -94,9 +116,9 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
               </Td>
               <Td>{r.recorded_by_name}</Td>
               <Td>
-                {r.reviewed_at ? <Badge tone="ok">Reviewed</Badge>
+                {r.reviewed_at ? <Badge tone="ok">Approved by {r.reviewed_by_name}</Badge>
                   : canReview && r.recorded_by !== me?.id ? <Button size="sm" variant="outline" onClick={() => review(r.id)}>Review</Button>
-                  : <Badge>Pending</Badge>}
+                  : <Badge>Awaiting approval</Badge>}
               </Td>
             </tr>
           ))}

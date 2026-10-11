@@ -30,6 +30,11 @@ const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = 
     },
   },
   {
+    title: 'Approvals',
+    hint: 'A supervisor or a manager can approve; whoever gets there first approves, and nobody approves their own work.',
+    keys: { 'approval.checklists': 'Every completed checklist task needs approval (1 = yes, 0 = only tasks marked for verification)' },
+  },
+  {
     title: 'Breakage approval',
     hint: 'An incident at or above either value needs a manager before stock is deducted.',
     keys: {

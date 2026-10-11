@@ -43,7 +43,7 @@ def test_checklist_report_shows_numerator_denominator_and_reconciles_with_record
     report = rep(client, login(MGR), anchor="2026-03-02", location_id=loc_id(db, "MK"))
     s = sec(report, "checklists")
     t = totals(s)
-    assert t["Compliance"] == "3/14 (21.4%)" and t["Completed"] == 3 and t["Overdue"] == 11
+    assert t["Compliance"] == "3/14 (21.4%)" and t["Pending verification"] == 3 and t["Completed"] == 0 and t["Overdue"] == 11
     assert t["Not yet due (excluded)"] == 10  # weekly tasks are due at 17:00
     all_rows = len(db.scalars(select(ChecklistInstance).where(ChecklistInstance.location_id == loc_id(db, "MK"))).all())
     assert len(s["rows"]) == all_rows == 24

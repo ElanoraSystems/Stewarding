@@ -21,6 +21,9 @@ Managers open **Settings**: locations, shifts, monitoring setup (monitoring poin
 item master, categories and units, suppliers, alert rules and dropdown lists. Deliveries and supplier invoices are posted
 under **Stock Movements, Receiving** and update stock through the ledger.
 
+Completed checklist tasks and monitoring readings are approved by a supervisor or a manager, whoever acts first. Under **Reports** a manager can
+download a titled PDF, Excel or CSV record of the monitoring logs or checklists for a day, a month or any range, for audits and month end.
+
 ## Develop locally
 Backend (Python 3.11):
 ```bash

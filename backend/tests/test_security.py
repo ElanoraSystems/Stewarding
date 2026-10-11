@@ -53,7 +53,7 @@ MANAGER_ONLY = [
     ("PUT", "/api/equipment/schedules/1", {}), ("POST", "/api/inventory/items", {}), ("POST", "/api/inventory/categories", {}),
     ("POST", "/api/inventory/units", {}), ("POST", "/api/inventory/assets", {}), ("POST", "/api/stock/transfers/1/decision", {}),
     ("POST", "/api/breakage/1/approve", {}), ("GET", "/api/settings", None), ("PUT", "/api/settings", {}),
-    ("POST", "/api/settings/locations", {}), ("GET", "/api/audit", None), ("GET", "/api/reports/daily/export", None),
+    ("POST", "/api/settings/locations", {}), ("GET", "/api/audit", None), ("GET", "/api/reports/daily/export", None), ("GET", "/api/reports/records/monitoring/export", None),
     ("POST", "/api/suppliers", {}), ("PUT", "/api/suppliers/1", {}), ("PUT", "/api/inventory/categories/1", {}),
     ("PUT", "/api/inventory/units/1", {}), ("POST", "/api/lookups", {}), ("PUT", "/api/lookups/1", {}),
     ("POST", "/api/receipts/1/void", {"reason": "Entered by mistake"}),
@@ -62,7 +62,7 @@ MANAGER_ONLY = [
 
 SUPERVISOR_UP = [
     ("GET", "/api/employees", None), ("GET", "/api/attendance", None), ("GET", "/api/roster/today?location_id=1", None),
-    ("GET", "/api/reports/daily", None), ("GET", "/api/notifications/pending-summary", None),
+    ("GET", "/api/reports/daily", None), ("GET", "/api/reports/records/monitoring", None), ("GET", "/api/reports/records/checklists", None), ("GET", "/api/notifications/pending-summary", None),
     ("GET", "/api/absences", None), ("POST", "/api/absences", {}), ("POST", "/api/absences/1/void", {"reason": "Entered by mistake"}),
     ("POST", "/api/stock/transfers", {}), ("POST", "/api/stock/counts", {}), ("GET", "/api/breakage", None),
     ("POST", "/api/breakage/1/review", {"qty": 1}), ("POST", "/api/checklists/instances/1/verify", {"approve": True}),
@@ -92,7 +92,7 @@ LOCATION_SCOPED = [
     "/api/roster/assignments?location_id={mk}", "/api/checklists/templates?location_id={mk}",
     "/api/checklists/instances?location_id={mk}", "/api/equipment?location_id={mk}",
     "/api/monitoring/equipment?location_id={mk}", "/api/monitoring/due?location_id={mk}",
-    "/api/monitoring/readings?location_id={mk}", "/api/monitoring/corrective-actions?location_id={mk}",
+    "/api/monitoring/readings?location_id={mk}", "/api/reports/records/monitoring?location_id={mk}", "/api/monitoring/corrective-actions?location_id={mk}",
     "/api/inventory/items?location_id={mk}", "/api/inventory/transactions?location_id={mk}",
     "/api/inventory/assets?location_id={mk}", "/api/stock/counts?location_id={mk}",
     "/api/stock/reconciliation?month=2026-03&location_id={mk}", "/api/breakage?location_id={mk}",

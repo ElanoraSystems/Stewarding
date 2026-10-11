@@ -17,6 +17,7 @@ from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services import checklists as engine
 from ..services.checklists import DONE, OPEN, effective_status
 from ..services.notify import notify, recipients
+from ..services.settings import get_setting
 from ..services.starter import apply_starter
 from .uploads import is_valid_evidence
 
@@ -298,7 +299,8 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Photo evidence is required")
     if body.evidence_path and not is_valid_evidence(body.evidence_path):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown evidence file")
-    inst.status = "pending_verification" if task.requires_verification else "completed"
+    needs_approval = task.requires_verification or get_setting(db, "approval.checklists") == 1
+    inst.status = "pending_verification" if needs_approval else "completed"
     inst.completed_at = now
     inst.completed_by = user.id
     inst.reading, inst.comment, inst.evidence_path = body.reading, body.comment, body.evidence_path

@@ -40,6 +40,10 @@ class ReadingIn(BaseModel):
     retest_of_id: int | None = None
 
 
+class ReviewManyIn(BaseModel):
+    reading_ids: list[int] = Field(min_length=1, max_length=200)
+
+
 class BatchItem(BaseModel):
     schedule_id: int
     value: Decimal = Field(ge=-100000, le=100000)
@@ -90,6 +94,7 @@ def _latest_action(db: Session, reading_id: int) -> CorrectiveAction | None:
 def _serialize_reading(db: Session, reading: TemperatureReading, names: dict[int, str]) -> dict:
     out = row(reading, *READING_FIELDS)
     out["recorded_by_name"] = names.get(reading.recorded_by)
+    out["reviewed_by_name"] = names.get(reading.reviewed_by)
     out["display"] = describe(reading.value, reading.value_type, reading.unit)
     action = _latest_action(db, reading.id)
     out["corrective_action"] = row(action, *ACTION_FIELDS) if action else None
@@ -219,8 +224,23 @@ def list_readings(equipment_id: int | None = None, location_id: int | None = Non
                                                                             datetime.min.time()))
     total, rows = paginate(db, stmt.order_by(TemperatureReading.recorded_at.desc()), page, size)
     readings = [r[0] for r in rows]
-    names = _names(db, {r.recorded_by for r in readings})
+    names = _names(db, {r.recorded_by for r in readings} | {r.reviewed_by for r in readings if r.reviewed_by})
     return {"total": total, "items": [_serialize_reading(db, r, names) for r in readings]}
+
+
+@router.post("/readings/review")
+def review_readings(body: ReviewManyIn, user: User = Depends(require("temp.review")), db: Session = Depends(get_db)):
+    """Approves the chosen readings; whoever gets there first approves, and a reading already approved or recorded by you is skipped."""
+    now, reviewed = timeutil.utc_now(), []
+    for reading in db.scalars(select(TemperatureReading).where(TemperatureReading.id.in_(set(body.reading_ids)))):
+        check_location(user, db, reading.location_id)
+        if reading.reviewed_at or reading.recorded_by == user.id:
+            continue
+        reading.reviewed_by, reading.reviewed_at = user.id, now
+        reviewed.append(reading.id)
+    audit(db, user, "monitoring.review_many", "temperature_reading", None, None, {"reading_ids": sorted(reviewed)})
+    db.commit()
+    return {"reviewed": len(reviewed), "skipped": len(set(body.reading_ids)) - len(reviewed)}
 
 
 @router.post("/readings/{reading_id}/review")
