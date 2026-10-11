@@ -67,6 +67,11 @@ function verdict(value: string, schedule?: Schedule): 'pass' | 'fail' | null {
   return (low === null || amount >= low) && (high === null || amount <= high) ? 'pass' : 'fail'
 }
 
+/** One schedule per group of checks that are due together. */
+function firstOfEachCycle(schedules: Schedule[]): Schedule[] {
+  return schedules.filter((s) => cycleOf(s, schedules)[0] === s)
+}
+
 export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest }: RecordFormProps) {
   const run = useRun()
   const standardActions = useLookup('corrective_action')
@@ -90,10 +95,19 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const schedules = selected?.schedules.filter((s) => s.active) ?? []
   const schedule = schedules.find((s) => String(s.id) === scheduleId)
   const cycle = schedule ? (prefill?.retestOf ? [schedule] : cycleOf(schedule, schedules)) : []
+  const cycles = firstOfEachCycle(schedules)
   const results = cycle.map((s) => verdict(values[s.id] ?? '', s))
   const anyFail = results.includes('fail')
   const complete = cycle.length > 0 && cycle.every((s) => (values[s.id] ?? '') !== '')
   const needsReference = cycle.some((s) => s.require_reference)
+
+  function pickPoint(id: string) {
+    const list = equipment.find((e) => String(e.id) === id)?.schedules.filter((s) => s.active) ?? []
+    const only = firstOfEachCycle(list)
+    setEquipmentId(id)
+    setScheduleId(only.length === 1 ? String(only[0].id) : '')
+    setValues({})
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -130,19 +144,21 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Monitoring point">
           <Select required value={equipmentId} disabled={!!prefill?.retestOf}
-            onChange={(e) => { setEquipmentId(e.target.value); setScheduleId(''); setValues({}) }}>
+            onChange={(e) => pickPoint(e.target.value)}>
             <option value="">Select monitoring point</option>
             {equipment.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </Select>
         </Field>
-        <Field label="Check">
-          <Select required value={scheduleId} disabled={!!prefill?.retestOf} onChange={(e) => { setScheduleId(e.target.value); setValues({}) }}>
-            <option value="">Select check</option>
-            {schedules.map((s) => (
-              <option key={s.id} value={s.id}>{label(s.stage)} - {s.source === 'independent_probe' ? 'probe' : 'machine display'}</option>
-            ))}
-          </Select>
-        </Field>
+        {cycles.length > 1 && (
+          <Field label="Check">
+            <Select required value={scheduleId} disabled={!!prefill?.retestOf} onChange={(e) => { setScheduleId(e.target.value); setValues({}) }}>
+              <option value="">Select check</option>
+              {cycles.map((s) => (
+                <option key={s.id} value={s.id}>{cycleOf(s, schedules).map((c) => label(c.stage)).join(' and ')}{s.time_of_day ? ` at ${s.time_of_day.slice(0, 5)}` : ''}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
       </div>
       {cycle.length > 1 && <p className="text-sm text-ink-muted">These checks are due together, so enter all of them now: {cycle.map((s) => label(s.stage)).join(', ')}.</p>}
       <div className="space-y-3">

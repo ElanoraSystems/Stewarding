@@ -35,7 +35,7 @@ export default function App() {
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="temperature" element={<Navigate to="/monitoring" replace />} />
         <Route path="equipment" element={<EquipmentPage />} />
-        <Route path="inventory" element={<InventoryPage />} />
+        <Route path="inventory" element={me.modules.some((m) => m.key === 'inventory') ? <InventoryPage /> : <Navigate to="/" replace />} />
         <Route path="crockery" element={<Navigate to="/inventory" replace />} />
         <Route path="smallware" element={<Navigate to="/inventory" replace />} />
         <Route path="stock-movements" element={<StockMovementsPage />} />

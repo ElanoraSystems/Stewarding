@@ -63,8 +63,9 @@ def test_navigation_is_limited_by_role(client, login):
     assert keys("manager@example.test") == {k for k, _, _ in MODULES}
     sup = keys("sup.mk@example.test")
     assert "reports" in sup and not {"settings", "audit"} & sup
+    assert "inventory" in sup
     steward = keys("steward.mk@example.test")
-    assert "attendance" in steward and not {"employees", "reports", "settings", "audit", "roster"} & steward
+    assert "attendance" in steward and not {"employees", "reports", "settings", "audit", "roster", "inventory", "stock-movements"} & steward
 
 
 def test_permission_enforced_on_server(login):
