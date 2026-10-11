@@ -40,6 +40,20 @@ class ReadingIn(BaseModel):
     retest_of_id: int | None = None
 
 
+class BatchItem(BaseModel):
+    schedule_id: int
+    value: Decimal = Field(ge=-100000, le=100000)
+    reference: str | None = Field(default=None, max_length=120)
+    comment: str | None = Field(default=None, max_length=1000)
+    evidence_path: str | None = None
+    corrective_action: str | None = Field(default=None, max_length=1000)
+
+
+class BatchIn(BaseModel):
+    equipment_id: int
+    readings: list[BatchItem] = Field(min_length=1, max_length=20)
+
+
 class ActionIn(BaseModel):
     action: str = Field(min_length=5, max_length=1000)
 
@@ -100,8 +114,7 @@ def due(location_id: int | None = None, user: User = Depends(require("temp.view"
     return due_checks(db, _visible_equipment(db, user, location_id), timeutil.utc_now())
 
 
-@router.post("/readings", status_code=201)
-def record_reading(body: ReadingIn, user: User = Depends(require("temp.record")), db: Session = Depends(get_db)):
+def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     eq = _equipment_for(db, user, body.equipment_id)
     sched = db.get(EquipmentSchedule, body.schedule_id)
     if not sched or sched.equipment_id != eq.id or not sched.active:
@@ -144,8 +157,25 @@ def record_reading(body: ReadingIn, user: User = Depends(require("temp.record"))
         original_action.status = "retest_failed"
     if not passed:
         _open_failure(db, user, eq, reading, body.corrective_action, now)
+    return reading
+
+
+@router.post("/readings", status_code=201)
+def record_reading(body: ReadingIn, user: User = Depends(require("temp.record")), db: Session = Depends(get_db)):
+    reading = _record(db, user, body)
     db.commit()
     return _serialize_reading(db, reading, _names(db, {reading.recorded_by}))
+
+
+@router.post("/readings/batch", status_code=201)
+def record_readings(body: BatchIn, user: User = Depends(require("temp.record")), db: Session = Depends(get_db)):
+    """Saves every measurement of one cycle (for example wash and rinse) together, or none of them."""
+    if len({r.schedule_id for r in body.readings}) != len(body.readings):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A check appears twice")
+    readings = [_record(db, user, ReadingIn(equipment_id=body.equipment_id, **r.model_dump())) for r in body.readings]
+    db.commit()
+    names = _names(db, {user.id})
+    return [_serialize_reading(db, r, names) for r in readings]
 
 
 def _open_failure(db: Session, user: User, eq: Equipment, reading: TemperatureReading, text: str | None,

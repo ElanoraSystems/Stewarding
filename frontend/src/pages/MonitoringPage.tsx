@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth'
 import { fmtTime, label } from '@/lib/format'
+import { cycleOf } from '@/lib/monitoring'
 import { qs, useApi } from '@/lib/useApi'
 import { CorrectiveActionsPanel } from '@/pages/CorrectiveActionsPanel'
 import { MonitoringLog } from '@/pages/MonitoringLog'
@@ -20,6 +21,7 @@ interface Due {
   status: 'done' | 'due' | 'overdue' | 'upcoming'
 }
 
+const RANK = { overdue: 3, due: 2, upcoming: 1, done: 0 } as const
 const TONE = { done: 'ok', due: 'warn', overdue: 'critical', upcoming: 'neutral' } as const
 
 export function MonitoringPage() {
@@ -36,6 +38,23 @@ export function MonitoringPage() {
   const overdue = (due.data ?? []).filter((d) => d.status === 'overdue')
   const actionable = (due.data ?? []).filter((d) => d.status !== 'upcoming' && d.status !== 'done')
   const refresh = () => setRefreshKey((k) => k + 1)
+
+  // checks of one point due at the same time are shown, and recorded, as one card
+  const cards = (() => {
+    const out = new Map<string, { first: Due; stages: string[]; status: Due['status'] }>()
+    for (const d of due.data ?? []) {
+      const sched = items.find((e) => e.id === d.equipment_id)?.schedules.find((s) => s.id === d.schedule_id)
+      const group = sched ? cycleOf(sched, items.find((e) => e.id === d.equipment_id)!.schedules).map((s) => s.id).sort().join() : String(d.schedule_id)
+      const key = `${d.equipment_id}|${d.slot_at}|${group}`
+      const card = out.get(key)
+      if (!card) out.set(key, { first: d, stages: [d.stage], status: d.status })
+      else {
+        card.stages.push(d.stage)
+        if (RANK[d.status] > RANK[card.status]) card.status = d.status
+      }
+    }
+    return [...out.entries()]
+  })()
 
   function retest(equipmentId: number, readingId: number, stage: string) {
     const schedule = items.find((e) => e.id === equipmentId)?.schedules.find((s) => s.stage === stage)
@@ -60,13 +79,13 @@ export function MonitoringPage() {
         <CardContent>
           {(due.data ?? []).length === 0 ? <EmptyState title="No checks configured here" /> : (
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {(due.data ?? []).map((d) => (
-                <li key={`${d.schedule_id}-${d.slot_at}`}>
-                  <button type="button" disabled={!canRecord || d.status === 'done'}
+              {cards.map(([key, { first: d, stages, status }]) => (
+                <li key={key}>
+                  <button type="button" disabled={!canRecord || status === 'done'}
                     onClick={() => setPrefill({ equipmentId: d.equipment_id, scheduleId: d.schedule_id })}
                     className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-surface-muted">
-                    <span><span className="block font-medium">{d.equipment}</span><span className="text-ink-muted">{label(d.stage)} at {fmtTime(d.slot_at, timezone)}</span></span>
-                    <Badge tone={TONE[d.status]}>{label(d.status)}</Badge>
+                    <span><span className="block font-medium">{d.equipment}</span><span className="text-ink-muted">{stages.map(label).join(' and ')} at {fmtTime(d.slot_at, timezone)}</span></span>
+                    <Badge tone={TONE[status]}>{label(status)}</Badge>
                   </button>
                 </li>
               ))}

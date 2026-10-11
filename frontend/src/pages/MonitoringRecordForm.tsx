@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { api, uploadFile } from '@/lib/api'
 import { label } from '@/lib/format'
+import { cycleOf } from '@/lib/monitoring'
 import { useRun } from '@/lib/toast'
 import { useLookup } from '@/lib/useLookups'
 
@@ -71,7 +72,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const standardActions = useLookup('corrective_action')
   const [equipmentId, setEquipmentId] = useState('')
   const [scheduleId, setScheduleId] = useState('')
-  const [value, setValue] = useState('')
+  const [values, setValues] = useState<Record<number, string>>({})
   const [reference, setReference] = useState('')
   const [comment, setComment] = useState('')
   const [action, setAction] = useState('')
@@ -82,29 +83,33 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     if (!prefill) return
     setEquipmentId(String(prefill.equipmentId))
     setScheduleId(String(prefill.scheduleId))
+    setValues({})
   }, [prefill])
 
   const selected = equipment.find((e) => String(e.id) === equipmentId)
   const schedules = selected?.schedules.filter((s) => s.active) ?? []
   const schedule = schedules.find((s) => String(s.id) === scheduleId)
-  const result = verdict(value, schedule)
+  const cycle = schedule ? (prefill?.retestOf ? [schedule] : cycleOf(schedule, schedules)) : []
+  const results = cycle.map((s) => verdict(values[s.id] ?? '', s))
+  const anyFail = results.includes('fail')
+  const complete = cycle.length > 0 && cycle.every((s) => (values[s.id] ?? '') !== '')
+  const needsReference = cycle.some((s) => s.require_reference)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
     const ok = await run(async () => {
       const evidence = file ? await uploadFile(file) : null
-      await api('/monitoring/readings', {
-        body: {
-          equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), value: Number(value), reference: reference || null,
-          comment: comment || null, evidence_path: evidence, corrective_action: action || null,
-          retest_of_id: prefill?.retestOf ?? null,
-        },
-      })
-    }, result === 'fail' ? 'Failed check recorded - supervisor notified' : 'Check recorded')
+      const common = { comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null }
+      if (prefill?.retestOf) {
+        await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), value: Number(values[Number(scheduleId)]), retest_of_id: prefill.retestOf, ...common } })
+      } else {
+        await api('/monitoring/readings/batch', { body: { equipment_id: Number(equipmentId), readings: cycle.map((s) => ({ schedule_id: s.id, value: Number(values[s.id]), ...common })) } })
+      }
+    }, anyFail ? 'Failed check recorded - supervisor notified' : cycle.length > 1 ? 'Checks recorded' : 'Check recorded')
     setBusy(false)
     if (ok) {
-      setValue('')
+      setValues({})
       setReference('')
       setComment('')
       setAction('')
@@ -125,13 +130,13 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Monitoring point">
           <Select required value={equipmentId} disabled={!!prefill?.retestOf}
-            onChange={(e) => { setEquipmentId(e.target.value); setScheduleId('') }}>
+            onChange={(e) => { setEquipmentId(e.target.value); setScheduleId(''); setValues({}) }}>
             <option value="">Select monitoring point</option>
             {equipment.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </Select>
         </Field>
         <Field label="Check">
-          <Select required value={scheduleId} disabled={!!prefill?.retestOf} onChange={(e) => setScheduleId(e.target.value)}>
+          <Select required value={scheduleId} disabled={!!prefill?.retestOf} onChange={(e) => { setScheduleId(e.target.value); setValues({}) }}>
             <option value="">Select check</option>
             {schedules.map((s) => (
               <option key={s.id} value={s.id}>{label(s.stage)} - {s.source === 'independent_probe' ? 'probe' : 'machine display'}</option>
@@ -139,36 +144,36 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
           </Select>
         </Field>
       </div>
-      {schedule && (
-        <p className="text-sm text-ink-muted">
-          {schedule.value_type === 'yes_no' ? `${schedule.parameter}: the answer must be Yes` : `${schedule.parameter}, acceptable range: ${schedule.min_value ?? 'no minimum'} to ${schedule.max_value ?? 'no maximum'} ${schedule.unit ?? ''}`}
-          {schedule.source === 'independent_probe' ? ' (independent probe reading)' : ' (machine display reading)'}
-        </p>
-      )}
-      <div className="flex flex-wrap items-end gap-3">
-        {schedule?.value_type === 'yes_no' ? (
-          <Field label={schedule.parameter}>
-            <Select required className="w-36" value={value} onChange={(e) => setValue(e.target.value)}>
-              <option value="">Select</option>
-              <option value="1">Yes</option>
-              <option value="0">No</option>
-            </Select>
-          </Field>
-        ) : (
-          <Field label={schedule ? `${schedule.parameter}${schedule.unit ? ` (${schedule.unit})` : ''}` : 'Value'}>
-            <Input required type="number" step="any" inputMode="decimal" className="w-36" value={value} onChange={(e) => setValue(e.target.value)} />
+      {cycle.length > 1 && <p className="text-sm text-ink-muted">These checks are due together, so enter all of them now: {cycle.map((s) => label(s.stage)).join(', ')}.</p>}
+      <div className="space-y-3">
+        {cycle.map((s, i) => (
+          <div key={s.id} className="flex flex-wrap items-end gap-3">
+            {s.value_type === 'yes_no' ? (
+              <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter}>
+                <Select required className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}>
+                  <option value="">Select</option>
+                  <option value="1">Yes</option>
+                  <option value="0">No</option>
+                </Select>
+              </Field>
+            ) : (
+              <Field label={`${cycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}`}
+                hint={`Acceptable ${s.min_value ?? 'no minimum'} to ${s.max_value ?? 'no maximum'} ${s.unit ?? ''}`}>
+                <Input required type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
+              </Field>
+            )}
+            {results[i] && <Badge tone={results[i] === 'pass' ? 'ok' : 'critical'}>{results[i] === 'pass' ? 'Within limits' : 'Out of range'}</Badge>}
+          </div>
+        ))}
+        {needsReference && (
+          <Field label="Batch, lot or product" hint="Required for this check.">
+            <Input required maxLength={120} className="w-56" value={reference} onChange={(e) => setReference(e.target.value)} />
           </Field>
         )}
-        {schedule && (schedule.require_reference || reference) && (
-          <Field label="Batch, lot or product" hint={schedule.require_reference ? 'Required for this check.' : undefined}>
-            <Input required={schedule.require_reference} maxLength={120} className="w-56" value={reference} onChange={(e) => setReference(e.target.value)} />
-          </Field>
-        )}
-        {result && <Badge tone={result === 'pass' ? 'ok' : 'critical'}>{result === 'pass' ? 'Within limits' : 'Out of range'}</Badge>}
       </div>
-      {result === 'fail' && (
+      {anyFail && (
         <div className="space-y-2 rounded-md border border-danger/40 bg-danger-soft p-3">
-          <p className="text-sm font-medium text-danger">This check will be recorded as failed and your supervisor alerted.</p>
+          <p className="text-sm font-medium text-danger">A failed check will be recorded as failed and your supervisor alerted.</p>
           <Field label="Corrective action taken" hint="Pick a standard action or type your own. You can also add it afterwards from the open actions list.">
             <Input list="standard-actions" value={action} onChange={(e) => setAction(e.target.value)} />
             <datalist id="standard-actions">{standardActions.map((a) => <option key={a} value={a} />)}</datalist>
@@ -179,8 +184,8 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       <Field label="Photo evidence (optional)">
         <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </Field>
-      <Button type="submit" className="w-full sm:w-auto" disabled={busy || !scheduleId || value === '' || (schedule?.require_reference && reference.trim() === '')}>
-        {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : 'Record check'}
+      <Button type="submit" className="w-full sm:w-auto" disabled={busy || !complete || (needsReference && reference.trim() === '')}>
+        {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : cycle.length > 1 ? 'Record all' : 'Record check'}
       </Button>
     </form>
   )

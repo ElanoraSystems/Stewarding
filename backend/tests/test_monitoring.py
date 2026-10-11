@@ -153,6 +153,8 @@ def test_stage_without_limits_cannot_be_recorded(client, login, db, clock):
 def test_due_checks_move_from_due_to_done_and_overdue(client, login, clock):
     h = login(STEWARD)
     eq, sched = mk_stage(client, h)
+    client.post(f"/api/equipment/{eq['id']}/schedules", headers=login(MGR), json={
+        "stage": "loop", "timing": "interval", "time_of_day": "06:00:00", "interval_minutes": 240, "min_value": 80, "max_value": 90})
 
     def statuses():
         return {(d["schedule_id"], d["slot_at"][11:16]): d["status"]
@@ -166,7 +168,7 @@ def test_due_checks_move_from_due_to_done_and_overdue(client, login, clock):
 
     def rinse(slot_utc):
         return next(d["status"] for d in client.get("/api/monitoring/due", headers=h).json()
-                    if d["stage"] == "final_rinse" and d["slot_at"][11:16] == slot_utc and d["equipment_id"] == eq["id"])
+                    if d["stage"] == "loop" and d["slot_at"][11:16] == slot_utc and d["equipment_id"] == eq["id"])
 
     assert rinse("02:00") == "overdue"   # 06:00 slot never recorded
     assert rinse("06:00") == "due"       # 10:00 slot is inside its 30 minute grace window
@@ -218,3 +220,37 @@ def test_corrective_actions_list_is_location_scoped(client, login, db, clock):
     record(client, h, eq, sched, 30)
     assert len(client.get("/api/monitoring/corrective-actions", headers=login(SUP)).json()) == 1
     assert client.get("/api/monitoring/corrective-actions", headers=login("sup.rb@example.test")).json() == []
+
+
+def batch(client, h, eq, items):
+    return client.post("/api/monitoring/readings/batch", json={"equipment_id": eq["id"], "readings": items}, headers=h)
+
+
+def test_wash_and_rinse_are_recorded_together_and_judged_separately(client, login, db, clock):
+    h = login(STEWARD)
+    eq, wash = mk_stage(client, h)
+    _, rinse = mk_stage(client, h, "final_rinse")
+    r = batch(client, h, eq, [{"schedule_id": wash["id"], "value": 60}, {"schedule_id": rinse["id"], "value": 70, "corrective_action": "Descaled"}])
+    assert r.status_code == 201
+    done = r.json()
+    assert [(x["stage"], x["passed"]) for x in done] == [("wash", True), ("final_rinse", False)]
+    assert done[0]["recorded_at"] == done[1]["recorded_at"]
+    assert db.scalar(select(Notification.id).where(Notification.kind == "monitoring_failed"))
+    assert db.query(CorrectiveAction).count() == 1
+
+
+def test_a_batch_saves_everything_or_nothing(client, login, db, clock):
+    h = login(STEWARD)
+    eq, wash = mk_stage(client, h)
+    other, other_sched = mk_stage(client, login(MGR), "wash", "GW-MK-1")
+    bad = batch(client, h, eq, [{"schedule_id": wash["id"], "value": 60}, {"schedule_id": other_sched["id"], "value": 60}])
+    assert bad.status_code == 400
+    assert db.query(TemperatureReading).count() == 0
+    twice = batch(client, h, eq, [{"schedule_id": wash["id"], "value": 60}, {"schedule_id": wash["id"], "value": 61}])
+    assert twice.status_code == 400 and db.query(TemperatureReading).count() == 0
+    assert batch(client, h, eq, []).status_code == 422
+
+
+def test_batch_recording_needs_a_login(client):
+    body = {"equipment_id": 1, "readings": [{"schedule_id": 1, "value": 1}]}
+    assert client.post("/api/monitoring/readings/batch", json=body).status_code == 401

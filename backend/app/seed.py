@@ -95,7 +95,7 @@ def seed(db: Session, password: str) -> None:
             db.flush()
             db.add(EquipmentSchedule(equipment_id=eq.id, stage="wash", unit="°C", timing="startup", time_of_day=time(6),
                                      min_value=Decimal("55.0"), max_value=Decimal("65.0")))
-            db.add(EquipmentSchedule(equipment_id=eq.id, stage="final_rinse", unit="°C", timing="interval", interval_minutes=240,
+            db.add(EquipmentSchedule(equipment_id=eq.id, stage="final_rinse", unit="°C", timing="startup", time_of_day=time(6),
                                      min_value=Decimal("80.0"), max_value=Decimal("90.0")))
     seed_inventory(db, db.scalar(select(User).where(User.email == PEOPLE[0][0])), locs)
     ensure_lookups(db)
