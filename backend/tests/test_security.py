@@ -48,7 +48,7 @@ def test_every_protected_route_rejects_a_garbage_token(client):
 MANAGER_ONLY = [
     ("POST", "/api/employees", {}), ("PUT", "/api/employees/1", {}), ("POST", "/api/employees/1/deactivate", None),
     ("POST", "/api/roster/shifts", {}), ("POST", "/api/roster/assignments", {}),
-    ("POST", "/api/attendance/1/correct", {}), ("POST", "/api/attendance/manual", {}), ("POST", "/api/checklists/templates", {}),
+    ("POST", "/api/attendance/1/correct", {}), ("POST", "/api/attendance/manual", {}), ("POST", "/api/employees/1/reset-password", {}), ("POST", "/api/checklists/templates", {}),
     ("POST", "/api/checklists/generate", {}), ("POST", "/api/equipment", {}), ("PUT", "/api/equipment/1", {}),
     ("PUT", "/api/equipment/schedules/1", {}), ("POST", "/api/inventory/items", {}), ("POST", "/api/inventory/categories", {}),
     ("POST", "/api/inventory/units", {}), ("POST", "/api/inventory/assets", {}), ("POST", "/api/stock/transfers/1/decision", {}),

@@ -4,7 +4,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { BrandMark } from '@/components/BrandMark'
 import { NotificationBell } from '@/components/NotificationBell'
 import { Badge } from '@/components/ui/badge'
@@ -92,10 +92,10 @@ export function AppLayout() {
           </Button>
           <div className="ml-auto flex items-center gap-3">
             <NotificationBell />
-            <div className="text-right text-sm leading-tight">
+            <Link to="/account" title="Change password" className="rounded-md text-right text-sm leading-tight hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-brand">
               <div className="font-medium">{me.employee?.name ?? me.email}</div>
               <Badge>{ROLE_LABEL[me.role]}</Badge>
-            </div>
+            </Link>
             <Button variant="outline" size="icon" aria-label="Sign out" onClick={logout}>
               <LogOut className="h-4 w-4" />
             </Button>

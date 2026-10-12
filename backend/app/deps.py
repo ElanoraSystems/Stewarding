@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,13 +11,18 @@ from .security import decode_token
 bearer = HTTPBearer(auto_error=False)
 
 
+PASSWORD_PATHS = ("/api/auth/me", "/api/auth/change-password")
+
+
 def current_user(
-    creds: HTTPAuthorizationCredentials | None = Depends(bearer), db: Session = Depends(get_db)
+    request: Request, creds: HTTPAuthorizationCredentials | None = Depends(bearer), db: Session = Depends(get_db)
 ) -> User:
-    user_id = decode_token(creds.credentials) if creds else None
-    user = db.get(User, user_id) if user_id else None
-    if not user or not user.active:
+    decoded = decode_token(creds.credentials) if creds else None
+    user = db.get(User, decoded[0]) if decoded else None
+    if not user or not user.active or user.token_version != decoded[1]:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+    if user.must_change_password and request.url.path not in PASSWORD_PATHS:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Change your password before continuing")
     if user.employee and user.employee.status != "active":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Employee account is inactive")
     return user

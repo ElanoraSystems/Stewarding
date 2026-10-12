@@ -4,6 +4,7 @@ import { api, tokenStore } from '@/lib/api'
 export interface Me {
   id: number
   email: string
+  change_required: boolean
   role: 'manager' | 'supervisor' | 'steward'
   employee: { id: number; name: string; code: string } | null
   permissions: string[]
@@ -15,6 +16,7 @@ interface AuthState {
   me: Me | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
+  changePassword: (current: string, next: string) => Promise<void>
   logout: () => void
 }
 
@@ -43,7 +45,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(await api<Me>('/auth/me'))
   }, [])
 
-  const value = useMemo(() => ({ me, loading, login, logout }), [me, loading, login, logout])
+  const changePassword = useCallback(async (current: string, next: string) => {
+    const { access_token } = await api<{ access_token: string }>('/auth/change-password', { body: { current_password: current, new_password: next } })
+    tokenStore.set(access_token)
+    setMe(await api<Me>('/auth/me'))
+  }, [])
+
+  const value = useMemo(() => ({ me, loading, login, changePassword, logout }), [me, loading, login, changePassword, logout])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

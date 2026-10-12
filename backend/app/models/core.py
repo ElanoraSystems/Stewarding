@@ -47,6 +47,9 @@ class User(Base):
     role_id: Mapped[int] = mapped_column(ForeignKey("role.id"))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = ts()
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=0)  # raising it signs out every older session
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
     role: Mapped[Role] = relationship(lazy="joined")
     employee: Mapped["Employee | None"] = relationship(back_populates="user", lazy="joined")
 

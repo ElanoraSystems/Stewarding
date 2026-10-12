@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth'
 import { AttendancePage } from '@/pages/AttendancePage'
 import { AuditPage } from '@/pages/AuditPage'
 import { BreakagePage } from '@/pages/BreakagePage'
+import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { ChecklistsPage } from '@/pages/ChecklistsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { EmployeesPage } from '@/pages/EmployeesPage'
@@ -22,6 +23,7 @@ export default function App() {
   const { me, loading } = useAuth()
   if (loading) return <div className="p-8 text-sm text-ink-muted">Loading...</div>
   if (!me) return <LoginPage />
+  if (me.change_required) return <ChangePasswordPage forced />
 
   return (
     <Routes>
@@ -44,6 +46,7 @@ export default function App() {
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="account" element={<ChangePasswordPage />} />
         <Route path=":key" element={<ModulePage />} />
       </Route>
     </Routes>

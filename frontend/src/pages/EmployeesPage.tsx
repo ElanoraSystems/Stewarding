@@ -10,10 +10,12 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { fmtDate } from '@/lib/format'
+import { Badge } from '@/components/ui/badge'
+import { fmtDate, fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { EmployeeForm, type EmployeeRow } from '@/pages/EmployeeForm'
+import { ResetPasswordModal } from '@/pages/ResetPasswordModal'
 
 interface Listing {
   total: number
@@ -41,6 +43,7 @@ export function EmployeesPage() {
   const [editing, setEditing] = useState<EmployeeRow | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [toggling, setToggling] = useState<EmployeeRow | null>(null)
+  const [resetting, setResetting] = useState<EmployeeRow | null>(null)
 
   const { data, loading, reload } = useApi<Listing>(
     `/employees${qs({ search, status, location_id: locationId, sort, dir, page, size: SIZE })}`,
@@ -100,11 +103,12 @@ export function EmployeesPage() {
             ))}
             <Th>Locations</Th>
             {canManage && <Th>Joined</Th>}
+            {canManage && <Th>Last sign-in</Th>}
             {canManage && <Th className="text-right">Actions</Th>}
           </tr>
         </thead>
         <tbody>
-          {loading && !data ? <SkeletonRows cols={canManage ? 7 : 5} /> : data?.items.map((e) => (
+          {loading && !data ? <SkeletonRows cols={canManage ? 8 : 5} /> : data?.items.map((e) => (
             <tr key={e.id}>
               <Td>{e.employee_code}</Td>
               <Td className="font-medium">{e.full_name}</Td>
@@ -113,8 +117,12 @@ export function EmployeesPage() {
               <Td>{e.location_ids.map((id) => locationNames.get(id) ?? id).join(', ')}</Td>
               {canManage && <Td>{fmtDate(e.date_joined)}</Td>}
               {canManage && (
+                <Td>{e.account?.change_required ? <Badge tone="warn">Temporary password</Badge> : e.account?.last_login_at ? fmtDateTime(e.account.last_login_at) : 'Never'}</Td>
+              )}
+              {canManage && (
                 <Td className="space-x-2 text-right">
                   <Button size="sm" variant="outline" onClick={() => { setEditing(e); setFormOpen(true) }}>Edit</Button>
+                  {e.id !== me?.employee?.id && <Button size="sm" variant="outline" onClick={() => setResetting(e)}>Reset password</Button>}
                   <Button size="sm" variant={e.status === 'active' ? 'danger' : 'outline'} onClick={() => setToggling(e)}>
                     {e.status === 'active' ? 'Deactivate' : 'Activate'}
                   </Button>
@@ -131,6 +139,7 @@ export function EmployeesPage() {
         <EmployeeForm open employee={editing} supervisors={(all?.items ?? []).filter((x) => x.role !== 'steward')}
           onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />
       )}
+      {resetting && <ResetPasswordModal employee={resetting} onClose={() => setResetting(null)} onDone={reload} />}
       <ConfirmDialog open={toggling !== null} title={toggling?.status === 'active' ? 'Deactivate employee' : 'Activate employee'}
         message={toggling?.status === 'active'
           ? `${toggling?.full_name} will no longer be able to sign in or check in.`

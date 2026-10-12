@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import asc, desc, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -12,8 +12,8 @@ from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
 from ..models import (AttendanceRecord, ChecklistInstance, Employee, EmployeeLocation, Location, Role, User)
-from ..pagination import paginate, row
-from ..security import hash_password
+from ..pagination import iso, paginate, row
+from ..security import check_password_rules, hash_password, temporary_password
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
@@ -53,13 +53,6 @@ def _joined(value: date | None) -> date | None:
     return value
 
 
-def _password(value: str) -> str:
-    classes = sum(any(check(c) for c in value) for check in (str.islower, str.isupper, str.isdigit, lambda c: not c.isalnum()))
-    if classes < 2:
-        raise ValueError("Use at least two kinds of characters: letters, numbers or symbols")
-    return value
-
-
 class EmployeeIn(BaseModel):
     employee_code: str = Field(min_length=2, max_length=20, pattern=CODE_RE.pattern)
     full_name: str = Field(min_length=2, max_length=120)
@@ -78,11 +71,20 @@ class EmployeeIn(BaseModel):
     _phone = field_validator("phone")(_phone)
     _contact = field_validator("emergency_contact")(_text)
     _joined = field_validator("date_joined")(_joined)
-    _password = field_validator("password")(_password)
+
+    @model_validator(mode="after")
+    def _password_rules(self):
+        check_password_rules(self.password, str(self.email))
+        return self
+
+
+class ResetPasswordIn(BaseModel):
+    new_password: str | None = Field(default=None, min_length=10, max_length=128)
 
 
 class EmployeeUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
+    email: EmailStr | None = None
     job_title: str | None = Field(default=None, min_length=2, max_length=80)
     role: RoleName | None = None
     phone: str | None = Field(default=None, max_length=40)
@@ -108,6 +110,8 @@ def serialize(emp: Employee, full: bool) -> dict:
     out["role"] = emp.user.role.name if emp.user else None
     if full:
         out.update(row(emp, *PRIVATE))
+        out["account"] = ({"change_required": emp.user.must_change_password, "last_login_at": iso(emp.user.last_login_at)}
+                          if emp.user else None)
     return out
 
 
@@ -169,7 +173,8 @@ def create_employee(body: EmployeeIn, user: User = Depends(require("employee.man
     _validate_refs(db, body.location_ids, body.supervisor_id)
     role = db.scalar(select(Role).where(Role.name == body.role))
     try:
-        account = User(email=str(body.email).lower(), password_hash=hash_password(body.password), role_id=role.id)
+        account = User(email=str(body.email).lower(), password_hash=hash_password(body.password), role_id=role.id,
+                       must_change_password=True)
         db.add(account)
         db.flush()
         emp = Employee(
@@ -209,8 +214,18 @@ def update_employee(employee_id: int, body: EmployeeUpdate, user: User = Depends
             EmployeeLocation(employee_id=emp.id, location_id=i) for i in wanted - set(_location_ids(emp))]
     if "role" in data:
         new_role = db.scalar(select(Role).where(Role.name == data.pop("role")))
-        if emp.user:
+        if emp.user and emp.user.role_id != new_role.id:
+            if emp.user_id == user.id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot change your own role")
             emp.user.role_id = new_role.id
+    if "email" in data:
+        email = str(data.pop("email")).lower()
+        clash = db.scalar(select(User.id).where(User.email == email, User.id != (emp.user_id or 0)))
+        if clash or db.scalar(select(Employee.id).where(Employee.email == email, Employee.id != emp.id)):
+            raise HTTPException(status.HTTP_409_CONFLICT, "That email is already used by another employee")
+        emp.email = email
+        if emp.user:
+            emp.user.email = email
     for key, value in data.items():
         setattr(emp, key, value)
     db.flush()
@@ -239,6 +254,28 @@ def _set_active(db: Session, user: User, employee_id: int, active: bool) -> dict
           {"status": before}, {"status": emp.status})
     db.commit()
     return serialize(emp, True)
+
+
+@router.post("/{employee_id}/reset-password")
+def reset_password(employee_id: int, body: ResetPasswordIn, user: User = Depends(require("employee.manage")),
+                   db: Session = Depends(get_db)):
+    """Sets a temporary password the employee must replace at their next sign-in, and ends their open sessions."""
+    emp = db.get(Employee, employee_id)
+    if not emp or not emp.user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
+    if emp.user_id == user.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Use Change password for your own account")
+    password = body.new_password or temporary_password()
+    try:
+        check_password_rules(password, emp.user.email)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    emp.user.password_hash = hash_password(password)
+    emp.user.must_change_password = True
+    emp.user.token_version += 1
+    audit(db, user, "password.reset", "employee", emp.id, None, {"employee_id": emp.id})
+    db.commit()
+    return {"temporary_password": password, "change_required": True}
 
 
 @router.post("/{employee_id}/deactivate")

@@ -22,6 +22,7 @@ export interface EmployeeRow {
   email?: string | null
   emergency_contact?: string | null
   date_joined?: string | null
+  account?: { change_required: boolean; last_login_at: string | null } | null
 }
 
 interface EmployeeFormProps {
@@ -64,6 +65,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
       full_name: form.full_name,
       job_title: form.job_title,
       role: form.role,
+      ...(editing ? { email: form.email } : {}),
       phone: form.phone || null,
       emergency_contact: form.emergency_contact || null,
       date_joined: form.date_joined || null,
@@ -94,6 +96,11 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
             </Field>
           </div>
         )}
+        {editing && (
+          <Field label="Email (their sign-in)" hint="Correct a typo here. They sign in with the new address straight away.">
+            <Input required type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
+          </Field>
+        )}
         <Field label="Full name">
           <Input required value={form.full_name} onChange={(e) => set('full_name', e.target.value)} />
         </Field>
@@ -111,7 +118,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
           </Field>
         </div>
         {!editing && (
-          <Field label="Initial password" hint="At least 10 characters.">
+          <Field label="Initial password" hint="At least 10 characters with two kinds of characters. They are asked to choose their own at first sign-in.">
             <Input required type="password" minLength={10} autoComplete="new-password" value={form.password} onChange={(e) => set('password', e.target.value)} />
           </Field>
         )}
