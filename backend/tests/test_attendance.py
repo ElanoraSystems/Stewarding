@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from sqlalchemy import select
 
 from app import timeutil
-from app.models import AttendanceCorrection, AuditLog, Location
+from app.models import AttendanceCorrection, AttendanceRecord, AuditLog, Location
 
 MGR = "manager@example.test"
 STEWARD = "steward.mk@example.test"
@@ -194,3 +194,37 @@ def test_dst_conversion_helpers():
     assert timeutil.local_to_utc(date(2026, 3, 28), time(12, 0), "Europe/London") == datetime(2026, 3, 28, 12, 0)
     assert timeutil.local_to_utc(date(2026, 3, 29), time(12, 0), "Europe/London") == datetime(2026, 3, 29, 11, 0)
     assert timeutil.shift_minutes(time(22, 0), time(6, 0)) == 480
+
+
+def test_the_position_is_kept_and_suspicious_punches_are_flagged(client, login, db, clock):
+    fence(db)
+    h = login(STEWARD)
+    first = check_in(client, h, db, latitude=29.37601, longitude=47.97751, accuracy=12)
+    assert first.status_code == 201 and first.json()["geo_flags"] == []
+    out = client.post("/api/attendance/check-out", json={"latitude": 29.37601, "longitude": 47.97751, "accuracy": 12, "exception_reason": "Tasks done elsewhere"}, headers=h)
+    assert out.json()["geo_flags"] == ["Same position as the last punch"]
+    clock.advance(minutes=30)
+    jump = check_in(client, h, db, latitude=29.37602, longitude=47.97752)
+    assert jump.json()["geo_flags"] == ["No accuracy reported"]
+    saved = db.scalar(select(AttendanceRecord).where(AttendanceRecord.id == first.json()["id"]))
+    assert saved.check_in_geo["accuracy"] == 12 and saved.check_in_geo["distance"] < 30
+
+
+def test_a_vague_position_is_refused_and_the_limit_is_a_setting(client, login, db, clock):
+    fence(db)
+    h = login(STEWARD)
+    vague = check_in(client, h, db, latitude=29.3760, longitude=47.9775, accuracy=400)
+    assert vague.status_code == 400 and "too imprecise" in vague.json()["detail"]
+    assert client.put("/api/settings", json={"values": {"attendance.max_accuracy_m": 0}}, headers=login(MGR)).status_code == 200
+    assert check_in(client, h, db, latitude=29.3760, longitude=47.9775, accuracy=400).status_code == 201
+
+
+def test_flags_show_in_the_attendance_listing_and_record(client, login, db, clock):
+    fence(db)
+    check_in(client, login(STEWARD), db, latitude=29.3760, longitude=47.9775)
+    m = login(MGR)
+    listing = client.get("/api/attendance", headers=m).json()["items"]
+    assert listing[0]["geo_flags"] == ["No accuracy reported"]
+    doc = client.get("/api/reports/records/attendance?date_from=2026-03-02&date_to=2026-03-02", headers=m).json()
+    sid = next(r for g in doc["groups"] for r in g["rows"] if r["employee"] == "Sid Steward")
+    assert sid["location_check"] == "No accuracy reported"

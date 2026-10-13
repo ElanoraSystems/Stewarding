@@ -124,6 +124,12 @@ class AttendanceRecord(Base):
     overtime_minutes: Mapped[int | None] = mapped_column(Integer)
     exception_reason: Mapped[str | None] = mapped_column(Text)
     verified_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    check_in_geo: Mapped[dict | None] = mapped_column(JSON)  # latitude, longitude, accuracy, distance and flags at check-in
+    check_out_geo: Mapped[dict | None] = mapped_column(JSON)
+
+    @property
+    def geo_flags(self) -> list[str]:
+        return [f for geo in (self.check_in_geo, self.check_out_geo) if geo for f in geo["flags"]]
 
 
 class AttendanceCorrection(Base):

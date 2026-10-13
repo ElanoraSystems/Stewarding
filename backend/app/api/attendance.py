@@ -16,6 +16,7 @@ from ..models import (AbsenceRecord, AttendanceCorrection, AttendanceRecord, Che
                       EmployeeLocation, Location, Shift, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
 from ..services.checklists import DONE
+from ..services.settings import get_setting
 from ..services.notify import notify
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
@@ -28,6 +29,7 @@ FIELDS = ("id", "employee_id", "location_id", "shift_id", "local_date", "check_i
 class Position(BaseModel):
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracy: float | None = Field(default=None, ge=0, le=100000)
 
 
 class CheckInIn(Position):
@@ -43,14 +45,43 @@ def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * 6371000 * asin(sqrt(a))
 
 
-def _enforce_geofence(location: Location, where: Position, action: str) -> None:
+def _enforce_geofence(db: Session, location: Location, where: Position, action: str) -> float | None:
+    """Refuses a position outside the area or too vague to trust, and returns the distance from the centre."""
     if not location.geofence_radius_m:
-        return
+        return None
     if where.latitude is None or where.longitude is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Allow location access in your browser to {action} at {location.name}")
+    limit = get_setting(db, "attendance.max_accuracy_m")
+    if limit and where.accuracy and where.accuracy > limit:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Your location is too imprecise (within {round(where.accuracy)} m, the limit is {limit} m). Move to open sky or turn Wi-Fi on and try again")
     away = _distance_m(where.latitude, where.longitude, location.latitude, location.longitude)
     if away > location.geofence_radius_m:
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"You are about {round(away)} m from {location.name}. You can {action} only within {location.geofence_radius_m} m")
+    return away
+
+
+def _geo_evidence(db: Session, emp: Employee, where: Position, distance: float | None, now: datetime) -> dict | None:
+    """The position kept with a punch, with a flag for each sign that it may not be real."""
+    if where.latitude is None or where.longitude is None:
+        return None
+    flags = []
+    if not where.accuracy:
+        flags.append("No accuracy reported")
+    last = db.scalar(select(AttendanceRecord).where(AttendanceRecord.employee_id == emp.id).order_by(AttendanceRecord.id.desc()))
+    earlier = None
+    if last:
+        earlier = ((last.check_out_geo, last.check_out_at) if last.check_out_geo else (last.check_in_geo, last.check_in_at))
+    if earlier and earlier[0]:
+        geo, when = earlier
+        if (round(geo["latitude"], 6), round(geo["longitude"], 6)) == (round(where.latitude, 6), round(where.longitude, 6)):
+            flags.append("Same position as the last punch")
+        else:
+            km = _distance_m(geo["latitude"], geo["longitude"], where.latitude, where.longitude) / 1000
+            hours = max((now - when).total_seconds() / 3600, 1 / 60)
+            if km > 2 and km / hours > 150:
+                flags.append("Impossible travel since the last punch")
+    return {"latitude": where.latitude, "longitude": where.longitude, "accuracy": where.accuracy,
+            "distance": None if distance is None else round(distance), "flags": flags}
 
 
 class CorrectionIn(BaseModel):
@@ -136,6 +167,7 @@ def _recompute(record: AttendanceRecord, shift: Shift | None) -> None:
 def _serialize(record: AttendanceRecord, now: datetime, names: dict[int, str] | None = None) -> dict:
     out = row(record, *FIELDS)
     out["open"] = record.open_flag == 1
+    out["geo_flags"] = record.geo_flags
     out["missed_checkout"] = (record.open_flag == 1 and
                               (now - record.check_in_at).total_seconds() > MISSED_CHECKOUT_HOURS * 3600)
     if names is not None:
@@ -150,7 +182,7 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
     location = db.get(Location, body.location_id)
     if not location.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Location is not active")
-    _enforce_geofence(location, body, "check in")
+    away = _enforce_geofence(db, location, body, "check in")
     if _open_record(db, emp):
         raise HTTPException(status.HTTP_409_CONFLICT, "You are already checked in")
     now = timeutil.utc_now()
@@ -162,7 +194,8 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
                                   .total_seconds() // 60)
         late = minutes_after_start if minutes_after_start > shift.grace_minutes else 0
     record = AttendanceRecord(employee_id=emp.id, location_id=location.id, shift_id=shift.id if shift else None,
-                              local_date=day, check_in_at=now, late_minutes=late, open_flag=1)
+                              local_date=day, check_in_at=now, late_minutes=late, open_flag=1,
+                              check_in_geo=_geo_evidence(db, emp, body, away, now))
     try:
         db.add(record)
         db.flush()
@@ -179,7 +212,7 @@ def check_out(body: CheckOutIn, user: User = Depends(require("attendance.self"))
     record = _open_record(db, emp)
     if not record:
         raise HTTPException(status.HTTP_409_CONFLICT, "You are not checked in")
-    _enforce_geofence(db.get(Location, record.location_id), body, "check out")
+    away = _enforce_geofence(db, db.get(Location, record.location_id), body, "check out")
     pending = incomplete_tasks(db, user, record)
     reason = (body.exception_reason or "").strip()
     if pending and len(reason) < 5:
@@ -187,6 +220,7 @@ def check_out(body: CheckOutIn, user: User = Depends(require("attendance.self"))
             "message": "Mandatory tasks are incomplete; finish them or give an exception reason",
             "tasks": [{"id": t.id, "task_id": t.task_id} for t in pending]})
     now = timeutil.utc_now()
+    record.check_out_geo = _geo_evidence(db, emp, body, away, now)
     record.check_out_at = now
     record.open_flag = None
     _recompute(record, db.get(Shift, record.shift_id) if record.shift_id else None)

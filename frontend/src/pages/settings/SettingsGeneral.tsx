@@ -44,8 +44,8 @@ const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = 
   },
   {
     title: 'Attendance',
-    hint: 'How long an open check-in stays before it is flagged as a missed check-out.',
-    keys: { 'attendance.missed_checkout_hours': 'Missed check-out after (hours)' },
+    hint: 'How long an open check-in stays before it is flagged as a missed check-out, and how vague a phone position may be at a location with a geofence (0 turns the limit off).',
+    keys: { 'attendance.missed_checkout_hours': 'Missed check-out after (hours)', 'attendance.max_accuracy_m': 'Largest location error accepted (metres)' },
   },
 ]
 

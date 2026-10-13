@@ -30,6 +30,7 @@ interface Record {
   exception_reason: string | null
   open: boolean
   missed_checkout: boolean
+  geo_flags: string[]
 }
 
 interface Listing {
@@ -118,6 +119,7 @@ export function AttendancePage() {
               <Td className="space-x-1">
                 {r.late_minutes > 0 && <Badge tone="warn">Late {r.late_minutes}m</Badge>}
                 {r.missed_checkout && <Badge tone="critical">Missed checkout</Badge>}
+                {r.geo_flags?.length > 0 && <Badge tone="warn" title={[...new Set(r.geo_flags)].join('; ')}>Location unverified</Badge>}
                 {r.exception_reason?.startsWith('Manual entry') ? <Badge title={r.exception_reason}>Manual entry</Badge>
                   : r.exception_reason && <Badge tone="warn" title={r.exception_reason}>Exception</Badge>}
               </Td>

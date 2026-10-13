@@ -164,7 +164,7 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
                 "status": status, "recorded": recorded, "note": note or (rec.exception_reason if rec else None),
                 "check_in": rec.check_in_at if rec else None, "check_out": rec.check_out_at if rec else None,
                 "late_minutes": rec.late_minutes if rec else 0, "payable_minutes": rec.payable_minutes if rec else None,
-                "overtime_minutes": rec.overtime_minutes if rec else None}
+                "overtime_minutes": rec.overtime_minutes if rec else None, "geo_flags": rec.geo_flags if rec else []}
 
     for (emp_id, day), (_, shift) in sorted(expected.items(), key=lambda kv: (kv[0][1], names.get(kv[0][0], ""))):
         rec = records.get((emp_id, day))

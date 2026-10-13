@@ -239,11 +239,12 @@ def _attendance_groups(db: Session, now: datetime, scope, f: Filters, day_from: 
                  "check_in": timeutil.to_local(r["check_in"], tz).strftime("%H:%M") if r["check_in"] else "",
                  "check_out": timeutil.to_local(r["check_out"], tz).strftime("%H:%M") if r["check_out"] else "",
                  "late": r["late_minutes"] or "", "worked": _hm(r["payable_minutes"]), "overtime": _hm(r["overtime_minutes"]),
-                 "note": r["note"] or ""} for r in stats["rows"]]
+                 "note": r["note"] or "", "location_check": "; ".join(dict.fromkeys(r["geo_flags"]))} for r in stats["rows"]]
         groups.append({
             "title": f"{win.loc.name} - Attendance", "meta": [("Location", win.loc.name)],
             "columns": [("date", "Date"), ("employee", "Employee"), ("shift", "Shift"), ("status", "Status"), ("check_in", "In"),
-                        ("check_out", "Out"), ("late", "Late (min)"), ("worked", "Worked"), ("overtime", "Overtime"), ("note", "Note")],
+                        ("check_out", "Out"), ("late", "Late (min)"), ("worked", "Worked"), ("overtime", "Overtime"), ("note", "Note"),
+                        ("location_check", "Location check")],
             "rows": rows,
             "totals": [("Scheduled", stats["scheduled"]), ("Present", sum(1 for r in stats["rows"] if r["status"] in PRESENT_STATUSES)), ("Late", stats["late"]),
                        ("Absent", stats["absent"]), ("On leave", stats["on_leave"]), ("Week off", stats["week_off"])]})
