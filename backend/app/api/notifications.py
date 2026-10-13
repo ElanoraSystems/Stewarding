@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session
 
@@ -61,6 +62,23 @@ def read_all(user: User = Depends(require("notification.view")), db: Session = D
                .values(read_at=timeutil.utc_now()))
     db.commit()
     return {"ok": True}
+
+
+class AckManyIn(BaseModel):
+    ids: list[int] | None = Field(default=None, max_length=500)
+
+
+@router.post("/acknowledge-many")
+def acknowledge_many(body: AckManyIn, user: User = Depends(require("notification.view")), db: Session = Depends(get_db)):
+    """Acknowledges the chosen alerts of the signed-in user, or every open one when no ids are given."""
+    now = timeutil.utc_now()
+    stmt = (update(Notification).where(Notification.user_id == user.id, Notification.requires_ack.is_(True), Notification.acknowledged_at.is_(None))
+            .values(acknowledged_at=now, read_at=func.coalesce(Notification.read_at, now)))
+    if body.ids is not None:
+        stmt = stmt.where(Notification.id.in_(set(body.ids)))
+    count = db.execute(stmt).rowcount
+    db.commit()
+    return {"acknowledged": count}
 
 
 @router.post("/{notification_id}/read")

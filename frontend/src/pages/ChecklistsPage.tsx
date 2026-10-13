@@ -6,6 +6,8 @@ import { Select } from '@/components/ui/select'
 import { EmptyState, Skeleton } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth'
 import { todayIso, weekRange } from '@/lib/format'
+import { api } from '@/lib/api'
+import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { ChecklistConfig } from '@/pages/ChecklistConfig'
 import { ChecklistTaskCard, type Instance } from '@/pages/ChecklistTaskCard'
@@ -15,6 +17,7 @@ const DONE = ['completed', 'pending_verification', 'verified', 'waived']
 
 export function ChecklistsPage({ frequency }: { frequency: 'daily' | 'weekly' }) {
   const { me } = useAuth()
+  const run = useRun()
   const [locationId, setLocationId] = useState<number | null>(null)
   const [day, setDay] = useState(todayIso())
   const [status, setStatus] = useState('')
@@ -34,6 +37,13 @@ export function ChecklistsPage({ frequency }: { frequency: 'daily' | 'weekly' })
   const done = items.filter((i) => DONE.includes(i.effective_status)).length
   const percent = items.length ? Math.round((done / items.length) * 100) : 0
   const timezone = me?.locations.find((l) => l.id === locationId)?.timezone
+  const approvable = me?.permissions.includes('checklist.verify') ? items.filter((i) => i.effective_status === 'pending_verification' && i.completed_by !== me.id) : []
+
+  async function approveAll() {
+    const ids = approvable.map((i) => i.id)
+    const result = await run(() => api('/checklists/instances/verify-many', { body: { instance_ids: ids } }), `${ids.length} task${ids.length === 1 ? '' : 's'} approved`)
+    if (result) reload()
+  }
 
   return (
     <div className="space-y-4">
@@ -65,6 +75,12 @@ export function ChecklistsPage({ frequency }: { frequency: 'daily' | 'weekly' })
             <div className="h-2 overflow-hidden rounded bg-border"><div className="h-full bg-brand" style={{ width: `${percent}%` }} /></div>
           </div>
 
+          {approvable.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
+              <span>{approvable.length} task{approvable.length === 1 ? '' : 's'} awaiting your approval</span>
+              <Button size="sm" onClick={approveAll}>Approve all ({approvable.length})</Button>
+            </div>
+          )}
           {loading && !data ? <Skeleton className="h-32 w-full" /> : items.length === 0 ? (
             <EmptyState title="No tasks for this selection" hint="Tasks are generated automatically from the location's checklist templates." />
           ) : (

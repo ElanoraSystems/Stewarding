@@ -43,3 +43,38 @@ def test_an_employee_has_an_optional_company_that_can_be_searched_and_changed(cl
     assert changed.json()["company"] == "Sea Staffing"
     assert client.post("/api/employees", json={**body, "employee_code": "E501", "email": "own@example.com", "company": None}, headers=m).json()["company"] is None
     assert client.post("/api/employees", json={**body, "employee_code": "E502", "email": "long@example.com", "company": "x" * 121}, headers=m).status_code == 422
+
+
+def test_alerts_are_acknowledged_in_bulk_and_only_your_own(client, login, db, clock):
+    from app.models import Notification, User
+    from sqlalchemy import select
+    sup, mgr = login(SUP), login(MGR)
+    me = db.scalar(select(User).where(User.email == SUP))
+    other = db.scalar(select(User).where(User.email == MGR))
+    made = [Notification(user_id=u.id, kind="monitoring_failed", title=f"Failed {n}", requires_ack=True, priority="critical", dedupe_key=f"qa:{u.id}:{n}")
+            for u in (me, other) for n in range(3)]
+    db.add_all(made)
+    db.commit()
+    mine = [n.id for n in made if n.user_id == me.id]
+    theirs = [n.id for n in made if n.user_id == other.id]
+    assert client.post("/api/notifications/acknowledge-many", json={"ids": mine[:2] + theirs}, headers=sup).json() == {"acknowledged": 2}
+    assert client.post("/api/notifications/acknowledge-many", json={}, headers=sup).json() == {"acknowledged": 1}
+    assert client.post("/api/notifications/acknowledge-many", json={}, headers=sup).json() == {"acknowledged": 0}
+    assert client.post("/api/notifications/acknowledge-many", json={}, headers=mgr).json() == {"acknowledged": 3}
+
+
+def test_checklist_tasks_are_approved_in_bulk(client, login, db, clock):
+    mk = loc_id(db, "MK")
+    m, steward, sup = login(MGR), login(STEWARD), login(SUP)
+    template = client.post("/api/checklists/templates", headers=m, json={"name": "QA Bulk", "category": "Opening", "location_id": mk, "frequency": "daily"}).json()
+    for n in range(2):
+        client.post(f"/api/checklists/templates/{template['id']}/tasks", headers=m, json={"description": f"Bulk task {n}", "requires_verification": True})
+    client.post("/api/checklists/generate", json={"location_id": mk}, headers=m)
+    items = [i for i in client.get(f"/api/checklists/instances?location_id={mk}&size=200", headers=m).json()["items"] if i["description"].startswith("Bulk task")]
+    for i in items:
+        assert client.post(f"/api/checklists/instances/{i['id']}/complete", json={}, headers=steward).status_code == 200
+    ids = [i["id"] for i in items]
+    assert client.post("/api/checklists/instances/verify-many", json={"instance_ids": ids}, headers=steward).status_code == 403
+    assert client.post("/api/checklists/instances/verify-many", json={"instance_ids": ids}, headers=sup).json() == {"approved": 2, "skipped": 0}
+    assert client.post("/api/checklists/instances/verify-many", json={"instance_ids": ids}, headers=sup).json() == {"approved": 0, "skipped": 2}
+    assert {client.get(f"/api/checklists/instances/{i}", headers=m).json()["status"] for i in ids} == {"verified"}

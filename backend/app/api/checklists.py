@@ -367,6 +367,25 @@ def verify(instance_id: int, body: VerifyIn, user: User = Depends(require("check
     return _serialize(inst, task, template, now)
 
 
+class VerifyManyIn(BaseModel):
+    instance_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+@router.post("/instances/verify-many")
+def verify_many(body: VerifyManyIn, user: User = Depends(require("checklist.verify")), db: Session = Depends(get_db)):
+    """Approves every chosen task that awaits verification; your own work and tasks in other states are skipped."""
+    now, approved = timeutil.utc_now(), []
+    for inst in db.scalars(select(ChecklistInstance).where(ChecklistInstance.id.in_(set(body.instance_ids)))):
+        check_location(user, db, inst.location_id)
+        if inst.status != "pending_verification" or inst.completed_by == user.id:
+            continue
+        inst.status, inst.verified_by, inst.verified_at = "verified", user.id, now
+        approved.append(inst.id)
+    audit(db, user, "checklist.verify_many", "checklist_instance", None, None, {"instance_ids": sorted(approved)})
+    db.commit()
+    return {"approved": len(approved), "skipped": len(set(body.instance_ids)) - len(approved)}
+
+
 @router.post("/instances/{instance_id}/waive")
 def waive(instance_id: int, body: WaiveIn, user: User = Depends(require("checklist.verify")),
           db: Session = Depends(get_db)):

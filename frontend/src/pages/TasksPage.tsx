@@ -8,7 +8,7 @@ import { EmptyState, Skeleton, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDateTime, label } from '@/lib/format'
-import { useRun } from '@/lib/toast'
+import { useRun, useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
 
@@ -51,12 +51,25 @@ const SIZE = 15
 function Notifications() {
   const { me } = useAuth()
   const run = useRun()
+  const toast = useToast()
   const [unread, setUnread] = useState(false)
   const [page, setPage] = useState(1)
   const { data, loading, reload } = useApi<{ total: number; unread: number; items: Note[] }>(
     `/notifications${qs({ unread, page, size: SIZE })}`,
   )
   const places = new Map(me?.locations.map((l) => [l.id, l.name]))
+  const [selected, setSelected] = useState<number[]>([])
+  const open = (data?.items ?? []).filter((n) => n.requires_ack && !n.acknowledged_at)
+  const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  async function acknowledgeMany(ids: number[]) {
+    const result = await api<{ acknowledged: number }>('/notifications/acknowledge-many', { body: { ids } }).catch(() => null)
+    if (result) {
+      toast('ok', `${result.acknowledged} alert${result.acknowledged === 1 ? '' : 's'} acknowledged`)
+      setSelected([])
+      reload()
+    } else toast('error', 'Could not acknowledge the alerts')
+  }
 
   async function act(path: string, success?: string) {
     if (await run(() => api(`/notifications/${path}`, { method: 'POST' }), success)) reload()
@@ -68,13 +81,23 @@ function Notifications() {
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={unread} onChange={(e) => { setUnread(e.target.checked); setPage(1) }} /> Unread only</label>
         <Button variant="outline" size="sm" onClick={() => act('read-all', 'All marked as read')}>Mark all as read ({data?.unread ?? 0})</Button>
       </div>
+      {open.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
+          <span>{open.length} alert{open.length === 1 ? '' : 's'} on this page need acknowledging</span>
+          <Button size="sm" variant="outline" onClick={() => setSelected(open.map((n) => n.id))}>Select all</Button>
+          <Button size="sm" disabled={selected.length === 0} onClick={() => acknowledgeMany(selected)}>Acknowledge selected ({selected.length})</Button>
+        </div>
+      )}
       {loading && !data ? <Skeleton className="h-32 w-full" /> : data?.items.length === 0 ? <EmptyState title="No notifications" hint="Reminders and alerts for you appear here." /> : (
         <ul className="space-y-2">
           {data?.items.map((n) => (
             <li key={n.id} className={cn('rounded-lg border bg-surface p-4 text-sm',
               n.action_needed ? 'border-danger/60 bg-danger-soft' : n.priority === 'high' ? 'border-warn/50' : 'border-border')}>
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <p className={cn(!n.read_at && 'font-semibold')}>{n.title}</p>
+                <p className={cn('flex items-center gap-2', !n.read_at && 'font-semibold')}>
+                  {n.requires_ack && !n.acknowledged_at && <input type="checkbox" aria-label={`Select ${n.title}`} checked={selected.includes(n.id)} onChange={() => toggle(n.id)} />}
+                  {n.title}
+                </p>
                 <div className="flex items-center gap-1">
                   {n.priority !== 'normal' && <Badge tone={n.priority === 'critical' ? 'critical' : 'warn'}>{n.priority}</Badge>}
                   {n.action_needed && <Badge tone="critical">Action needed</Badge>}
