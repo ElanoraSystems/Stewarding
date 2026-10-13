@@ -17,7 +17,7 @@ from .reference import employee_names, locations_by_id, shifts_by_id
 
 DONE = ("completed", "verified", "pending_verification")
 OPEN_STATES = ("not_started", "in_progress", "overdue")
-MAX_DAYS = 93
+MAX_DAYS = 366
 
 
 @dataclass

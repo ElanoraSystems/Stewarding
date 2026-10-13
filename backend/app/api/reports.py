@@ -15,6 +15,9 @@ from ..services.organization import report_identity, stamp
 from ..services.records import KINDS, MOVEMENTS, Filters, build_record
 from ..services.reports import PERIODS, REPORTS, build_report
 
+PREVIEW_ROWS = 200
+MAX_PDF_ROWS = 4000
+
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 MEDIA = {"csv": "text/csv", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -70,7 +73,8 @@ def record(kind: str, date_from: date | None = None, date_to: date | None = None
            item_id: int | None = None, movement: str | None = None, frequency: str | None = None,
            user: User = Depends(require("report.view")), db: Session = Depends(get_db)):
     f = Filters(location_id, equipment_id, employee_id, supplier_id, item_id, movement, frequency)
-    return _record(db, user, kind, date_from, date_to, f)
+    doc = _record(db, user, kind, date_from, date_to, f)
+    return {**doc, "groups": [{**g, "row_count": len(g["rows"]), "rows": g["rows"][:PREVIEW_ROWS]} for g in doc["groups"]]}
 
 
 @router.get("/records/{kind}/export")
@@ -81,6 +85,9 @@ def export_record(kind: str, fmt: Literal["csv", "xlsx", "pdf"] = "pdf", date_fr
                   user: User = Depends(require("report.export")), db: Session = Depends(get_db)):
     f = Filters(location_id, equipment_id, employee_id, supplier_id, item_id, movement, frequency)
     doc = _record(db, user, kind, date_from, date_to, f)
+    rows = sum(len(g["rows"]) for g in doc["groups"])
+    if fmt == "pdf" and rows > MAX_PDF_ROWS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"This record has {rows:,} rows, more than a PDF can hold ({MAX_PDF_ROWS:,}). Choose a shorter period, one location or one employee, or download Excel or CSV.")
     audit(db, user, "report.export", "record", None, None, {"kind": kind, "format": fmt, "from": doc["period"]["from"],
                                                            "to": doc["period"]["to"], "location_id": location_id})
     db.commit()

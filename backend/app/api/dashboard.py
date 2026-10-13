@@ -48,6 +48,9 @@ def _equipment_attention(db: Session, scope: set[int] | None, location_id: int |
     return sum(1 for eq in points if eq.status != "operational" or failures.get(eq.id, 0) >= limit)
 
 
+DASHBOARD_DAYS = 93
+
+
 def _manager_view(db: Session, user: User, now: datetime, location_id: int | None, date_from, date_to,
                   employee_id: int | None, equipment_id: int | None, task_status: str | None) -> dict:
     scope = scoped_locations(user, db)
@@ -55,6 +58,8 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
     week_wins = metrics.windows_by(db, now, scope, location_id, metrics.week_of)
     first = today_wins[0].today if today_wins else timeutil.local_date(now, "UTC")
     d_from, d_to = _range(date_from, date_to, first)
+    if (d_to - d_from).days >= DASHBOARD_DAYS:
+        raise ValueError(f"The dashboard covers at most {DASHBOARD_DAYS} days; use the reports for longer periods")
     range_wins = metrics.windows(db, now, scope, location_id, d_from, d_to)
 
     attendance = [metrics.attendance_stats(db, w, now) for w in today_wins]

@@ -13,6 +13,9 @@ from .reference import employee_names, user_names
 URGENCY_RANK = {"critical": 0, "high": 1, "normal": 2}
 
 
+PENDING_DAYS = 30  # older overdue tasks are history, not pending work
+
+
 def _minutes(now: datetime, since: datetime | None) -> int:
     return max(0, int((now - since).total_seconds() // 60)) if since else 0
 
@@ -28,19 +31,21 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
                       "responsible": responsible, "description": description,
                       "overdue_minutes": _minutes(now, since), "link": link})
 
+    since = now - timedelta(days=PENDING_DAYS)
     rows = db.execute(
-        select(ChecklistInstance, ChecklistTask).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
-        .where(ChecklistInstance.location_id.in_(locations),
+        select(ChecklistInstance.location_id, ChecklistInstance.status, ChecklistInstance.completed_at, ChecklistInstance.due_at,
+               ChecklistInstance.assigned_employee_id, ChecklistTask.description, ChecklistTask.priority, ChecklistTask.assigned_role)
+        .join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
+        .where(ChecklistInstance.location_id.in_(locations), ChecklistInstance.due_at >= since,
                ((ChecklistInstance.status.in_(OPEN + ("overdue", "failed"))) & (ChecklistInstance.due_at < now))
                | (ChecklistInstance.status == "pending_verification"))).all()
-    for inst, task in rows:
-        if inst.status == "pending_verification":
-            add("verification", inst.location_id, "normal", "Supervisor", f"Verify: {task.description}",
-                inst.completed_at, "/checklists")
+    for loc_id, state, completed_at, due_at, assignee, description, priority, role in rows:
+        if state == "pending_verification":
+            add("verification", loc_id, "normal", "Supervisor", f"Verify: {description}", completed_at, "/checklists")
         else:
-            urgency = "high" if task.priority in ("high", "critical") else "normal"
-            who = names.get(inst.assigned_employee_id) or f"Unassigned ({task.assigned_role or 'steward'})"
-            add("overdue_task", inst.location_id, urgency, who, task.description, inst.due_at, "/checklists")
+            urgency = "high" if priority in ("high", "critical") else "normal"
+            who = names.get(assignee) or f"Unassigned ({role or 'steward'})"
+            add("overdue_task", loc_id, urgency, who, description, due_at, "/checklists")
 
     equipment = list(db.scalars(select(Equipment).where(Equipment.location_id.in_(locations), Equipment.active.is_(True))))
     sup_names = {eq.id: names.get(eq.supervisor_id, "Supervisor") for eq in equipment}

@@ -12,6 +12,8 @@ from ..services.summary import grouped, pending_items
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
+PENDING_LIST = 200  # the totals count everything; the list shows the most urgent
+
 FIELDS = ("id", "kind", "priority", "title", "body", "location_id", "link", "due_at", "created_at", "read_at",
           "requires_ack", "acknowledged_at", "resolved_at")
 
@@ -108,4 +110,4 @@ def pending_summary(location_id: int | None = None, user: User = Depends(require
         check_location(user, db, location_id)
         scope = {location_id}
     items = pending_items(db, scope, timeutil.utc_now())
-    return {**grouped(items), "items": items}
+    return {**grouped(items), "items": items[:PENDING_LIST]}

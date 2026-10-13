@@ -11,6 +11,7 @@ export interface RecordGroup {
   meta: [string, string][]
   columns: [string, string][]
   rows: Record<string, Cell>[]
+  row_count?: number
   totals: [string, string | number][]
 }
 
@@ -61,8 +62,8 @@ export function ReportPreview({ doc }: { doc: RecordDoc }) {
                   ))}
                 </tbody>
               </Table>
-              {group.rows.length > PREVIEW_ROWS && (
-                <p className="text-xs text-ink-muted">Showing {PREVIEW_ROWS} of {group.rows.length} rows. The download has them all.</p>
+              {(group.row_count ?? group.rows.length) > PREVIEW_ROWS && (
+                <p className="text-xs text-ink-muted">Showing {PREVIEW_ROWS} of {group.row_count ?? group.rows.length} rows. The download has them all.</p>
               )}
             </div>
           </details>

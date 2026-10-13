@@ -167,6 +167,19 @@ WIDE = {"corrective_action": 3, "task": 3, "comment": 2, "approved_by": 2, "chec
         "measure": 1.5, "date": 1.3, "time": 0.8, "result": 0.9, "value": 1.1}
 
 
+def _weights(group: dict) -> list[float]:
+    """Column widths that follow the content: the longest unbreakable word, or most of a typical cell, within limits."""
+    sample = group["rows"][:200]
+    out = []
+    for key, label in group["columns"]:
+        texts = [str(_flat(row.get(key)) or "") for row in sample] or [""]
+        longest = max(len(word) for text in [*texts, label] for word in (text.split() or [""]))
+        typical = sorted(len(text) for text in texts)[int(len(texts) * 0.8)]
+        whole = max(len(text) for text in texts)
+        out.append(max(5.0, min(longest, 18) * 1.0, min(typical, 40) * 0.6, len(label) * 0.7, whole * 0.95 if whole <= 14 else 0))
+    return out
+
+
 SYMBOLS = {"ok": "\u2713", "pending": "\u2713?", "fail": "\u2717", "waived": "W", "na": "-"}
 COLORS = {"ok": "#15803d", "pending": "#b45309", "fail": "#b91c1c"}
 
@@ -337,29 +350,35 @@ def record_to_pdf(doc: dict) -> bytes:
         if group.get("page_break") and number:
             story.append(PageBreak())
         chart = group.get("layout") == "chart"
-        weights = [(8 if key == "task" else 1) if chart else WIDE.get(key, 1) for key, _ in group["columns"]]
+        weights = [(8 if key == "task" else 1) if chart else w for (key, _), w in zip(group["columns"], _weights(group))]
         widths = [width * w / sum(weights) for w in weights]
-        story += [Spacer(1, 14), Paragraph(_esc(group["title"]), styles["Heading3"]),
-                  Paragraph(" | ".join(f"<b>{_esc(label)}:</b> {_esc(value)}" for label, value in group["meta"]), styles["Normal"]),
-                  Spacer(1, 4)]
+        body = cell if len(group["columns"]) <= 10 or chart else cell.clone("cell_small", fontSize=6.8, leading=8.2)
+        piece = [Spacer(1, 14), Paragraph(_esc(group["title"]), styles["Heading3"]),
+                 Paragraph(" | ".join(f"<b>{_esc(label)}:</b> {_esc(value)}" for label, value in group["meta"]), styles["Normal"]),
+                 Spacer(1, 4)]
         if group.get("summary_first"):
             box = Table([[Paragraph(_esc(label), cell) for label, _ in group["totals"]],
                          [Paragraph(f"<b>{_esc(value)}</b>", cell.clone("big", fontSize=13, leading=15)) for _, value in group["totals"]]],
                         colWidths=[width / len(group["totals"])] * len(group["totals"]))
             box.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef0")),
                                      ("ALIGN", (0, 0), (-1, -1), "CENTER")]))
-            story += [box, Spacer(1, 8)]
+            piece += [box, Spacer(1, 8)]
         if group.get("legend"):
-            story.append(Paragraph(_esc(group["legend"]), cell))
+            piece.append(Paragraph(_esc(group["legend"]), cell))
         data = [[Paragraph(_esc(label).replace("\n", "<br/>"), head if not chart else head.clone("chart_head", alignment=1 if label != "Task" else 0)) for _, label in group["columns"]]]
-        data += [[_mark(key, row.get(key), cell) for key, _ in group["columns"]] for row in group["rows"]]
+        data += [[_mark(key, row.get(key), body) for key, _ in group["columns"]] for row in group["rows"]]
+        if not group["rows"]:
+            data.append([Paragraph("<i>No records in this period</i>", body)] + [""] * (len(group["columns"]) - 1))
         table = Table(data, colWidths=widths, repeatRows=1)
         style = [("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef0")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                 ("VALIGN", (0, 0), (-1, -1), "TOP")]
+                 ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5)]
+        if not group["rows"]:
+            style.append(("SPAN", (0, 1), (-1, 1)))
         table.setStyle(TableStyle(style))
-        story += [table, Spacer(1, 4)]
+        piece += [table, Spacer(1, 4)]
         if not group.get("summary_first"):
-            story.append(Paragraph(" | ".join(f"<b>{_esc(label)}:</b> {_esc(value)}" for label, value in group["totals"]), styles["Normal"]))
+            piece.append(Paragraph(" | ".join(f"<b>{_esc(label)}:</b> {_esc(value)}" for label, value in group["totals"]), styles["Normal"]))
+        story += [KeepTogether(piece)] if len(group["rows"]) <= 20 else piece
         if group.get("layout") == "sheet":
             story += [Spacer(1, 16), KeepTogether(_signature(width))]
     if not (doc["groups"] and all(g.get("layout") == "sheet" for g in doc["groups"])):
