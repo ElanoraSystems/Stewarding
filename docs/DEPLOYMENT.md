@@ -34,7 +34,7 @@ Or leave out `STW_BOOTSTRAP_PASSWORD` and use `docker compose run --rm backend .
 Sign in as the manager and open **Settings**. Each tab manages one kind of data:
 
 1. **Organization** - your organization's name, address, contact details, registration number, report footer note and logo. They head the app and every PDF, Excel and CSV report.
-2. **Locations** - kitchens, bars, banquet areas; time zone and optional check-in PIN.
+2. **Locations** - kitchens, bars, banquet areas; time zone and an optional area (geofence) that check-in and check-out are limited to.
 3. **Shifts** - hours, late-after minutes, break and overtime rules.
 4. **Categories & units** - item categories, units of measure.
 5. **Suppliers** - the companies you receive stock from.

@@ -98,3 +98,18 @@ def test_an_existing_check_can_be_turned_into_a_time_in_and_keeps_its_step_when_
     assert (edited["phase"], edited["reference_label"]) == ("start", "Item name")
     body.pop("phase"), body.pop("reference_label")
     assert client.put(f"/api/equipment/schedules/{sched['id']}", json=body, headers=m).json()["phase"] == "start"
+
+
+def test_a_scheduled_check_cannot_be_recorded_twice_for_the_same_time(client, login, db, clock):
+    m = login(MGR)
+    point = make(client, m, db, "chiller")
+    morning = point["schedules"][0]
+    body = {"equipment_id": point["id"], "schedule_id": morning["id"], "value": 3}
+    clock.set(2026, 3, 2, 4, 30)
+    assert client.post("/api/monitoring/readings", json=body, headers=m).status_code == 201
+    again = client.post("/api/monitoring/readings", json=body, headers=m)
+    assert again.status_code == 409 and "already recorded" in again.json()["detail"]
+    due = [d for d in client.get("/api/monitoring/due", headers=m).json() if d["schedule_id"] == morning["id"]]
+    assert [d["status"] for d in due] == ["done"]
+    clock.advance(days=1)
+    assert client.post("/api/monitoring/readings", json=body, headers=m).status_code == 201

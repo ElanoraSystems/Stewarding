@@ -43,10 +43,9 @@ def test_out_of_range_reading_is_kept_and_opens_corrective_action(client, login,
 def test_limit_boundaries_are_inclusive(client, login, clock):
     h = login(STEWARD)
     eq, sched = mk_stage(client, h)
-    assert record(client, h, eq, sched, 55.0).json()["passed"] is True
-    assert record(client, h, eq, sched, 65.0).json()["passed"] is True
-    assert record(client, h, eq, sched, 65.1).json()["passed"] is False
-    assert record(client, h, eq, sched, 54.9).json()["passed"] is False
+    for value, passed in ((55.0, True), (65.0, True), (65.1, False), (54.9, False)):
+        assert record(client, h, eq, sched, value).json()["passed"] is passed
+        clock.advance(days=1)
 
 
 def test_supervisors_and_manager_are_alerted_but_not_other_locations(client, login, db, clock):
@@ -96,6 +95,7 @@ def test_retest_must_reference_failed_reading_of_same_stage(client, login, clock
     _, rinse = mk_stage(client, h, "final_rinse")
     ok = record(client, h, eq, wash, 60).json()
     assert record(client, h, eq, wash, 60, retest_of_id=ok["id"]).status_code == 400
+    clock.advance(days=1)
     failed = record(client, h, eq, wash, 40, corrective_action="Refilled tank").json()
     assert record(client, h, eq, rinse, 85, retest_of_id=failed["id"]).status_code == 400
 
@@ -109,6 +109,7 @@ def test_changing_limits_does_not_rewrite_history(client, login, clock):
     assert client.put(f"/api/equipment/schedules/{sched['id']}", json=body, headers=m).status_code == 200
     readings = client.get("/api/monitoring/readings", headers=m).json()["items"]
     assert readings[0]["passed"] is False and readings[0]["max_limit"] == 65.0
+    clock.advance(days=1)
     assert record(client, m, eq, sched, 70).json()["passed"] is True
 
 
@@ -181,6 +182,7 @@ def test_review_rules(client, login, clock):
     reading = record(client, h, eq, sched, 60).json()
     url = f"/api/monitoring/readings/{reading['id']}/review"
     assert client.post(url, headers=h).status_code == 403
+    clock.advance(days=1)
     own = record(client, sup, eq, sched, 60).json()
     assert client.post(f"/api/monitoring/readings/{own['id']}/review", headers=sup).status_code == 403
     assert client.post(url, headers=sup).json()["reviewed_by"]
@@ -208,6 +210,7 @@ def test_repeated_failures_raise_a_maintenance_alert_once_per_day(client, login,
     eq, sched = mk_stage(client, h)
     for _ in range(4):
         record(client, h, eq, sched, 30)
+        clock.advance(days=1)
     alerts = db.scalars(select(Notification).where(Notification.kind == "equipment_maintenance")).all()
     assert alerts and len({(a.user_id, a.dedupe_key) for a in alerts}) == len(alerts)
     listing = client.get("/api/equipment", headers=login(MGR)).json()

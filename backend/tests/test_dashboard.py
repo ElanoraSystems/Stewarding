@@ -1,6 +1,6 @@
 from sqlalchemy import func, select
 
-from app.models import InventoryBalance, InventoryItem
+from app.models import InventoryBalance, InventoryItem, TemperatureReading
 
 from .helpers import MGR, STEWARD, SUP, SUP_RB, item_id, loc_id
 
@@ -50,11 +50,15 @@ def test_monitoring_kpis_and_equipment_attention(client, login, db, clock):
     h = login(STEWARD)
     eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")
     wash = next(s for s in eq["schedules"] if s["stage"] == "wash")
-    for _ in range(3):
-        client.post("/api/monitoring/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "value": 20})
+    client.post("/api/monitoring/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": wash["id"], "value": 20})
+    rinse = next(s for s in eq["schedules"] if s["stage"] == "final_rinse")
+    client.post("/api/monitoring/readings", headers=h, json={"equipment_id": eq["id"], "schedule_id": rinse["id"], "value": 20})
+    first = db.scalar(select(TemperatureReading).where(TemperatureReading.equipment_id == eq["id"]))
+    db.add(TemperatureReading(**{c.name: getattr(first, c.name) for c in TemperatureReading.__table__.columns if c.name != "id"}))
+    db.commit()
     k = dash(client, login(MGR), location_id=loc_id(db, "MK"))["kpis"]
     assert k["failed_checks"] == 3 and k["equipment_attention"] == 1
-    assert k["monitoring_checks"] == {"done": 1, "due": 4}
+    assert k["monitoring_checks"] == {"done": 2, "due": 4}
 
 
 def test_breakage_kpis_and_monthly_trend(client, login, db, clock):

@@ -9,7 +9,9 @@ import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Skeleton } from '@/components/ui/table'
 import { api, ApiError } from '@/lib/api'
+import { useAuth } from '@/lib/auth'
 import { fmtTime } from '@/lib/format'
+import { currentPosition } from '@/lib/geo'
 import { useRun, useToast } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 
@@ -19,7 +21,7 @@ interface ShiftStatus {
   employee: string
   employee_code: string
   record: { check_in_at: string; late_minutes: number } | null
-  location?: { id: number; name: string; timezone: string }
+  location?: { id: number; name: string; timezone: string; geofence: boolean }
   shift?: string
   incomplete_task_count: number
 }
@@ -29,7 +31,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const toast = useToast()
   const { data, loading, reload } = useApi<ShiftStatus>('/attendance/me/status')
   const [locationId, setLocationId] = useState<number | null>(null)
-  const [pin, setPin] = useState('')
+  const { me } = useAuth()
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [reason, setReason] = useState('')
 
@@ -40,13 +42,15 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
 
   async function checkIn() {
     if (locationId === null) return
-    const ok = await run(() => api('/attendance/check-in', { body: { location_id: locationId, pin: pin || null } }), 'Checked in')
+    const fenced = me?.locations.find((l) => l.id === locationId)?.geofence
+    const ok = await run(async () => api('/attendance/check-in', { body: { location_id: locationId, ...(fenced ? await currentPosition() : {}) } }), 'Checked in')
     if (ok) refresh()
   }
 
   async function checkOut(withReason?: string) {
     try {
-      await api('/attendance/check-out', { body: { exception_reason: withReason ?? null } })
+      const where = data?.location?.geofence ? await currentPosition() : {}
+      await api('/attendance/check-out', { body: { exception_reason: withReason ?? null, ...where } })
       toast('ok', 'Checked out')
       setExceptionOpen(false)
       setReason('')
@@ -85,9 +89,6 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
         ) : (
           <div className="flex flex-wrap items-end gap-3">
             <Field label="Work location"><LocationSelect className="w-full min-w-44" value={locationId} onChange={setLocationId} /></Field>
-            <Field label="Location PIN" hint="Only if your location requires one.">
-              <Input type="password" inputMode="numeric" autoComplete="off" className="w-40" value={pin} onChange={(e) => setPin(e.target.value)} />
-            </Field>
             <Button className="w-full sm:w-auto" disabled={locationId === null} onClick={checkIn}>
               <LogIn className="h-4 w-4" /> Check in
             </Button>

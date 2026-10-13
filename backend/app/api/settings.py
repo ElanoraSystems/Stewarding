@@ -1,7 +1,7 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -11,14 +11,13 @@ from ..db import get_db
 from ..deps import require
 from ..models import Location, Setting, User
 from ..pagination import row
-from ..security import hash_password
 from ..services.settings import DEFAULTS, all_settings
 from ..services.snapshots import forget_from
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 MAX_SETTING = 100_000
-LOCATION_FIELDS = ("id", "code", "name", "kind", "timezone", "active")
+LOCATION_FIELDS = ("id", "code", "name", "kind", "timezone", "active", "latitude", "longitude", "geofence_radius_m")
 
 
 class SettingsIn(BaseModel):
@@ -30,7 +29,15 @@ class LocationIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     kind: str = Field(pattern="^(kitchen|restaurant|bar|banquet|station|other)$")
     timezone: str
-    pin: str | None = Field(default=None, pattern=r"^\d{4,8}$")
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    geofence_radius_m: int | None = Field(default=None, ge=20, le=5000)
+
+    @model_validator(mode="after")
+    def _all_or_none(self):
+        if len({self.latitude is None, self.longitude is None, self.geofence_radius_m is None}) > 1:
+            raise ValueError("Give the latitude, the longitude and the radius together, or leave all three empty")
+        return self
 
 
 class LocationUpdate(BaseModel):
@@ -38,8 +45,9 @@ class LocationUpdate(BaseModel):
     kind: str | None = Field(default=None, pattern="^(kitchen|restaurant|bar|banquet|station|other)$")
     timezone: str | None = None
     active: bool | None = None
-    pin: str | None = Field(default=None, pattern=r"^\d{4,8}$")
-    clear_pin: bool = False
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    geofence_radius_m: int | None = Field(default=None, ge=20, le=5000)
 
 
 def _check_tz(name: str) -> None:
@@ -50,7 +58,7 @@ def _check_tz(name: str) -> None:
 
 
 def _location(loc: Location) -> dict:
-    return {**row(loc, *LOCATION_FIELDS), "pin_required": loc.checkin_pin_hash is not None}
+    return {**row(loc, *LOCATION_FIELDS), "geofence": bool(loc.geofence_radius_m)}
 
 
 @router.get("")
@@ -83,15 +91,14 @@ def update_settings(body: SettingsIn, user: User = Depends(require("settings.man
 @router.post("/locations", status_code=201)
 def create_location(body: LocationIn, user: User = Depends(require("settings.manage")), db: Session = Depends(get_db)):
     _check_tz(body.timezone)
-    loc = Location(code=body.code, name=body.name, kind=body.kind, timezone=body.timezone,
-                   checkin_pin_hash=hash_password(body.pin) if body.pin else None)
+    loc = Location(**body.model_dump())
     try:
         db.add(loc)
         db.flush()
     except IntegrityError:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Location code already exists") from None
-    audit(db, user, "location.create", "location", loc.id, None, {**body.model_dump(exclude={"pin"}), "pin_set": bool(body.pin)})
+    audit(db, user, "location.create", "location", loc.id, None, body.model_dump())
     db.commit()
     return _location(loc)
 
@@ -102,19 +109,17 @@ def update_location(location_id: int, body: LocationUpdate, user: User = Depends
     loc = db.get(Location, location_id)
     if not loc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Location not found")
-    data = body.model_dump(exclude_unset=True, exclude={"pin", "clear_pin"})
+    data = body.model_dump(exclude_unset=True)
     if "timezone" in data:
         _check_tz(data["timezone"])
+    fence = {k: data.get(k, getattr(loc, k)) for k in ("latitude", "longitude", "geofence_radius_m")}
+    if len({v is None for v in fence.values()}) > 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Give the latitude, the longitude and the radius together, or clear all three")
     before = {k: getattr(loc, k) for k in data}
     if "timezone" in data and data["timezone"] != loc.timezone:
         forget_from(db, loc.id)  # month boundaries move with the time zone, so stored month-end balances no longer apply
     for key, value in data.items():
         setattr(loc, key, value)
-    pin_changed = False
-    if body.clear_pin:
-        loc.checkin_pin_hash, pin_changed = None, True
-    elif body.pin:
-        loc.checkin_pin_hash, pin_changed = hash_password(body.pin), True
-    audit(db, user, "location.update", "location", loc.id, before, {**data, "pin_changed": pin_changed})
+    audit(db, user, "location.update", "location", loc.id, before, data)
     db.commit()
     return _location(loc)

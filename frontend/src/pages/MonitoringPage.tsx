@@ -49,6 +49,17 @@ export function MonitoringPage() {
   const actionable = (due.data ?? []).filter((d) => d.status !== 'upcoming' && d.status !== 'done')
   const refresh = () => setRefreshKey((k) => k + 1)
 
+  // a check is recorded when its latest slot that has started is done
+  const doneSchedules = (() => {
+    const latest = new Map<number, Due>()
+    for (const d of due.data ?? []) {
+      if (d.status === 'upcoming') continue
+      const seen = latest.get(d.schedule_id)
+      if (!seen || d.slot_at > seen.slot_at) latest.set(d.schedule_id, d)
+    }
+    return new Set([...latest.values()].filter((d) => d.status === 'done').map((d) => d.schedule_id))
+  })()
+
   // checks of one point due at the same time are shown, and recorded, as one card
   const cards = (() => {
     const out = new Map<string, { first: Due; stages: string[]; status: Due['status'] }>()
@@ -134,7 +145,7 @@ export function MonitoringPage() {
         <Card>
           <CardHeader><CardTitle>Record a check</CardTitle></CardHeader>
           <CardContent>
-            <MonitoringRecordForm equipment={items} prefill={prefill} onSaved={refresh} onClearRetest={() => setPrefill(null)} />
+            <MonitoringRecordForm equipment={items} prefill={prefill} doneSchedules={doneSchedules} onSaved={refresh} onClearRetest={() => setPrefill(null)} />
           </CardContent>
         </Card>
       )}

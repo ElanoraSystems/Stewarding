@@ -49,7 +49,10 @@ def test_approval_can_be_switched_off_for_unflagged_tasks(client, login, db, clo
 def test_readings_are_approved_in_bulk_by_whoever_gets_there_first(client, login, db, clock):
     steward, sup, mgr = login(STEWARD), login(SUP), login(MGR)
     eq, wash = mk_stage(client, steward)
-    ids = [record(client, steward, eq, wash, 60).json()["id"] for _ in range(2)]
+    ids = []
+    for _ in range(2):
+        ids.append(record(client, steward, eq, wash, 60).json()["id"])
+        clock.advance(days=1)
     assert client.post("/api/monitoring/readings/review", json={"reading_ids": ids}, headers=steward).status_code == 403
     done = client.post("/api/monitoring/readings/review", json={"reading_ids": ids}, headers=sup).json()
     assert done == {"reviewed": 2, "skipped": 0}

@@ -61,6 +61,7 @@ interface RecordFormProps {
   prefill: Prefill | null
   onSaved: () => void
   onClearRetest: () => void
+  doneSchedules?: Set<number>
 }
 
 const num = (v: number | string | null) => (v === null ? null : Number(v))
@@ -86,7 +87,7 @@ function firstOfEachCycle(schedules: Schedule[]): Schedule[] {
   return schedules.filter((s) => s.phase !== 'finish' && cycleOf(s, schedules)[0] === s)
 }
 
-export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest }: RecordFormProps) {
+export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest, doneSchedules }: RecordFormProps) {
   const run = useRun()
   const standardActions = useLookup('corrective_action')
   const [equipmentId, setEquipmentId] = useState('')
@@ -114,6 +115,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const anyFail = results.includes('fail')
   const complete = cycle.length > 0 && cycle.every((s) => (values[s.id] ?? '') !== '')
   const needsReference = cycle.some((s) => s.require_reference)
+  const alreadyDone = !prefill?.retestOf && cycle.length > 0 && cycle.every((s) => doneSchedules?.has(s.id))
 
   function pickPoint(id: string) {
     const list = equipment.find((e) => String(e.id) === id)?.schedules.filter((s) => s.active) ?? []
@@ -143,7 +145,8 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       setComment('')
       setAction('')
       setFile(null)
-      if (prefill?.startReadingId) setScheduleId('')
+      setEquipmentId('')
+      setScheduleId('')
       onClearRetest()
       onSaved()
     }
@@ -170,13 +173,14 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
             <Select required value={scheduleId} disabled={!!prefill?.retestOf} onChange={(e) => { setScheduleId(e.target.value); setValues({}) }}>
               <option value="">Select check</option>
               {cycles.map((s) => (
-                <option key={s.id} value={s.id}>{cycleOf(s, schedules).map((c) => label(c.stage)).join(' and ')}{s.time_of_day ? ` at ${s.time_of_day.slice(0, 5)}` : ''}</option>
+                <option key={s.id} value={s.id} disabled={cycleOf(s, schedules).every((c) => doneSchedules?.has(c.id))}>{cycleOf(s, schedules).map((c) => label(c.stage)).join(' and ')}{s.time_of_day ? ` at ${s.time_of_day.slice(0, 5)}` : ''}{cycleOf(s, schedules).every((c) => doneSchedules?.has(c.id)) ? ' (recorded)' : ''}</option>
               ))}
             </Select>
           </Field>
         )}
       </div>
       {prefill?.startReadingId && <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">Time out for <span className="font-medium">{prefill.item ?? 'this entry'}</span>. The time out is stamped when you save.</p>}
+      {alreadyDone && <p role="alert" className="rounded-md bg-ok-soft px-3 py-2 text-sm text-ok">This check is already recorded for this time. It is due again at the next scheduled time.</p>}
       {cycle.length > 1 && <p className="text-sm text-ink-muted">These checks are due together, so enter all of them now: {cycle.map((s) => label(s.stage)).join(', ')}.</p>}
       <div className="space-y-3">
         {cycle.map((s, i) => (
@@ -232,7 +236,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       <Field label="Photo evidence (optional)">
         <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </Field>
-      <Button type="submit" className="w-full sm:w-auto" disabled={busy || !complete || (needsReference && reference.trim() === '')}>
+      <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '')}>
         {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : cycle.length > 1 ? 'Record all' : 'Record check'}
       </Button>
     </form>

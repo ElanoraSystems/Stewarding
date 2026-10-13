@@ -1,4 +1,5 @@
 from datetime import date, datetime, time, timedelta
+from math import asin, cos, radians, sin, sqrt
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,7 +15,6 @@ from ..deps import check_location, require, scoped_locations
 from ..models import (AbsenceRecord, AttendanceCorrection, AttendanceRecord, ChecklistInstance, ChecklistTask, Employee,
                       EmployeeLocation, Location, Shift, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
-from ..security import verify_password
 from ..services.checklists import DONE
 from ..services.notify import notify
 
@@ -25,13 +25,32 @@ FIELDS = ("id", "employee_id", "location_id", "shift_id", "local_date", "check_i
           "late_minutes", "payable_minutes", "overtime_minutes", "exception_reason")
 
 
-class CheckInIn(BaseModel):
+class Position(BaseModel):
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+
+class CheckInIn(Position):
     location_id: int
-    pin: str | None = None
 
 
-class CheckOutIn(BaseModel):
+class CheckOutIn(Position):
     exception_reason: str | None = Field(default=None, max_length=500)
+
+
+def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    a = sin(radians(lat2 - lat1) / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(radians(lon2 - lon1) / 2) ** 2
+    return 2 * 6371000 * asin(sqrt(a))
+
+
+def _enforce_geofence(location: Location, where: Position, action: str) -> None:
+    if not location.geofence_radius_m:
+        return
+    if where.latitude is None or where.longitude is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Allow location access in your browser to {action} at {location.name}")
+    away = _distance_m(where.latitude, where.longitude, location.latitude, location.longitude)
+    if away > location.geofence_radius_m:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"You are about {round(away)} m from {location.name}. You can {action} only within {location.geofence_radius_m} m")
 
 
 class CorrectionIn(BaseModel):
@@ -131,8 +150,7 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
     location = db.get(Location, body.location_id)
     if not location.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Location is not active")
-    if location.checkin_pin_hash and not (body.pin and verify_password(body.pin, location.checkin_pin_hash)):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Location PIN is required and was not accepted")
+    _enforce_geofence(location, body, "check in")
     if _open_record(db, emp):
         raise HTTPException(status.HTTP_409_CONFLICT, "You are already checked in")
     now = timeutil.utc_now()
@@ -161,6 +179,7 @@ def check_out(body: CheckOutIn, user: User = Depends(require("attendance.self"))
     record = _open_record(db, emp)
     if not record:
         raise HTTPException(status.HTTP_409_CONFLICT, "You are not checked in")
+    _enforce_geofence(db.get(Location, record.location_id), body, "check out")
     pending = incomplete_tasks(db, user, record)
     reason = (body.exception_reason or "").strip()
     if pending and len(reason) < 5:
@@ -190,7 +209,7 @@ def my_status(user: User = Depends(require("attendance.self")), db: Session = De
         out["record"] = _serialize(record, now)
         out["incomplete_task_count"] = len(incomplete_tasks(db, user, record))
         location = db.get(Location, record.location_id)
-        out["location"] = {"id": location.id, "name": location.name, "timezone": location.timezone}
+        out["location"] = {"id": location.id, "name": location.name, "timezone": location.timezone, "geofence": bool(location.geofence_radius_m)}
         if record.shift_id:
             out["shift"] = db.get(Shift, record.shift_id).name
     return out

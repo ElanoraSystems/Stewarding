@@ -1,6 +1,6 @@
 from datetime import date, datetime, time, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint, text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -36,7 +36,9 @@ class Location(Base):
     kind: Mapped[str] = mapped_column(String(30))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    checkin_pin_hash: Mapped[str | None] = mapped_column(String(100))
+    latitude: Mapped[float | None] = mapped_column(Float)  # centre of the area check-in and check-out are limited to
+    longitude: Mapped[float | None] = mapped_column(Float)
+    geofence_radius_m: Mapped[int | None] = mapped_column(Integer)  # empty means no restriction
 
 
 class User(Base):

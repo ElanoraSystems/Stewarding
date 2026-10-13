@@ -143,6 +143,25 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
     return out
 
 
+def already_recorded(db: Session, eq: Equipment, sched: EquipmentSchedule, now: datetime) -> bool:
+    """Whether the check's current scheduled time already has a reading; on-demand and time-out checks never do."""
+    if sched.timing == "manual" or sched.phase == "finish":
+        return False
+    grace = get_setting(db, "temp.due_grace_minutes")
+    location = db.get(Location, eq.location_id)
+    tz, day = location.timezone, timeutil.local_date(now, location.timezone)
+    slots = expected_slots(sched, db.get(Shift, sched.shift_id) if sched.shift_id else None, tz, day)
+    started = [i for i, slot in enumerate(slots) if slot - timedelta(minutes=grace) <= now]
+    if not started:
+        return False
+    i = started[-1]
+    upper = slots[i + 1] if i + 1 < len(slots) else timeutil.local_to_utc(day + timedelta(days=1), time(0, 0), tz)
+    times = sorted(db.scalars(select(TemperatureReading.recorded_at).where(
+        TemperatureReading.schedule_id == sched.id, TemperatureReading.retest_of_id.is_(None),
+        TemperatureReading.recorded_at >= slots[i] - timedelta(minutes=grace), TemperatureReading.recorded_at < upper)))
+    return has_reading(times, slots[i] - timedelta(minutes=grace), upper)
+
+
 def pending_entries(db: Session, equipment: list[Equipment], now: datetime) -> list[dict]:
     """Time-in entries of two-step logs that still wait for their time out, oldest first."""
     points = {eq.id: eq for eq in equipment if eq.active}

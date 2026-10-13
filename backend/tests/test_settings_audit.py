@@ -44,31 +44,37 @@ def test_changing_a_threshold_changes_behaviour(client, login, db, clock):
     assert client.post(f"/api/breakage/{second['id']}/review", json={"qty": 3}, headers=login(SUP)).json()["status"] == "pending_approval"
 
 
-def test_location_management_validates_timezone_and_never_exposes_the_pin(client, login, db):
+def test_location_management_validates_timezone_and_the_geofence(client, login, db):
     m = login(MGR)
-    body = {"code": "ST1", "name": "Stewarding Station 1", "kind": "station", "timezone": "Asia/Kuwait", "pin": "4821"}
+    body = {"code": "ST1", "name": "Stewarding Station 1", "kind": "station", "timezone": "Asia/Kuwait",
+            "latitude": 29.3759, "longitude": 47.9774, "geofence_radius_m": 150}
     assert client.post("/api/settings/locations", json={**body, "timezone": "Mars/Base"}, headers=m).status_code == 400
     assert client.post("/api/settings/locations", json={**body, "kind": "spaceship"}, headers=m).status_code == 422
-    assert client.post("/api/settings/locations", json={**body, "pin": "12"}, headers=m).status_code == 422
+    assert client.post("/api/settings/locations", json={**body, "geofence_radius_m": 5}, headers=m).status_code == 422
+    assert client.post("/api/settings/locations", json={**body, "latitude": 95}, headers=m).status_code == 422
+    assert client.post("/api/settings/locations", json={**body, "longitude": None}, headers=m).status_code == 422
     created = client.post("/api/settings/locations", json=body, headers=m)
-    assert created.status_code == 201 and created.json()["pin_required"] is True
-    assert "4821" not in created.text and "pin" not in {k for k in created.json() if k != "pin_required"}
+    assert created.status_code == 201 and created.json()["geofence"] is True and created.json()["geofence_radius_m"] == 150
     assert client.post("/api/settings/locations", json=body, headers=m).status_code == 409
-    stored = db.scalar(select(Location).where(Location.code == "ST1"))
-    assert stored.checkin_pin_hash and stored.checkin_pin_hash != "4821"
+    url = f"/api/settings/locations/{created.json()['id']}"
+    assert client.put(url, json={"geofence_radius_m": None}, headers=m).status_code == 400
+    cleared = client.put(url, json={"latitude": None, "longitude": None, "geofence_radius_m": None}, headers=m)
+    assert cleared.status_code == 200 and cleared.json()["geofence"] is False
     audit = db.scalar(select(AuditLog).where(AuditLog.action == "location.create"))
-    assert "4821" not in json.dumps(audit.after) and audit.after["pin_set"] is True
+    assert audit.after["geofence_radius_m"] == 150
 
 
-def test_location_update_pin_flow_enforces_check_in(client, login, db, clock):
+def test_location_update_geofence_flow_enforces_check_in(client, login, db, clock):
     m = login(MGR)
     mk = loc_id(db, "MK")
-    assert client.put(f"/api/settings/locations/{mk}", json={"pin": "9090"}, headers=m).json()["pin_required"] is True
+    fence = {"latitude": 29.3759, "longitude": 47.9774, "geofence_radius_m": 100}
+    assert client.put(f"/api/settings/locations/{mk}", json=fence, headers=m).json()["geofence"] is True
     h = login(STEWARD)
-    assert client.post("/api/attendance/check-in", json={"location_id": mk}, headers=h).status_code == 403
-    assert client.post("/api/attendance/check-in", json={"location_id": mk, "pin": "9090"}, headers=h).status_code == 201
-    client.post("/api/attendance/check-out", json={"exception_reason": "Testing the PIN flow"}, headers=h)
-    assert client.put(f"/api/settings/locations/{mk}", json={"clear_pin": True}, headers=m).json()["pin_required"] is False
+    assert client.post("/api/attendance/check-in", json={"location_id": mk}, headers=h).status_code == 400
+    assert client.post("/api/attendance/check-in", json={"location_id": mk, "latitude": 29.3760, "longitude": 47.9775}, headers=h).status_code == 201
+    client.post("/api/attendance/check-out", json={"latitude": 29.3760, "longitude": 47.9775, "exception_reason": "Testing the fence"}, headers=h)
+    cleared = {"latitude": None, "longitude": None, "geofence_radius_m": None}
+    assert client.put(f"/api/settings/locations/{mk}", json=cleared, headers=m).json()["geofence"] is False
     assert client.post("/api/attendance/check-in", json={"location_id": mk}, headers=h).status_code == 201
     assert client.put(f"/api/settings/locations/{mk}", json={"timezone": "Not/AZone"}, headers=m).status_code == 400
     assert client.put("/api/settings/locations/9999", json={"name": "Nope"}, headers=m).status_code == 404

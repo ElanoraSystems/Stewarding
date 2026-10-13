@@ -16,8 +16,8 @@ from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services.notify import notify, recipients
 from ..services.settings import get_setting
-from ..services.monitoring import (describe, due_checks, failure_count, judge, pending_entries, resolve_alerts,
-                                  resolve_chain)
+from ..services.monitoring import (already_recorded, describe, due_checks, failure_count, judge, pending_entries,
+                                  resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
 
@@ -160,6 +160,8 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     sched = db.get(EquipmentSchedule, body.schedule_id)
     if not sched or sched.equipment_id != eq.id or not sched.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown check for this monitoring point")
+    if body.retest_of_id is None and already_recorded(db, eq, sched, timeutil.utc_now()):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{sched.stage} is already recorded for this time")
     if sched.value_type == "number" and sched.min_value is None and sched.max_value is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Limits are not configured for this check")
     try:

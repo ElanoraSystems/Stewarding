@@ -98,7 +98,8 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         if user.employee
         else None,
         "permissions": sorted(perms),
-        "locations": [{"id": loc.id, "code": loc.code, "name": loc.name, "timezone": loc.timezone}
+        "locations": [{"id": loc.id, "code": loc.code, "name": loc.name, "timezone": loc.timezone,
+                       "geofence": bool(loc.geofence_radius_m)}
                       for loc in db.scalars(query.order_by(Location.name))],
         "modules": [{"key": k, "label": label} for k, label, perm in MODULES if perm in perms],
     }

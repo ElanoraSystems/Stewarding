@@ -8,7 +8,7 @@ export interface Me {
   role: 'manager' | 'supervisor' | 'steward'
   employee: { id: number; name: string; code: string } | null
   permissions: string[]
-  locations: { id: number; code: string; name: string; timezone: string }[]
+  locations: { id: number; code: string; name: string; timezone: string; geofence: boolean }[]
   modules: { key: string; label: string }[]
 }
 

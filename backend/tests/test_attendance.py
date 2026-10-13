@@ -59,16 +59,27 @@ def test_dst_shift_start_uses_local_offset(client, login, db, clock):
     assert body["late_minutes"] == 0
 
 
-def test_location_pin_is_enforced(client, login, db, clock):
-    from app.security import hash_password
-
-    loc = db.get(Location, loc_id(db, "MK"))
-    loc.checkin_pin_hash = hash_password("4321")
+def fence(db, lat=29.3759, lon=47.9774, radius=100, code="MK"):
+    loc = db.get(Location, loc_id(db, code))
+    loc.latitude, loc.longitude, loc.geofence_radius_m = lat, lon, radius
     db.commit()
+
+
+def test_check_in_and_out_are_limited_to_the_geofence(client, login, db, clock):
+    fence(db)
     h = login(STEWARD)
-    assert check_in(client, h, db).status_code == 403
-    assert check_in(client, h, db, pin="0000").status_code == 403
-    assert check_in(client, h, db, pin="4321").status_code == 201
+    assert check_in(client, h, db).status_code == 400                                      # no position sent
+    far = check_in(client, h, db, latitude=29.3859, longitude=47.9774)                     # about 1.1 km north
+    assert far.status_code == 403 and "within 100 m" in far.json()["detail"]
+    assert check_in(client, h, db, latitude=29.3760, longitude=47.9775).status_code == 201  # about 15 m away
+    out = "/api/attendance/check-out"
+    assert client.post(out, json={}, headers=h).status_code == 400
+    assert client.post(out, json={"latitude": 29.3859, "longitude": 47.9774, "exception_reason": "Left early, covered"}, headers=h).status_code == 403
+    assert client.post(out, json={"latitude": 29.3760, "longitude": 47.9775, "exception_reason": "Tasks done elsewhere"}, headers=h).status_code == 200
+
+
+def test_a_location_without_a_geofence_needs_no_position(client, login, db, clock):
+    assert check_in(client, login(STEWARD), db).status_code == 201
 
 
 def generate_tasks(client, login, db):
