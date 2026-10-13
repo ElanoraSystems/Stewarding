@@ -3,20 +3,20 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, EquipmentSchedule, TemperatureReading,
+from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, EquipmentSchedule, Notification, TemperatureReading,
                       User)
 from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services.notify import notify, recipients
 from ..services.settings import get_setting
-from ..services.monitoring import (already_recorded, describe, due_checks, failure_count, judge, pending_entries,
+from ..services.monitoring import (CLOSED_ACTIONS, already_recorded, describe, due_checks, failure_count, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
@@ -149,7 +149,7 @@ def _entry_started(db: Session, eq: Equipment, sched: EquipmentSchedule, start_r
     if sched.phase != "finish":
         return None
     start = db.get(TemperatureReading, start_reading_id) if start_reading_id else None
-    if not start or start.equipment_id != eq.id or db.scalar(select(EquipmentSchedule.phase).where(EquipmentSchedule.id == start.schedule_id)) != "start":
+    if not start or start.rejected_at or start.equipment_id != eq.id or db.scalar(select(EquipmentSchedule.phase).where(EquipmentSchedule.id == start.schedule_id)) != "start":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose the entry this time out belongs to")
     if db.scalar(select(TemperatureReading.id).where(TemperatureReading.start_reading_id == start.id, TemperatureReading.schedule_id == sched.id)):
         raise HTTPException(status.HTTP_409_CONFLICT, "The time out is already recorded for this entry")
@@ -158,6 +158,8 @@ def _entry_started(db: Session, eq: Equipment, sched: EquipmentSchedule, start_r
 
 def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     eq = _equipment_for(db, user, body.equipment_id)
+    if not eq.active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This monitoring point is inactive")
     sched = db.get(EquipmentSchedule, body.schedule_id)
     if not sched or sched.equipment_id != eq.id or not sched.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown check for this monitoring point")
@@ -183,7 +185,9 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
         original = db.get(TemperatureReading, body.retest_of_id)
         if not original or original.equipment_id != eq.id or original.schedule_id != sched.id or original.passed:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "A retest must refer to a failed reading of the same check")
-        if db.scalar(select(TemperatureReading.id).where(TemperatureReading.retest_of_id == original.id)):
+        if original.rejected_at:
+            raise HTTPException(status.HTTP_409_CONFLICT, "That reading was rejected; record the check again instead of retesting it")
+        if db.scalar(select(TemperatureReading.id).where(TemperatureReading.retest_of_id == original.id, TemperatureReading.rejected_at.is_(None))):
             raise HTTPException(status.HTTP_409_CONFLICT, "This reading has already been retested")
         original_action = _latest_action(db, original.id)
         if not original_action or original_action.status != "retest_due":
@@ -319,6 +323,31 @@ def review_reading(reading_id: int, user: User = Depends(require("temp.review"))
     return _serialize_reading(db, reading, _names(db, {reading.recorded_by}))
 
 
+def _has_open_time_out(db: Session, reading: TemperatureReading) -> bool:
+    """A time in cannot be rejected while a time out recorded against it still stands."""
+    return db.scalar(select(TemperatureReading.id).where(TemperatureReading.start_reading_id == reading.id,
+                                                         TemperatureReading.rejected_at.is_(None))) is not None
+
+
+def _undo_effects(db: Session, reading: TemperatureReading, now: datetime) -> None:
+    """A rejected reading no longer counts: its own failure is closed, and a retest it decided is reopened."""
+    for action in db.scalars(select(CorrectiveAction).where(CorrectiveAction.reading_id == reading.id,
+                                                            CorrectiveAction.status.not_in(CLOSED_ACTIONS))):
+        action.status, action.resolved_at = "voided", now
+    resolve_alerts(db, reading.id, now)
+    if reading.retest_of_id is None:
+        return
+    reopen_at = now + timedelta(minutes=get_setting(db, "temp.retest_minutes"))
+    previous_id = reading.retest_of_id
+    while previous_id:
+        for action in db.scalars(select(CorrectiveAction).where(CorrectiveAction.reading_id == previous_id)):
+            closed_by_it = action.status == "resolved" and action.resolved_at is not None and action.resolved_at >= reading.recorded_at
+            if closed_by_it or action.status == "retest_failed":
+                action.status, action.resolved_at, action.retest_due_at = "retest_due", None, reopen_at
+                db.execute(update(Notification).where(Notification.dedupe_key == f"temp_fail:{previous_id}").values(resolved_at=None))
+        previous_id = db.scalar(select(TemperatureReading.retest_of_id).where(TemperatureReading.id == previous_id))
+
+
 class RejectManyIn(ReviewManyIn):
     reason: str = Field(min_length=5, max_length=300)
 
@@ -329,9 +358,10 @@ def reject_readings(body: RejectManyIn, user: User = Depends(require("temp.revie
     now, rejected = timeutil.utc_now(), []
     for reading in db.scalars(select(TemperatureReading).where(TemperatureReading.id.in_(set(body.reading_ids)))):
         check_location(user, db, reading.location_id)
-        if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id:
+        if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id or _has_open_time_out(db, reading):
             continue
         reading.rejected_by, reading.rejected_at, reading.reject_reason = user.id, now, body.reason.strip()
+        _undo_effects(db, reading, now)
         rejected.append(reading)
         notify(db, [reading.recorded_by], "monitoring_rejected", f"Record again: {reading.stage}",
                key=f"reject_reading:{reading.id}", body=body.reason.strip(), priority="high", location_id=reading.location_id, link="/monitoring")
@@ -351,6 +381,7 @@ def list_actions(action_status: str | None = Query(None, alias="status"), locati
         stmt = stmt.where(TemperatureReading.location_id == location_id)
     elif allowed is not None:
         stmt = stmt.where(TemperatureReading.location_id.in_(allowed))
+    stmt = stmt.where(CorrectiveAction.status.not_in(CLOSED_ACTIONS if action_status is None else ()))
     if action_status:
         stmt = stmt.where(CorrectiveAction.status == action_status)
     items = db.execute(stmt.order_by(CorrectiveAction.id.desc()).limit(200)).all()

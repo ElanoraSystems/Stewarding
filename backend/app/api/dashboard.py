@@ -15,7 +15,7 @@ from ..services import metrics
 from ..services.checklists import OPEN, effective_status
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
-from ..services.monitoring import due_checks, failure_count, failure_counts
+from ..services.monitoring import CLOSED_ACTIONS, due_checks, failure_count, failure_counts
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -81,7 +81,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
     awaiting_tasks = db.scalar(scoped(select(func.count()).select_from(ChecklistInstance).where(
         ChecklistInstance.status == "pending_verification"), ChecklistInstance.location_id))
     awaiting_readings = db.scalar(scoped(select(func.count()).select_from(TemperatureReading).where(
-        TemperatureReading.reviewed_at.is_(None), TemperatureReading.retest_of_id.is_(None),
+        TemperatureReading.reviewed_at.is_(None), TemperatureReading.rejected_at.is_(None), TemperatureReading.retest_of_id.is_(None),
         TemperatureReading.recorded_at >= now - timedelta(days=14)), TemperatureReading.location_id))
     awaiting_breakage = db.scalar(scoped(select(func.count()).select_from(BreakageIncident).where(
         BreakageIncident.status.in_(("reported", "pending_approval"))), BreakageIncident.location_id))
@@ -214,7 +214,7 @@ def _steward_view(db: Session, user: User, now: datetime) -> dict:
     checks = due_checks(db, equipment, now)
     issues = db.scalar(select(func.count()).select_from(CorrectiveAction).join(
         TemperatureReading, TemperatureReading.id == CorrectiveAction.reading_id).where(
-        TemperatureReading.location_id.in_(scope), CorrectiveAction.status != "resolved"))
+        TemperatureReading.location_id.in_(scope), CorrectiveAction.status.not_in(CLOSED_ACTIONS)))
     total = sum(tasks.values())
     done = tasks["completed"] + tasks["verified"] + tasks["pending_verification"]
     return {

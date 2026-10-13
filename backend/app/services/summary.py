@@ -7,7 +7,7 @@ from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, Che
                       Equipment, InventoryBalance, InventoryItem, InventoryTransfer, Location, TemperatureReading)
 from .checklists import OPEN
 from .settings import get_setting
-from .monitoring import describe, due_checks
+from .monitoring import CLOSED_ACTIONS, describe, due_checks
 from .reference import employee_names, user_names
 
 URGENCY_RANK = {"critical": 0, "high": 1, "normal": 2}
@@ -52,7 +52,7 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
 
     for action, reading in db.execute(
             select(CorrectiveAction, TemperatureReading).join(TemperatureReading, TemperatureReading.id == CorrectiveAction.reading_id)
-            .where(TemperatureReading.location_id.in_(locations), CorrectiveAction.status != "resolved")).all():
+            .where(TemperatureReading.location_id.in_(locations), CorrectiveAction.status.not_in(CLOSED_ACTIONS))).all():
         add("corrective_action", reading.location_id, "critical", by_user.get(action.taken_by, "Supervisor"),
             f"Failed reading {describe(reading)} ({reading.stage}) - {action.status.replace('_', ' ')}",
             reading.recorded_at, "/monitoring")
@@ -60,7 +60,7 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
     cutoff = now - timedelta(days=14)
     for loc_id, count, oldest in db.execute(
             select(TemperatureReading.location_id, func.count(), func.min(TemperatureReading.recorded_at))
-            .where(TemperatureReading.location_id.in_(locations), TemperatureReading.reviewed_at.is_(None),
+            .where(TemperatureReading.location_id.in_(locations), TemperatureReading.reviewed_at.is_(None), TemperatureReading.rejected_at.is_(None),
                    TemperatureReading.retest_of_id.is_(None), TemperatureReading.recorded_at >= cutoff)
             .group_by(TemperatureReading.location_id)):
         add("monitoring_review", loc_id, "normal", "Supervisor or manager", f"{count} monitoring reading(s) awaiting approval",

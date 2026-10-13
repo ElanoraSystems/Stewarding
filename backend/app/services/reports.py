@@ -9,7 +9,7 @@ from .. import timeutil
 from ..models import (BreakageIncident, CorrectiveAction, Employee, Equipment, InventoryItem, StockTransaction,
                       TemperatureReading)
 from . import metrics
-from .monitoring import describe
+from .monitoring import CLOSED_ACTIONS, describe
 from .reference import user_names
 from .inventory import reconcile
 from .settings import get_setting
@@ -219,7 +219,7 @@ def sec_equipment_failures(c: Ctx) -> dict:
     unresolved: Counter = Counter()
     for action, reading in c.db.execute(select(CorrectiveAction, TemperatureReading).join(
             TemperatureReading, TemperatureReading.id == CorrectiveAction.reading_id).where(
-            CorrectiveAction.status != "resolved")).all():
+            CorrectiveAction.status.not_in(CLOSED_ACTIONS))).all():
         unresolved[reading.equipment_id] += 1
     repeat = get_setting(c.db, "temp.repeat_failure_count")
     place = {w.loc.id: w.loc.name for w in c.wins}

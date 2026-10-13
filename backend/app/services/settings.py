@@ -19,6 +19,7 @@ DEFAULTS: dict[str, int | bool] = {
     "breakage.approval_cost": 100,
     "attendance.missed_checkout_hours": 16,
     "attendance.max_accuracy_m": 100,
+    "temp.pending_alert_hours": 12,
     "attendance.face_required": 0,
     "attendance.face_match_max": 45,
     "approval.checklists": 1,

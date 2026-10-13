@@ -25,6 +25,7 @@ const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = 
       'temp.due_grace_minutes': 'Grace period for a due check (minutes)',
       'temp.retest_minutes': 'Retest due after corrective action (minutes)',
       'temp.escalate_after_minutes': 'Escalate an unresolved failed check after (minutes)',
+      'temp.pending_alert_hours': 'Warn when a time out is still missing after (hours, 0 = never)',
       'temp.repeat_failure_count': 'Repeat-failure alert at this many failures',
       'temp.repeat_failure_days': 'Repeat-failure window (days)',
     },

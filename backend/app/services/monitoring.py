@@ -13,6 +13,7 @@ from .reference import locations_by_id, shifts_by_id
 from .settings import get_setting
 
 DEFAULT_START = time(6, 0)
+CLOSED_ACTIONS = ("resolved", "voided")  # a voided action belonged to a reading that was rejected
 
 
 def evaluate(value: Decimal, minimum: Decimal | None, maximum: Decimal | None) -> bool:
@@ -181,7 +182,7 @@ def pending_entries(db: Session, equipment: list[Equipment], now: datetime) -> l
         return []
     closed = select(TemperatureReading.start_reading_id).where(TemperatureReading.start_reading_id.is_not(None))
     entries = db.scalars(select(TemperatureReading).where(
-        TemperatureReading.schedule_id.in_(lead_ids), TemperatureReading.retest_of_id.is_(None),
+        TemperatureReading.schedule_id.in_(lead_ids), TemperatureReading.retest_of_id.is_(None), TemperatureReading.rejected_at.is_(None),
         TemperatureReading.id.not_in(closed)).order_by(TemperatureReading.recorded_at).limit(200))
     return [{"start_reading_id": r.id, "equipment_id": r.equipment_id, "equipment": points[r.equipment_id].name,
              "location_id": r.location_id, "item": r.reference, "started_at": r.recorded_at.isoformat() + "Z",
@@ -198,7 +199,7 @@ def resolve_chain(db: Session, reading: TemperatureReading, now: datetime) -> No
     previous_id = reading.retest_of_id
     while previous_id:
         for action in db.scalars(select(CorrectiveAction).where(CorrectiveAction.reading_id == previous_id,
-                                                                CorrectiveAction.status != "resolved")):
+                                                                CorrectiveAction.status.not_in(CLOSED_ACTIONS))):
             action.status, action.resolved_at = "resolved", now
         resolve_alerts(db, previous_id, now)
         previous_id = db.scalar(select(TemperatureReading.retest_of_id).where(TemperatureReading.id == previous_id))
@@ -210,12 +211,12 @@ def failure_counts(db: Session, equipment_ids: list[int], now: datetime) -> dict
         return {}
     since = now - timedelta(days=get_setting(db, "temp.repeat_failure_days"))
     return dict(db.execute(select(TemperatureReading.equipment_id, func.count()).where(
-        TemperatureReading.equipment_id.in_(equipment_ids), TemperatureReading.passed.is_(False),
+        TemperatureReading.equipment_id.in_(equipment_ids), TemperatureReading.passed.is_(False), TemperatureReading.rejected_at.is_(None),
         TemperatureReading.recorded_at >= since).group_by(TemperatureReading.equipment_id)).all())
 
 
 def failure_count(db: Session, equipment_id: int, now: datetime) -> int:
     since = now - timedelta(days=get_setting(db, "temp.repeat_failure_days"))
     return db.scalar(select(func.count()).select_from(TemperatureReading).where(
-        TemperatureReading.equipment_id == equipment_id, TemperatureReading.passed.is_(False),
+        TemperatureReading.equipment_id == equipment_id, TemperatureReading.passed.is_(False), TemperatureReading.rejected_at.is_(None),
         TemperatureReading.recorded_at >= since))

@@ -11,7 +11,7 @@ from . import summary
 from .checklists import OPEN
 from .notify import notify, recipients
 from .settings import get_setting
-from .monitoring import describe, due_checks
+from .monitoring import describe, due_checks, pending_entries
 
 SUMMARY_HOUR = time(8, 0)
 
@@ -154,6 +154,19 @@ def corrective_alerts(db: Session, now: datetime) -> int:
     return created
 
 
+def pending_time_outs(db: Session, now: datetime) -> int:
+    """Warns about time-in entries (defrosting, cooling) still waiting for their time out after the set number of hours."""
+    limit = get_setting(db, "temp.pending_alert_hours")
+    created = 0
+    for entry in pending_entries(db, list(db.scalars(select(Equipment).where(Equipment.active.is_(True)))), now):
+        if limit and entry["minutes_open"] >= limit * 60:
+            created += notify(db, recipients(db, entry["location_id"], SUPERVISOR, MANAGER), "time_out_missing",
+                              f"Time out still missing: {entry['item'] or entry['equipment']} ({entry['equipment']}), open {entry['minutes_open'] // 60} h",
+                              key=f"pending_out:{entry['start_reading_id']}", priority="high", location_id=entry["location_id"],
+                              link="/monitoring", requires_ack=True)
+    return created
+
+
 def low_stock(db: Session, now: datetime) -> int:
     created = 0
     rows = db.execute(select(InventoryBalance, InventoryItem).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id)
@@ -191,4 +204,5 @@ def run_alerts(db: Session, now: datetime) -> dict[str, int]:
     totals["checkouts"] = missed_checkouts(db, now)
     totals["corrective"] = corrective_alerts(db, now)
     totals["low_stock"] = low_stock(db, now)
+    totals["pending_time_outs"] = pending_time_outs(db, now)
     return totals

@@ -12,7 +12,7 @@ from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, Checkli
                       CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryItem,
                       InventoryTransfer, InventoryTransferLine, Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
 from .settings import get_setting
-from .monitoring import expected_slots, has_reading
+from .monitoring import CLOSED_ACTIONS, expected_slots, has_reading
 from .reference import employee_names, locations_by_id, shifts_by_id
 
 DONE = ("completed", "verified", "pending_verification")
@@ -341,7 +341,7 @@ def breakage_in(db: Session, wins: list[Win]) -> list[tuple[BreakageIncident, da
 
 def open_actions(db: Session, location_ids: set[int] | None) -> int:
     stmt = select(CorrectiveAction).join(TemperatureReading, TemperatureReading.id == CorrectiveAction.reading_id).where(
-        CorrectiveAction.status != "resolved")
+        CorrectiveAction.status.not_in(CLOSED_ACTIONS))
     if location_ids is not None:
         stmt = stmt.where(TemperatureReading.location_id.in_(location_ids))
     return len(db.scalars(stmt).all())
