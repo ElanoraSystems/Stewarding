@@ -151,6 +151,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
               {location.name}
             </label>
           ))}
+          {form.location_ids.length === 0 && <p className="text-xs text-warn">Choose at least one location before saving.</p>}
         </fieldset>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>

@@ -18,7 +18,14 @@ export const tokenStore = {
 
 function messageOf(detail: unknown): string {
   if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) return detail.map((d) => d?.msg).filter(Boolean).join('; ') || 'Invalid input'
+  if (Array.isArray(detail)) {
+    const text = detail.filter((d) => d?.msg).map((d) => {
+      const msg = String(d.msg).replace(/^Value error, /, '')
+      const field = Array.isArray(d.loc) ? String(d.loc[d.loc.length - 1]) : ''
+      return field && field !== 'body' && !/^\d+$/.test(field) && d.type !== 'value_error' ? `${field.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())}: ${msg}` : msg
+    })
+    return text.join('; ') || 'Invalid input'
+  }
   if (detail && typeof detail === 'object' && 'message' in detail) return String((detail as { message: unknown }).message)
   return 'Request failed'
 }

@@ -149,7 +149,7 @@ export function RosterPage() {
                   </label>
                 ))}
               </fieldset>
-              <Button type="submit" disabled={weekdays.length === 0}>Assign</Button>
+              <Button type="submit" disabled={weekdays.length === 0} title={weekdays.length === 0 ? 'Choose at least one day' : undefined}>Assign</Button>
             </form>
           )}
         </CardContent>
