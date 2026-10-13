@@ -286,6 +286,7 @@ def _attendance_sheet_groups(db: Session, now: datetime, scope, f: Filters, day_
         groups.append({
             "title": f"{emp.full_name} ({emp.employee_code})", "layout": "sheet", "page_break": True, "summary_first": True,
             "meta": [("Employee", emp.full_name), ("Employee ID", emp.employee_code), ("Job title", emp.job_title),
+                     *([("Company", emp.company)] if emp.company else []),
                      ("Location", ", ".join(sorted(sheet["places"])))],
             "columns": [("date", "Date"), ("weekday", "Day"), ("status", "Status"), ("check_in", "In"), ("check_out", "Out"),
                         ("late", "Late (min)"), ("worked", "Worked"), ("overtime", "Overtime"), ("note", "Note")],

@@ -112,7 +112,7 @@ export function EmployeesPage() {
             <tr key={e.id}>
               <Td>{e.employee_code}</Td>
               <Td className="font-medium">{e.full_name}</Td>
-              <Td>{e.job_title}</Td>
+              <Td>{e.job_title}{e.company && <span className="block text-xs text-ink-muted">{e.company}</span>}</Td>
               <Td><StatusBadge status={e.status} /></Td>
               <Td>{e.location_ids.map((id) => locationNames.get(id) ?? id).join(', ')}</Td>
               {canManage && <Td>{fmtDate(e.date_joined)}</Td>}

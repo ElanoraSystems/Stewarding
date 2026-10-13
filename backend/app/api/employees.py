@@ -57,6 +57,7 @@ class EmployeeIn(BaseModel):
     employee_code: str = Field(min_length=2, max_length=20, pattern=CODE_RE.pattern)
     full_name: str = Field(min_length=2, max_length=120)
     job_title: str = Field(min_length=2, max_length=80)
+    company: str | None = Field(default=None, max_length=120)
     email: EmailStr
     password: str = Field(min_length=10, max_length=128)
     role: RoleName
@@ -69,7 +70,7 @@ class EmployeeIn(BaseModel):
 
     _names = field_validator("full_name", "job_title")(_name)
     _phone = field_validator("phone")(_phone)
-    _contact = field_validator("emergency_contact")(_text)
+    _contact = field_validator("emergency_contact", "company")(_text)
     _joined = field_validator("date_joined")(_joined)
 
     @model_validator(mode="after")
@@ -86,6 +87,7 @@ class EmployeeUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     email: EmailStr | None = None
     job_title: str | None = Field(default=None, min_length=2, max_length=80)
+    company: str | None = Field(default=None, max_length=120)
     role: RoleName | None = None
     phone: str | None = Field(default=None, max_length=40)
     emergency_contact: str | None = Field(default=None, max_length=200)
@@ -96,7 +98,7 @@ class EmployeeUpdate(BaseModel):
 
     _names = field_validator("full_name", "job_title")(_name)
     _phone = field_validator("phone")(_phone)
-    _contact = field_validator("emergency_contact")(_text)
+    _contact = field_validator("emergency_contact", "company")(_text)
     _joined = field_validator("date_joined")(_joined)
 
 
@@ -105,7 +107,7 @@ def _location_ids(emp: Employee) -> list[int]:
 
 
 def serialize(emp: Employee, full: bool) -> dict:
-    out = row(emp, "id", "employee_code", "full_name", "job_title", "status", "supervisor_id")
+    out = row(emp, "id", "employee_code", "full_name", "job_title", "company", "status", "supervisor_id")
     out["location_ids"] = _location_ids(emp)
     out["role"] = emp.user.role.name if emp.user else None
     if full:
@@ -158,7 +160,7 @@ def list_employees(
         stmt = stmt.where(Employee.id.in_(subq))
     if search:
         like = f"%{search.strip()}%"
-        stmt = stmt.where(or_(Employee.full_name.ilike(like), Employee.employee_code.ilike(like)))
+        stmt = stmt.where(or_(Employee.full_name.ilike(like), Employee.employee_code.ilike(like), Employee.company.ilike(like)))
     if status_:
         stmt = stmt.where(Employee.status == status_)
     column = getattr(Employee, sort if sort in SORTABLE else "full_name")
@@ -178,7 +180,7 @@ def create_employee(body: EmployeeIn, user: User = Depends(require("employee.man
         db.add(account)
         db.flush()
         emp = Employee(
-            employee_code=body.employee_code, user_id=account.id, full_name=body.full_name, job_title=body.job_title,
+            employee_code=body.employee_code, user_id=account.id, full_name=body.full_name, job_title=body.job_title, company=body.company,
             email=str(body.email).lower(), phone=body.phone, emergency_contact=body.emergency_contact,
             date_joined=body.date_joined, supervisor_id=body.supervisor_id, weekly_schedule=body.weekly_schedule)
         emp.locations = [EmployeeLocation(location_id=i) for i in set(body.location_ids)]

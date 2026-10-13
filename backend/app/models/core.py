@@ -69,6 +69,7 @@ class Employee(Base):
     supervisor_id: Mapped[int | None] = mapped_column(ForeignKey("employee.id"))
     date_joined: Mapped[date | None] = mapped_column(Date)
     emergency_contact: Mapped[str | None] = mapped_column(String(200))
+    company: Mapped[str | None] = mapped_column(String(120))  # organization or contractor the employee works for
     photo_path: Mapped[str | None] = mapped_column(String(300))
     weekly_schedule: Mapped[dict | None] = mapped_column(JSON)
     user: Mapped[User | None] = relationship(back_populates="employee")

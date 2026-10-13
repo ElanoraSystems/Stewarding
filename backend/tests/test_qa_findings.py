@@ -30,3 +30,16 @@ def test_stock_reports_are_for_the_inventory_module_only(client, login, db, cloc
     for url in ("/api/stock/insights", f"/api/stock/reconciliation?location_id={mk}&month=2026-03", "/api/stock/transfers", "/api/inventory/transactions"):
         assert client.get(url, headers=login(STEWARD)).status_code == 403, url
         assert client.get(url, headers=login(SUP)).status_code == 200, url
+
+
+def test_an_employee_has_an_optional_company_that_can_be_searched_and_changed(client, login, db, clock):
+    m = login(MGR)
+    body = {"employee_code": "E500", "full_name": "Contract Cook", "job_title": "Cook", "company": "  Gulf Catering Co  ", "email": "cook@example.com",
+            "password": "qa-pass-12345", "role": "steward", "location_ids": [loc_id(db, "MK")]}
+    made = client.post("/api/employees", json=body, headers=m)
+    assert made.status_code == 201 and made.json()["company"] == "Gulf Catering Co"
+    assert [e["employee_code"] for e in client.get("/api/employees?search=catering", headers=m).json()["items"]] == ["E500"]
+    changed = client.put(f"/api/employees/{made.json()['id']}", json={"company": "Sea Staffing"}, headers=m)
+    assert changed.json()["company"] == "Sea Staffing"
+    assert client.post("/api/employees", json={**body, "employee_code": "E501", "email": "own@example.com", "company": None}, headers=m).json()["company"] is None
+    assert client.post("/api/employees", json={**body, "employee_code": "E502", "email": "long@example.com", "company": "x" * 121}, headers=m).status_code == 422

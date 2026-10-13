@@ -14,6 +14,7 @@ export interface EmployeeRow {
   employee_code: string
   full_name: string
   job_title: string
+  company?: string | null
   status: string
   supervisor_id: number | null
   location_ids: number[]
@@ -42,6 +43,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
     employee_code: employee?.employee_code ?? '',
     full_name: employee?.full_name ?? '',
     job_title: employee?.job_title ?? 'Steward',
+    company: employee?.company ?? '',
     email: employee?.email ?? '',
     password: '',
     role: employee?.role ?? 'steward',
@@ -64,6 +66,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
     const common = {
       full_name: form.full_name,
       job_title: form.job_title,
+      company: form.company || null,
       role: form.role,
       ...(editing ? { email: form.email } : {}),
       phone: form.phone || null,
@@ -122,6 +125,9 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
             <Input required type="password" minLength={10} autoComplete="new-password" value={form.password} onChange={(e) => set('password', e.target.value)} />
           </Field>
         )}
+        <Field label="Organization or company" hint="Who the employee works for, such as a contractor or agency. Leave blank for your own staff.">
+          <Input maxLength={120} value={form.company} onChange={(e) => set('company', e.target.value)} />
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Phone">
             <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} />
