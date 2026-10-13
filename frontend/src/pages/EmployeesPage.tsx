@@ -1,6 +1,8 @@
 import { ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
 import { useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { FaceCapture, type FaceResult } from '@/components/FaceCapture'
+import { Modal } from '@/components/ui/modal'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +18,7 @@ import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { EmployeeForm, type EmployeeRow } from '@/pages/EmployeeForm'
 import { ResetPasswordModal } from '@/pages/ResetPasswordModal'
+import { useToast } from '@/lib/toast'
 
 interface Listing {
   total: number
@@ -44,10 +47,30 @@ export function EmployeesPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [toggling, setToggling] = useState<EmployeeRow | null>(null)
   const [resetting, setResetting] = useState<EmployeeRow | null>(null)
+  const [enrolling, setEnrolling] = useState<EmployeeRow | null>(null)
+  const toast = useToast()
 
   const { data, loading, reload } = useApi<Listing>(
     `/employees${qs({ search, status, location_id: locationId, sort, dir, page, size: SIZE })}`,
   )
+  async function enroll(template: number[]): Promise<FaceResult> {
+    try {
+      await api(`/employees/${enrolling?.id}/face`, { body: { descriptor: template } })
+      toast('ok', 'Face enrolled')
+      setTimeout(() => { setEnrolling(null); reload() }, 1200)
+      return { ok: true, message: 'Face enrolled' }
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : 'Could not save the face' }
+    }
+  }
+
+  async function removeFace() {
+    if (enrolling && await run(() => api(`/employees/${enrolling.id}/face`, { method: 'DELETE' }), 'Face removed')) {
+      setEnrolling(null)
+      reload()
+    }
+  }
+
   const { data: all } = useApi<Listing>(canManage ? '/employees?size=200' : null)
   const locationNames = new Map(me?.locations.map((l) => [l.id, l.code]))
 
@@ -122,6 +145,7 @@ export function EmployeesPage() {
               {canManage && (
                 <Td className="space-x-2 text-right">
                   <Button size="sm" variant="outline" onClick={() => { setEditing(e); setFormOpen(true) }}>Edit</Button>
+                  <Button size="sm" variant="outline" onClick={() => setEnrolling(e)}>{e.face_enrolled ? 'Update face' : 'Enroll face'}</Button>
                   {e.id !== me?.employee?.id && <Button size="sm" variant="outline" onClick={() => setResetting(e)}>Reset password</Button>}
                   <Button size="sm" variant={e.status === 'active' ? 'danger' : 'outline'} onClick={() => setToggling(e)}>
                     {e.status === 'active' ? 'Deactivate' : 'Activate'}
@@ -139,6 +163,14 @@ export function EmployeesPage() {
         <EmployeeForm open employee={editing} supervisors={(all?.items ?? []).filter((x) => x.role !== 'steward')}
           onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />
       )}
+      <Modal open={enrolling !== null} title={`Enroll face - ${enrolling?.full_name ?? ''}`} onClose={() => setEnrolling(null)}>
+        <p className="mb-3 text-sm text-ink-muted">
+          The employee looks at the camera. Only a numeric template of the face is stored, never a photo, and it is used to check them in and out when face verification is on in Settings.
+          {enrolling?.face_enrolled && ' A new capture replaces the one on file.'}
+        </p>
+        {enrolling && <FaceCapture onCapture={enroll} />}
+        {enrolling?.face_enrolled && <div className="mt-3 text-right"><Button size="sm" variant="outline" onClick={removeFace}>Remove the face on file</Button></div>}
+      </Modal>
       {resetting && <ResetPasswordModal employee={resetting} onClose={() => setResetting(null)} onDone={reload} />}
       <ConfirmDialog open={toggling !== null} title={toggling?.status === 'active' ? 'Deactivate employee' : 'Activate employee'}
         message={toggling?.status === 'active'

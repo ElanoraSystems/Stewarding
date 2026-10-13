@@ -1,6 +1,7 @@
 import { LogIn, LogOut } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
+import { FaceCapture, type FaceResult } from '@/components/FaceCapture'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,6 +25,8 @@ interface ShiftStatus {
   location?: { id: number; name: string; timezone: string; geofence: boolean }
   shift?: string
   incomplete_task_count: number
+  face_required: boolean
+  face_enrolled: boolean
 }
 
 export function MyShiftCard({ onChange }: { onChange?: () => void }) {
@@ -34,14 +37,46 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const { me } = useAuth()
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [reason, setReason] = useState('')
+  const [faceFor, setFaceFor] = useState<'in' | 'out' | null>(null)
+  const face = useRef<number[] | null>(null)
 
   const refresh = () => {
     reload()
     onChange?.()
   }
 
+  function needFace(direction: 'in' | 'out') {
+    if (!data?.face_enrolled) toast('error', 'Your face is not enrolled yet. Ask your manager to enroll it')
+    else setFaceFor(direction)
+  }
+
+  async function verifyFace(template: number[]): Promise<FaceResult> {
+    try {
+      if (faceFor === 'in') {
+        const fenced = me?.locations.find((l) => l.id === locationId)?.geofence
+        await api('/attendance/check-in', { body: { location_id: locationId, face: template, ...(fenced ? await currentPosition() : {}) } })
+        toast('ok', 'Checked in')
+      } else {
+        const where = data?.location?.geofence ? await currentPosition() : {}
+        await api('/attendance/check-out', { body: { face: template, ...where } })
+        toast('ok', 'Checked out')
+      }
+      setTimeout(() => { setFaceFor(null); refresh() }, 1200)
+      return { ok: true, message: 'Match found!' }
+    } catch (err) {
+      if (faceFor === 'out' && err instanceof ApiError && err.status === 409 && typeof err.detail === 'object') {
+        face.current = template
+        setFaceFor(null)
+        setExceptionOpen(true)
+        return { ok: true, message: 'Match found!' }
+      }
+      return { ok: false, message: err instanceof Error ? err.message : 'Could not verify your face' }
+    }
+  }
+
   async function checkIn() {
     if (locationId === null) return
+    if (data?.face_required) return needFace('in')
     const fenced = me?.locations.find((l) => l.id === locationId)?.geofence
     const ok = await run(async () => api('/attendance/check-in', { body: { location_id: locationId, ...(fenced ? await currentPosition() : {}) } }), 'Checked in')
     if (ok) refresh()
@@ -50,8 +85,9 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   async function checkOut(withReason?: string) {
     try {
       const where = data?.location?.geofence ? await currentPosition() : {}
-      await api('/attendance/check-out', { body: { exception_reason: withReason ?? null, ...where } })
+      await api('/attendance/check-out', { body: { exception_reason: withReason ?? null, ...(face.current ? { face: face.current } : {}), ...where } })
       toast('ok', 'Checked out')
+      face.current = null
       setExceptionOpen(false)
       setReason('')
       refresh()
@@ -82,7 +118,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
               <div><dt className="text-ink-muted">Open tasks</dt><dd className="font-medium">{data.incomplete_task_count}</dd></div>
             </dl>
             {data.record.late_minutes > 0 && <Badge tone="warn">Checked in {data.record.late_minutes} min late</Badge>}
-            <Button className="w-full sm:w-auto" onClick={() => checkOut()}>
+            <Button className="w-full sm:w-auto" onClick={() => (data.face_required ? needFace('out') : checkOut())}>
               <LogOut className="h-4 w-4" /> Check out
             </Button>
           </>
@@ -95,6 +131,10 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
           </div>
         )}
       </CardContent>
+
+      <Modal open={faceFor !== null} title={faceFor === 'in' ? 'Verify your face to check in' : 'Verify your face to check out'} onClose={() => setFaceFor(null)}>
+        {faceFor !== null && <FaceCapture onCapture={verifyFace} />}
+      </Modal>
 
       <Modal open={exceptionOpen} title="Tasks still open" onClose={() => setExceptionOpen(false)}>
         <p className="mb-3 text-sm text-ink-muted">

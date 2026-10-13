@@ -1,3 +1,4 @@
+import math
 import re
 from datetime import date, timedelta
 from typing import Literal
@@ -8,6 +9,7 @@ from sqlalchemy import asc, desc, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
@@ -108,6 +110,7 @@ def _location_ids(emp: Employee) -> list[int]:
 
 def serialize(emp: Employee, full: bool) -> dict:
     out = row(emp, "id", "employee_code", "full_name", "job_title", "company", "status", "supervisor_id")
+    out["face_enrolled"] = emp.face_descriptor is not None
     out["location_ids"] = _location_ids(emp)
     out["role"] = emp.user.role.name if emp.user else None
     if full:
@@ -278,6 +281,31 @@ def reset_password(employee_id: int, body: ResetPasswordIn, user: User = Depends
     audit(db, user, "password.reset", "employee", emp.id, None, {"employee_id": emp.id})
     db.commit()
     return {"temporary_password": password, "change_required": True}
+
+
+class FaceIn(BaseModel):
+    descriptor: list[float] = Field(min_length=128, max_length=128)
+
+
+@router.post("/{employee_id}/face")
+def enroll_face(employee_id: int, body: FaceIn, user: User = Depends(require("employee.manage")), db: Session = Depends(get_db)):
+    """Stores the face template of an employee (128 numbers, never a photo) for check-in verification."""
+    emp = _get_visible(db, user, employee_id)
+    if not all(math.isfinite(v) and abs(v) < 10 for v in body.descriptor):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The face template is not valid")
+    emp.face_descriptor, emp.face_enrolled_at = body.descriptor, timeutil.utc_now()
+    audit(db, user, "employee.face_enroll", "employee", emp.id, None, None)
+    db.commit()
+    return serialize(emp, True)
+
+
+@router.delete("/{employee_id}/face")
+def remove_face(employee_id: int, user: User = Depends(require("employee.manage")), db: Session = Depends(get_db)):
+    emp = _get_visible(db, user, employee_id)
+    emp.face_descriptor = emp.face_enrolled_at = None
+    audit(db, user, "employee.face_remove", "employee", emp.id, None, None)
+    db.commit()
+    return serialize(emp, True)
 
 
 @router.post("/{employee_id}/deactivate")

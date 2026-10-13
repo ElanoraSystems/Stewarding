@@ -45,7 +45,12 @@ const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = 
   {
     title: 'Attendance',
     hint: 'How long an open check-in stays before it is flagged as a missed check-out, and how vague a phone position may be at a location with a geofence (0 turns the limit off).',
-    keys: { 'attendance.missed_checkout_hours': 'Missed check-out after (hours)', 'attendance.max_accuracy_m': 'Largest location error accepted (metres)' },
+    keys: {
+      'attendance.missed_checkout_hours': 'Missed check-out after (hours)',
+      'attendance.max_accuracy_m': 'Largest location error accepted (metres)',
+      'attendance.face_required': 'Require face verification to check in and out (1 = on, 0 = off)',
+      'attendance.face_match_max': 'Face match strictness (10 to 80, lower is stricter)',
+    },
   },
 ]
 

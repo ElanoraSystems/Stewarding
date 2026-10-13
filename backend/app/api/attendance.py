@@ -1,5 +1,5 @@
 from datetime import date, datetime, time, timedelta
-from math import asin, cos, radians, sin, sqrt
+from math import asin, cos, dist, isfinite, radians, sin, sqrt
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,6 +30,7 @@ class Position(BaseModel):
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
     accuracy: float | None = Field(default=None, ge=0, le=100000)
+    face: list[float] | None = Field(default=None, min_length=128, max_length=128)
 
 
 class CheckInIn(Position):
@@ -57,6 +58,20 @@ def _enforce_geofence(db: Session, location: Location, where: Position, action: 
     away = _distance_m(where.latitude, where.longitude, location.latitude, location.longitude)
     if away > location.geofence_radius_m:
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"You are about {round(away)} m from {location.name}. You can {action} only within {location.geofence_radius_m} m")
+    return away
+
+
+def _verify_face(db: Session, emp: Employee, where: Position, action: str) -> float | None:
+    """When face verification is on, the live face must be close enough to the enrolled one; returns the distance."""
+    if not get_setting(db, "attendance.face_required"):
+        return None
+    if emp.face_descriptor is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your face is not enrolled yet. Ask your manager to enroll it")
+    if where.face is None or not all(isfinite(v) for v in where.face):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Face verification is required to {action}")
+    away = dist(where.face, emp.face_descriptor)
+    if away > get_setting(db, "attendance.face_match_max") / 100:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Your face did not match. Face the camera in good light and try again")
     return away
 
 
@@ -183,6 +198,7 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
     if not location.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Location is not active")
     away = _enforce_geofence(db, location, body, "check in")
+    face = _verify_face(db, emp, body, "check in")
     if _open_record(db, emp):
         raise HTTPException(status.HTTP_409_CONFLICT, "You are already checked in")
     now = timeutil.utc_now()
@@ -195,7 +211,7 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
         late = minutes_after_start if minutes_after_start > shift.grace_minutes else 0
     record = AttendanceRecord(employee_id=emp.id, location_id=location.id, shift_id=shift.id if shift else None,
                               local_date=day, check_in_at=now, late_minutes=late, open_flag=1,
-                              check_in_geo=_geo_evidence(db, emp, body, away, now))
+                              check_in_geo=_geo_evidence(db, emp, body, away, now), check_in_face=face)
     try:
         db.add(record)
         db.flush()
@@ -213,6 +229,7 @@ def check_out(body: CheckOutIn, user: User = Depends(require("attendance.self"))
     if not record:
         raise HTTPException(status.HTTP_409_CONFLICT, "You are not checked in")
     away = _enforce_geofence(db, db.get(Location, record.location_id), body, "check out")
+    face = _verify_face(db, emp, body, "check out")
     pending = incomplete_tasks(db, user, record)
     reason = (body.exception_reason or "").strip()
     if pending and len(reason) < 5:
@@ -221,6 +238,7 @@ def check_out(body: CheckOutIn, user: User = Depends(require("attendance.self"))
             "tasks": [{"id": t.id, "task_id": t.task_id} for t in pending]})
     now = timeutil.utc_now()
     record.check_out_geo = _geo_evidence(db, emp, body, away, now)
+    record.check_out_face = face
     record.check_out_at = now
     record.open_flag = None
     _recompute(record, db.get(Shift, record.shift_id) if record.shift_id else None)
@@ -238,7 +256,8 @@ def my_status(user: User = Depends(require("attendance.self")), db: Session = De
     now = timeutil.utc_now()
     record = _open_record(db, emp)
     out = {"checked_in": record is not None, "server_time": iso(now), "employee": emp.full_name,
-           "employee_code": emp.employee_code, "record": None, "incomplete_task_count": 0}
+           "employee_code": emp.employee_code, "record": None, "incomplete_task_count": 0,
+           "face_required": bool(get_setting(db, "attendance.face_required")), "face_enrolled": emp.face_descriptor is not None}
     if record:
         out["record"] = _serialize(record, now)
         out["incomplete_task_count"] = len(incomplete_tasks(db, user, record))

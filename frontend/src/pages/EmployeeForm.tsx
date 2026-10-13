@@ -16,6 +16,7 @@ export interface EmployeeRow {
   job_title: string
   company?: string | null
   status: string
+  face_enrolled?: boolean
   supervisor_id: number | null
   location_ids: number[]
   role: string | null

@@ -70,6 +70,8 @@ class Employee(Base):
     date_joined: Mapped[date | None] = mapped_column(Date)
     emergency_contact: Mapped[str | None] = mapped_column(String(200))
     company: Mapped[str | None] = mapped_column(String(120))  # organization or contractor the employee works for
+    face_descriptor: Mapped[list | None] = mapped_column(JSON)  # 128 numbers from the face model; never a photo
+    face_enrolled_at: Mapped[datetime | None] = mapped_column(DateTime)
     photo_path: Mapped[str | None] = mapped_column(String(300))
     weekly_schedule: Mapped[dict | None] = mapped_column(JSON)
     user: Mapped[User | None] = relationship(back_populates="employee")
@@ -127,6 +129,8 @@ class AttendanceRecord(Base):
     verified_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     check_in_geo: Mapped[dict | None] = mapped_column(JSON)  # latitude, longitude, accuracy, distance and flags at check-in
     check_out_geo: Mapped[dict | None] = mapped_column(JSON)
+    check_in_face: Mapped[float | None] = mapped_column(Float)  # distance from the enrolled face at check-in
+    check_out_face: Mapped[float | None] = mapped_column(Float)
 
     @property
     def geo_flags(self) -> list[str]:

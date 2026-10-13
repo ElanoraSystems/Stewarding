@@ -32,6 +32,15 @@ const ICONS: Record<string, LucideIcon> = {
   audit: ScrollText,
 }
 
+const GROUPS: { title: string; keys: string[] }[] = [
+  { title: 'Overview', keys: ['dashboard', 'tasks'] },
+  { title: 'People', keys: ['employees', 'attendance', 'roster'] },
+  { title: 'Daily operations', keys: ['daily-checklists', 'weekly-checklists'] },
+  { title: 'Food safety', keys: ['monitoring', 'equipment'] },
+  { title: 'Stock', keys: ['inventory', 'stock-movements', 'breakage'] },
+  { title: 'Insights and admin', keys: ['reports', 'settings', 'audit'] },
+]
+
 const ROLE_LABEL = { manager: 'Back of House Manager', supervisor: 'Stewarding Supervisor', steward: 'Steward' }
 
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')
@@ -50,6 +59,10 @@ export function AppLayout() {
   if (!me) return null
 
   const name = me.employee?.name ?? me.email
+  const known = new Set(GROUPS.flatMap((g) => g.keys))
+  const groups = [...GROUPS, { title: 'More', keys: me.modules.map((m) => m.key).filter((k) => !known.has(k)) }]
+    .map(({ title, keys }) => ({ title, modules: keys.flatMap((k) => me.modules.filter((m) => m.key === k)) }))
+    .filter((g) => g.modules.length > 0)
   const current = me.modules.find(({ key }) => (key === 'dashboard' ? pathname === '/' : pathname === `/${key}` || pathname.startsWith(`/${key}/`)))
 
   return (
@@ -66,8 +79,11 @@ export function AppLayout() {
             <X className="h-5 w-5" />
           </Button>
         </div>
-        <nav aria-label="Main" className="flex-1 space-y-1 overflow-y-auto px-3 pb-4 pt-2">
-          {me.modules.map(({ key, label }) => {
+        <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-4">
+          {groups.map(({ title, modules }) => (
+            <div key={title} role="group" aria-label={title} className="space-y-0.5">
+              <p className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-white/40">{title}</p>
+              {modules.map(({ key, label }) => {
             const Icon = ICONS[key] ?? LayoutDashboard
             return (
               <NavLink
@@ -92,7 +108,9 @@ export function AppLayout() {
                 )}
               </NavLink>
             )
-          })}
+              })}
+            </div>
+          ))}
         </nav>
         <div className="m-3 flex items-center gap-3 rounded-xl bg-white/8 p-3">
           <Link to="/account" title="Change password" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-white">
