@@ -126,9 +126,9 @@ export function RosterPage() {
 
           {canManage && (
             <form onSubmit={assign} className="flex flex-wrap items-end gap-3 border-t border-border pt-4">
-              <Field label="Employee">
+              <Field label="Employee" hint={people.data?.items.length === 0 ? 'Nobody is assigned to this location yet.' : undefined}>
                 <Select required value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-                  <option value="">Select</option>
+                  <option value="">{people.data?.items.length === 0 ? 'No employees at this location' : 'Select'}</option>
                   {people.data?.items.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
                 </Select>
               </Field>

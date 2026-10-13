@@ -57,9 +57,9 @@ export function AbsencePanel() {
       <CardContent className="space-y-4">
         <form onSubmit={record} className="flex flex-wrap items-end gap-3">
           <Field label="Location"><LocationSelect value={locationId} onChange={(id) => { setLocationId(id); setEmployeeId('') }} /></Field>
-          <Field label="Employee">
+          <Field label="Employee" hint={employees.data?.items.length === 0 ? 'Nobody is assigned to this location yet.' : undefined}>
             <Select required value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-              <option value="">Select</option>
+              <option value="">{employees.data?.items.length === 0 ? 'No employees at this location' : 'Select'}</option>
               {employees.data?.items.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
             </Select>
           </Field>

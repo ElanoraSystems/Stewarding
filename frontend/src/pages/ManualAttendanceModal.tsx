@@ -35,9 +35,9 @@ export function ManualAttendanceModal({ onClose, onSaved }: { onClose: () => voi
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Location"><LocationSelect className="w-full" value={locationId} onChange={(id) => { setLocationId(id); setEmployeeId('') }} /></Field>
-          <Field label="Employee">
+          <Field label="Employee" hint={employees.data?.items.length === 0 ? 'Nobody is assigned to this location yet. Assign employees to it under Employees, or pick another location.' : undefined}>
             <Select required value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-              <option value="">Select</option>
+              <option value="">{employees.data?.items.length === 0 ? 'No employees at this location' : 'Select'}</option>
               {employees.data?.items.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
             </Select>
           </Field>
