@@ -79,7 +79,7 @@ def test_check_configuration_is_validated(client, login, db):
     assert check(client, m, eq, min_value=None, max_value=None).status_code == 422  # a number needs a limit
     assert check(client, m, eq, weekdays=[9]).status_code == 422
     assert check(client, m, eq, day_of_month=32).status_code == 422
-    assert check(client, m, eq, value_type="date").status_code == 422
+    assert check(client, m, eq, value_type="photo").status_code == 422
 
 
 def test_templates_create_ready_made_monitoring_points(client, login, db):
@@ -105,8 +105,13 @@ def test_every_template_check_can_be_recorded(client, login, db, clock):
     templates = client.get("/api/equipment/templates", headers=m).json()
     for t in templates:
         made = client.post("/api/equipment/from-template", json={"template": t["key"], "location_id": loc_id(db, "RB")}, headers=m).json()
-        for sched in made["schedules"]:
+        started = None
+        for sched in sorted(made["schedules"], key=lambda c: c["phase"] == "finish"):
             value = 1 if sched["value_type"] == "yes_no" else (float(sched["min_value"] or 0) + float(sched["max_value"] or 0)) / 2
             extra = {"reference": "Batch 1"} if sched["require_reference"] else {}
+            if sched["phase"] == "finish":
+                extra["start_reading_id"] = started
             r = record(client, m, made, sched, value, **extra)
             assert r.status_code == 201 and r.json()["passed"] is True, (t["key"], sched["stage"], r.text)
+            if sched["phase"] == "start":
+                started = r.json()["id"]

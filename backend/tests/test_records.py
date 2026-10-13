@@ -50,8 +50,7 @@ def test_records_export_as_pdf_excel_and_csv_and_are_audited(client, login, db, 
     pdf = client.get(f"{URL}/monitoring/export?fmt=pdf&date_from=2026-03-02&date_to=2026-03-02", headers=h)
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and "attachment" in pdf.headers["content-disposition"]
     xlsx = client.get(f"{URL}/monitoring/export?fmt=xlsx&date_from=2026-03-02&date_to=2026-03-02", headers=h)
-    sheet = load_workbook(io.BytesIO(xlsx.content)).worksheets[0]
-    cells = [c.value for row in sheet.iter_rows() for c in row if c.value]
+    cells = [c.value for sheet in load_workbook(io.BytesIO(xlsx.content)).worksheets for row in sheet.iter_rows() for c in row if c.value]
     assert "Monitoring Record" in cells and "Descaled the heater (Sid Steward, retest due)" in cells
     csv = client.get(f"{URL}/monitoring/export?fmt=csv&date_from=2026-03-02&date_to=2026-03-02", headers=h).content.decode("utf-8-sig")
     assert "Monitoring Record" in csv and "Recorded by" in csv and "Sid Steward" in csv
@@ -61,7 +60,7 @@ def test_records_export_as_pdf_excel_and_csv_and_are_audited(client, login, db, 
 def test_empty_period_still_produces_a_document(client, login, db, clock):
     h = login(MGR)
     doc = monitoring(client, h, date_from="2026-01-01", date_to="2026-01-01").json()
-    assert doc["groups"] == []
+    assert doc["groups"] and all(g["rows"] == [] for g in doc["groups"])
     pdf = client.get(f"{URL}/monitoring/export?fmt=pdf&date_from=2026-01-01&date_to=2026-01-01", headers=h)
     assert pdf.content.startswith(b"%PDF")
 
@@ -71,9 +70,9 @@ def test_record_scope_validation_and_permissions(client, login, db, clock):
     assert monitoring(client, login(STEWARD)).status_code == 403
     assert client.get(f"{URL}/monitoring/export", headers=login(STEWARD)).status_code == 403
     assert monitoring(client, login(SUP_RB), location_id=loc_id(db, "MK")).status_code == 403
-    assert monitoring(client, login(SUP_RB)).json()["groups"] == []  # the rooftop bar has no readings
+    assert all(g["rows"] == [] for g in monitoring(client, login(SUP_RB)).json()["groups"])  # the rooftop bar has no readings
     mine = monitoring(client, login(SUP)).json()
-    assert {g["meta"][0][1] for g in mine["groups"]} == {"Main Kitchen"}
+    assert {g["meta"][0][1] for g in mine["groups"] if g["rows"]} == {"Main Kitchen"}
     assert monitoring(client, login(MGR), date_from="2026-03-05", date_to="2026-03-01").status_code == 400
     assert monitoring(client, login(MGR), date_from="2024-01-01", date_to="2026-03-01").status_code == 400
     assert client.get(f"{URL}/nonsense", headers=login(MGR)).status_code == 404
@@ -87,7 +86,8 @@ def test_a_month_record_filters_by_monitoring_point(client, login, db, clock):
     other, _ = mk_stage(client, h, "wash", "GW-MK-1")
     doc = monitoring(client, h, date_from="2026-03-01", date_to="2026-03-31", equipment_id=eq["id"]).json()
     assert len(doc["groups"]) == 1 and doc["period"]["label"] == "01 Mar 2026 to 31 Mar 2026"
-    assert monitoring(client, h, equipment_id=other["id"]).json()["groups"] == []
+    quiet = monitoring(client, h, equipment_id=other["id"]).json()["groups"]
+    assert len(quiet) == 1 and quiet[0]["rows"] == []
 
 
 def test_checklist_record_shows_completion_and_approval(client, login, db, clock):

@@ -233,7 +233,8 @@ def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | N
     readings: dict[int, list] = defaultdict(list)
     if points:
         ids = [eq.id for eq in points]
-        for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id.in_(ids), EquipmentSchedule.active.is_(True))):
+        for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id.in_(ids), EquipmentSchedule.active.is_(True),
+                                                                EquipmentSchedule.phase.is_distinct_from("finish"))):
             schedules[sched.equipment_id].append(sched)
         # only the columns used, as plain tuples: thousands of full objects are not needed to count and match times
         for row_ in db.execute(select(TemperatureReading.equipment_id, TemperatureReading.schedule_id, TemperatureReading.recorded_at,

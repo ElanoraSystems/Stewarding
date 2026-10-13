@@ -1,4 +1,4 @@
-export type FieldType = 'number' | 'yes_no' | 'text' | 'choice'
+export type FieldType = 'number' | 'yes_no' | 'text' | 'choice' | 'date' | 'time'
 
 export interface FieldSpec {
   title: string
@@ -16,6 +16,8 @@ export const FIELD_TYPES: { value: FieldType; label: string; hint: string }[] = 
   { value: 'number', label: 'Number', hint: 'A measurement such as a temperature or ppm. It fails outside the limits you set.' },
   { value: 'yes_no', label: 'Yes or no', hint: 'A question. A No answer counts as a failure.' },
   { value: 'text', label: 'Short text', hint: 'Something written, such as a product name or batch. It is recorded, never failed.' },
+  { value: 'date', label: 'Date picker', hint: 'The person picks a date from a calendar. It is recorded, never failed.' },
+  { value: 'time', label: 'Time picker', hint: 'The person picks a time of day. It is recorded, never failed.' },
   { value: 'choice', label: 'Dropdown (choose one)', hint: 'The person picks one answer from your list. You decide which answers fail.' },
 ]
 

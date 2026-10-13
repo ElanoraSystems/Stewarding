@@ -28,11 +28,12 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     time_of_day: schedule?.time_of_day?.slice(0, 5) ?? '', interval_minutes: schedule?.interval_minutes ? String(schedule.interval_minutes) : '',
     weekdays: schedule?.weekdays ?? [], day_of_month: schedule?.day_of_month ? String(schedule.day_of_month) : '',
     min_value: schedule?.min_value != null ? String(Number(schedule.min_value)) : '', max_value: schedule?.max_value != null ? String(Number(schedule.max_value)) : '',
-    require_reference: schedule?.require_reference ?? false,
+    require_reference: schedule?.require_reference ?? false, reference_label: schedule?.reference_label ?? '', phase: schedule?.phase ?? '',
   })
   const [extra, setExtra] = useState({ options: (schedule?.options ?? []).join('\n'), fail: schedule?.fail_options ?? [], maxLength: String(schedule?.max_length ?? 200) })
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
   const isNumber = form.value_type === 'number'
+  const manual = form.timing === 'manual'
   const toggleDay = (day: number) => set('weekdays', form.weekdays.includes(day) ? form.weekdays.filter((d) => d !== day) : [...form.weekdays, day])
 
   function pickMeasure(parameter: string) {
@@ -44,10 +45,11 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     event.preventDefault()
     const body = {
       stage: form.stage, parameter: form.parameter, unit: isNumber ? form.unit || null : null, value_type: form.value_type,
-      require_reference: form.require_reference, source: form.source, timing: form.timing,
-      time_of_day: form.time_of_day ? `${form.time_of_day}:00` : null,
+      require_reference: form.require_reference, reference_label: form.require_reference ? form.reference_label.trim() || null : null,
+      phase: form.phase || null, source: form.source, timing: form.timing,
+      time_of_day: form.time_of_day && !manual ? `${form.time_of_day}:00` : null,
       interval_minutes: form.timing === 'interval' ? Number(form.interval_minutes) : null,
-      weekdays: form.weekdays.length ? form.weekdays : null, day_of_month: form.day_of_month ? Number(form.day_of_month) : null,
+      weekdays: form.weekdays.length && !manual ? form.weekdays : null, day_of_month: form.day_of_month && !manual ? Number(form.day_of_month) : null,
       min_value: isNumber && form.min_value !== '' ? Number(form.min_value) : null,
       max_value: isNumber && form.max_value !== '' ? Number(form.max_value) : null,
       options: form.value_type === 'choice' ? optionList(extra.options) : null,
@@ -74,6 +76,8 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
               <option value="yes_no">Yes or no</option>
               <option value="text">Short text</option>
               <option value="choice">Dropdown (choose one)</option>
+              <option value="date">Date picker</option>
+              <option value="time">Time picker</option>
             </Select>
           </Field>
           <Field label="What is checked">
@@ -95,18 +99,19 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
               <option value="startup">At startup</option>
               <option value="checkpoint">At a set time</option>
               <option value="interval">Every few minutes</option>
+              <option value="manual">On demand (no schedule)</option>
             </Select>
           </Field>
-          <Field label="First check at"><Input type="time" value={form.time_of_day} onChange={(e) => set('time_of_day', e.target.value)} /></Field>
+          {!manual && <Field label="First check at"><Input type="time" value={form.time_of_day} onChange={(e) => set('time_of_day', e.target.value)} /></Field>}
           {form.timing === 'interval' && (
             <Field label="Every (minutes)"><Input required type="number" min={1} max={1440} value={form.interval_minutes} onChange={(e) => set('interval_minutes', e.target.value)} /></Field>
           )}
-          <Field label="Day of month" hint="Leave blank unless it is monthly."><Input type="number" min={1} max={31} value={form.day_of_month} onChange={(e) => set('day_of_month', e.target.value)} /></Field>
+          {!manual && <Field label="Day of month" hint="Leave blank unless it is monthly."><Input type="number" min={1} max={31} value={form.day_of_month} onChange={(e) => set('day_of_month', e.target.value)} /></Field>}
         </div>
         {(form.value_type === 'text' || form.value_type === 'choice') && (
           <FieldRestrictions value={{ ...blankField(), type: form.value_type, ...extra }} onChange={(v) => setExtra({ options: v.options, fail: v.fail, maxLength: v.maxLength })} />
         )}
-        <fieldset>
+        {!manual && <fieldset>
           <legend className="mb-1 text-sm font-medium">Days (none selected means every day)</legend>
           <div className="flex flex-wrap gap-3">
             {DAYS.map((name, day) => (
@@ -115,11 +120,19 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
               </label>
             ))}
           </div>
-        </fieldset>
+        </fieldset>}
+        <Field label="Entry type" hint="A time in and time out pair stays pending until the time out is recorded, as in defrosting or cooling.">
+          <Select value={form.phase} onChange={(e) => set('phase', e.target.value as typeof form.phase)}>
+            <option value="">Single entry</option>
+            <option value="start">Time in (starts an entry)</option>
+            <option value="finish">Time out (closes an entry)</option>
+          </Select>
+        </Field>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.require_reference} onChange={(e) => set('require_reference', e.target.checked)} />
           Ask for a batch, lot or product reference (traceability)
         </label>
+        {form.require_reference && <Field label="What is it called?" hint="For example Item or product name."><Input maxLength={40} value={form.reference_label} onChange={(e) => set('reference_label', e.target.value)} /></Field>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit">Save</Button>

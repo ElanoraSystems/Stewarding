@@ -15,11 +15,13 @@ export interface Schedule {
   stage: string
   parameter: string
   unit: string | null
-  value_type: 'number' | 'yes_no' | 'text' | 'choice'
+  value_type: 'number' | 'yes_no' | 'text' | 'choice' | 'date' | 'time'
   options: string[] | null
   fail_options: string[] | null
   max_length: number | null
   require_reference: boolean
+  reference_label: string | null
+  phase: 'start' | 'finish' | null
   source: string
   timing: string
   min_value: number | string | null
@@ -50,6 +52,8 @@ export interface Prefill {
   equipmentId: number
   scheduleId: number
   retestOf?: number
+  startReadingId?: number
+  item?: string | null
 }
 
 interface RecordFormProps {
@@ -63,13 +67,13 @@ const num = (v: number | string | null) => (v === null ? null : Number(v))
 
 /** The answer in the form the server expects: a number for measurements and yes or no, words for text and choices. */
 function answerOf(s: Schedule | undefined, raw: string | undefined) {
-  return s?.value_type === 'text' || s?.value_type === 'choice' ? { answer: raw ?? '' } : { value: Number(raw) }
+  return s && ['text', 'choice', 'date', 'time'].includes(s.value_type) ? { answer: raw ?? '' } : { value: Number(raw) }
 }
 
 function verdict(value: string, schedule?: Schedule): 'pass' | 'fail' | null {
   if (value === '' || !schedule) return null
   if (schedule.value_type === 'yes_no') return value === '1' ? 'pass' : 'fail'
-  if (schedule.value_type === 'text') return 'pass'
+  if (schedule.value_type === 'text' || schedule.value_type === 'date' || schedule.value_type === 'time') return 'pass'
   if (schedule.value_type === 'choice') return schedule.fail_options?.includes(value) ? 'fail' : 'pass'
   const amount = Number(value)
   const low = num(schedule.min_value)
@@ -79,7 +83,7 @@ function verdict(value: string, schedule?: Schedule): 'pass' | 'fail' | null {
 
 /** One schedule per group of checks that are due together. */
 function firstOfEachCycle(schedules: Schedule[]): Schedule[] {
-  return schedules.filter((s) => cycleOf(s, schedules)[0] === s)
+  return schedules.filter((s) => s.phase !== 'finish' && cycleOf(s, schedules)[0] === s)
 }
 
 export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest }: RecordFormProps) {
@@ -125,10 +129,11 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     const ok = await run(async () => {
       const evidence = file ? await uploadFile(file) : null
       const common = { comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null }
+      const body = { equipment_id: Number(equipmentId), start_reading_id: prefill?.startReadingId ?? null }
       if (prefill?.retestOf) {
         await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), ...answerOf(schedule, values[Number(scheduleId)]), retest_of_id: prefill.retestOf, ...common } })
       } else {
-        await api('/monitoring/readings/batch', { body: { equipment_id: Number(equipmentId), readings: cycle.map((s) => ({ schedule_id: s.id, ...answerOf(s, values[s.id]), ...common })) } })
+        await api('/monitoring/readings/batch', { body: { ...body, readings: cycle.map((s) => ({ schedule_id: s.id, ...answerOf(s, values[s.id]), ...common })) } })
       }
     }, anyFail ? 'Failed check recorded - supervisor notified' : cycle.length > 1 ? 'Checks recorded' : 'Check recorded')
     setBusy(false)
@@ -138,6 +143,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       setComment('')
       setAction('')
       setFile(null)
+      if (prefill?.startReadingId) setScheduleId('')
       onClearRetest()
       onSaved()
     }
@@ -170,6 +176,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
           </Field>
         )}
       </div>
+      {prefill?.startReadingId && <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">Time out for <span className="font-medium">{prefill.item ?? 'this entry'}</span>. The time out is stamped when you save.</p>}
       {cycle.length > 1 && <p className="text-sm text-ink-muted">These checks are due together, so enter all of them now: {cycle.map((s) => label(s.stage)).join(', ')}.</p>}
       <div className="space-y-3">
         {cycle.map((s, i) => (
@@ -189,6 +196,10 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
                   {s.options?.map((o) => <option key={o} value={o}>{o}</option>)}
                 </Select>
               </Field>
+            ) : s.value_type === 'date' || s.value_type === 'time' ? (
+              <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter}>
+                <Input required type={s.value_type} className="w-44" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
+              </Field>
             ) : s.value_type === 'text' ? (
               <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter} hint={`Up to ${s.max_length ?? 200} characters`}>
                 <Input required maxLength={s.max_length ?? 200} className="w-72" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
@@ -199,11 +210,11 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
                 <Input required type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             )}
-            {results[i] && s.value_type !== 'text' && <Badge tone={results[i] === 'pass' ? 'ok' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
+            {results[i] && !['text', 'date', 'time'].includes(s.value_type) && <Badge tone={results[i] === 'pass' ? 'ok' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
           </div>
         ))}
         {needsReference && (
-          <Field label="Batch, lot or product" hint="Required for this check.">
+          <Field label={cycle.find((s) => s.reference_label)?.reference_label ?? 'Batch, lot or product'} hint="Required for this check.">
             <Input required maxLength={120} className="w-56" value={reference} onChange={(e) => setReference(e.target.value)} />
           </Field>
         )}

@@ -16,7 +16,8 @@ from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services.notify import notify, recipients
 from ..services.settings import get_setting
-from ..services.monitoring import describe, due_checks, failure_count, judge, resolve_alerts, resolve_chain
+from ..services.monitoring import (describe, due_checks, failure_count, judge, pending_entries, resolve_alerts,
+                                  resolve_chain)
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
 
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 READING_FIELDS = ("id", "equipment_id", "schedule_id", "location_id", "recorded_at", "stage", "source", "parameter", "unit",
                   "value_type", "value", "reference", "min_limit", "max_limit", "passed", "recorded_by", "comment", "evidence_path", "retest_of_id",
-                  "reviewed_by", "reviewed_at")
+                  "reviewed_by", "reviewed_at", "start_reading_id")
 ACTION_FIELDS = ("id", "reading_id", "action", "taken_by", "taken_at", "retest_due_at", "status", "resolved_at",
                  "escalated_at")
 
@@ -39,6 +40,7 @@ class ReadingIn(BaseModel):
     evidence_path: str | None = None
     corrective_action: str | None = Field(default=None, max_length=1000)
     retest_of_id: int | None = None
+    start_reading_id: int | None = None
 
 
 class ReviewManyIn(BaseModel):
@@ -57,6 +59,7 @@ class BatchItem(BaseModel):
 
 class BatchIn(BaseModel):
     equipment_id: int
+    start_reading_id: int | None = None
     readings: list[BatchItem] = Field(min_length=1, max_length=20)
 
 
@@ -135,6 +138,23 @@ def due(location_id: int | None = None, user: User = Depends(require("temp.view"
     return due_checks(db, _visible_equipment(db, user, location_id), timeutil.utc_now())
 
 
+@router.get("/pending")
+def pending(location_id: int | None = None, user: User = Depends(require("temp.view")), db: Session = Depends(get_db)):
+    return pending_entries(db, _visible_equipment(db, user, location_id), timeutil.utc_now())
+
+
+def _entry_started(db: Session, eq: Equipment, sched: EquipmentSchedule, start_reading_id: int | None) -> TemperatureReading | None:
+    """The time-in reading a time-out closes; none for a check that is not a time out."""
+    if sched.phase != "finish":
+        return None
+    start = db.get(TemperatureReading, start_reading_id) if start_reading_id else None
+    if not start or start.equipment_id != eq.id or db.scalar(select(EquipmentSchedule.phase).where(EquipmentSchedule.id == start.schedule_id)) != "start":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose the entry this time out belongs to")
+    if db.scalar(select(TemperatureReading.id).where(TemperatureReading.start_reading_id == start.id, TemperatureReading.schedule_id == sched.id)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "The time out is already recorded for this entry")
+    return start
+
+
 def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     eq = _equipment_for(db, user, body.equipment_id)
     sched = db.get(EquipmentSchedule, body.schedule_id)
@@ -146,7 +166,8 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
         value, answer, passed = judge(sched, body.value.quantize(Decimal("0.01")) if body.value is not None else None, body.answer)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{sched.stage}: {exc}") from None
-    reference = (body.reference or "").strip() or None
+    start = _entry_started(db, eq, sched, body.start_reading_id)
+    reference = start.reference if start else (body.reference or "").strip() or None
     if sched.require_reference and reference is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the batch, lot or product reference for this check")
     if body.evidence_path and not is_valid_evidence(body.evidence_path):
@@ -168,7 +189,8 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
         equipment_id=eq.id, schedule_id=sched.id, location_id=eq.location_id, recorded_at=now, stage=sched.stage,
         source=sched.source, parameter=sched.parameter, unit=sched.unit, value_type=sched.value_type, value=value,
         answer=answer, reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed,
-        recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, retest_of_id=body.retest_of_id)
+        recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, retest_of_id=body.retest_of_id,
+        start_reading_id=start.id if start else None)
     db.add(reading)
     db.flush()
 
@@ -193,7 +215,7 @@ def record_readings(body: BatchIn, user: User = Depends(require("temp.record")),
     """Saves every measurement of one cycle (for example wash and rinse) together, or none of them."""
     if len({r.schedule_id for r in body.readings}) != len(body.readings):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A check appears twice")
-    readings = [_record(db, user, ReadingIn(equipment_id=body.equipment_id, **r.model_dump())) for r in body.readings]
+    readings = [_record(db, user, ReadingIn(equipment_id=body.equipment_id, start_reading_id=body.start_reading_id, **r.model_dump())) for r in body.readings]
     db.commit()
     names = _names(db, {user.id})
     return _serialize_readings(db, readings, names)

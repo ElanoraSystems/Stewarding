@@ -2,12 +2,12 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
-                      InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction, Supplier,
+                      EquipmentSchedule, InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction, Supplier,
                       TemperatureReading)
 from . import metrics
 from .monitoring import describe
@@ -39,8 +39,8 @@ def _local(dt: datetime | None, tz: str) -> str:
 def _limits(reading: TemperatureReading) -> str:
     if reading.value_type == "yes_no":
         return "Must be Yes"
-    if reading.value_type in ("text", "choice"):
-        return "Choice" if reading.value_type == "choice" else "Written answer"
+    if reading.value_type in ("text", "choice", "date", "time"):
+        return {"choice": "Choice", "date": "Date", "time": "Time"}.get(reading.value_type, "Written answer")
     low = "-" if reading.min_limit is None else f"{reading.min_limit.normalize():f}"
     high = "-" if reading.max_limit is None else f"{reading.max_limit.normalize():f}"
     return f"{low} to {high} {reading.unit or ''}".strip()
@@ -64,6 +64,7 @@ def _locations(db: Session, scope: set[int] | None, location_id: int | None) -> 
 
 
 def _monitoring_groups(db: Session, locations: list[Location], day_from: date, day_to: date, equipment_id: int | None) -> list[dict]:
+    """One table per monitoring point, including points with nothing recorded in the period."""
     names = _names(db)
     groups = []
     for loc in locations:
@@ -75,33 +76,40 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
             readings = list(db.scalars(select(TemperatureReading).where(
                 TemperatureReading.equipment_id == eq.id, TemperatureReading.recorded_at >= start,
                 TemperatureReading.recorded_at < end).order_by(TemperatureReading.recorded_at)))
-            if not readings:
+            if not readings and not eq.active:
                 continue
             actions = {a.reading_id: a for a in db.scalars(select(CorrectiveAction).where(
                 CorrectiveAction.reading_id.in_([r.id for r in readings])))}
+            lead = db.scalar(select(func.min(EquipmentSchedule.id)).where(EquipmentSchedule.equipment_id == eq.id, EquipmentSchedule.phase == "start"))
+            time_out = dict(db.execute(select(TemperatureReading.start_reading_id, func.min(TemperatureReading.recorded_at)).where(
+                TemperatureReading.start_reading_id.in_([r.id for r in readings if r.schedule_id == lead]))
+                .group_by(TemperatureReading.start_reading_id)).all()) if lead else {}
             rows = []
             for r in readings:
                 a = actions.get(r.id)
                 taken = f"{a.action} ({names.get(a.taken_by, '')}, {a.status.replace('_', ' ')})" if a and a.action else (
                     a.status.replace("_", " ") if a else "")
                 when = _local(r.recorded_at, loc.timezone)
+                out = (_local(time_out[r.id], loc.timezone) if r.id in time_out else "Pending") if r.schedule_id == lead else ""
                 rows.append({
-                    "date": when[:11], "time": when[12:], "check": r.stage[:1].upper() + r.stage[1:].replace("_", " "), "measure": r.parameter,
+                    "date": when[:11], "time": when[12:], "time_out": out, "check": r.stage[:1].upper() + r.stage[1:].replace("_", " "), "measure": r.parameter,
                     "value": describe(r), "limits": _limits(r),
                     "result": "Pass" if r.passed else "FAIL", "reference": r.reference or "",
                     "recorded_by": names.get(r.recorded_by, ""),
                     "approved_by": f"{names.get(r.reviewed_by, '')} {_local(r.reviewed_at, loc.timezone)}".strip() if r.reviewed_at else "Awaiting approval",
                     "corrective_action": taken})
             failed = sum(1 for r in readings if not r.passed)
+            columns = [("date", "Date"), ("time", "Time in" if lead else "Time")] + ([("time_out", "Time out")] if lead else []) + [
+                ("check", "Check"), ("measure", "Measure"), ("value", "Value"), ("limits", "Limits"), ("result", "Result"),
+                ("reference", "Item / batch"), ("recorded_by", "Recorded by"), ("approved_by", "Approved by"),
+                ("corrective_action", "Corrective action")]
             groups.append({
                 "title": f"{loc.name} - {eq.name} ({eq.code})",
                 "meta": [("Location", loc.name), ("Monitoring point", f"{eq.name} ({eq.code})"), ("Type", eq.kind)],
-                "columns": [("date", "Date"), ("time", "Time"), ("check", "Check"), ("measure", "Measure"), ("value", "Value"),
-                            ("limits", "Limits"), ("result", "Result"), ("reference", "Batch / lot"), ("recorded_by", "Recorded by"),
-                            ("approved_by", "Approved by"), ("corrective_action", "Corrective action")],
-                "rows": rows,
+                "columns": columns, "rows": rows,
                 "totals": [("Checks recorded", len(readings)), ("Passed", len(readings) - failed), ("Failed", failed),
-                           ("Awaiting approval", sum(1 for r in readings if not r.reviewed_at))]})
+                           ("Awaiting approval", sum(1 for r in readings if not r.reviewed_at))]
+                + ([("Waiting for time out", sum(1 for r in readings if r.schedule_id == lead and r.id not in time_out))] if lead else [])})
     return groups
 
 

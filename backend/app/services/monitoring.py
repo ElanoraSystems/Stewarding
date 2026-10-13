@@ -1,6 +1,6 @@
 from bisect import bisect_left
 from collections import defaultdict
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select, update
@@ -21,7 +21,7 @@ def evaluate(value: Decimal, minimum: Decimal | None, maximum: Decimal | None) -
 
 def describe(reading) -> str:
     """A reading as people say it: the written or chosen answer, 'Yes' or 'No', or the number with its unit."""
-    if reading.value_type in ("text", "choice"):
+    if reading.value_type in ("text", "choice", "date", "time"):
         return reading.answer or ""
     if reading.value_type == "yes_no":
         return "Yes" if reading.value == 1 else "No"
@@ -43,6 +43,12 @@ def judge(sched, value, answer) -> tuple[Decimal | None, str | None, bool]:
             raise ValueError("Answer yes or no")
         return value, None, value == 1
     text = (answer or "").strip()
+    if sched.value_type in ("date", "time"):
+        try:
+            parsed = date.fromisoformat(text) if sched.value_type == "date" else time.fromisoformat(text)
+        except ValueError:
+            raise ValueError(f"Enter a valid {sched.value_type}") from None
+        return None, parsed.isoformat() if sched.value_type == "date" else parsed.strftime("%H:%M"), True
     if not text:
         raise ValueError("Enter an answer")
     if sched.value_type == "choice":
@@ -63,7 +69,7 @@ def applies_on(schedule: EquipmentSchedule, day) -> bool:
 
 def expected_slots(schedule: EquipmentSchedule, shift: Shift | None, tz: str, day) -> list[datetime]:
     """UTC check times for one schedule on a location-local date; none when the check is not due that day."""
-    if not applies_on(schedule, day):
+    if schedule.timing == "manual" or not applies_on(schedule, day):
         return []
     start = schedule.time_of_day or (shift.start_time if shift else DEFAULT_START)
     first = timeutil.local_to_utc(day, start, tz)
@@ -107,7 +113,8 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
         return []
     schedules: dict[int, list[EquipmentSchedule]] = defaultdict(list)
     for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id.in_([eq.id for eq in active]),
-                                                            EquipmentSchedule.active.is_(True)).order_by(EquipmentSchedule.id)):
+                                                            EquipmentSchedule.active.is_(True),
+                                                            EquipmentSchedule.phase.is_distinct_from("finish")).order_by(EquipmentSchedule.id)):
         schedules[sched.equipment_id].append(sched)
     starts = {}
     for eq in active:
@@ -134,6 +141,31 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
                             "schedule_id": sched.id, "stage": sched.stage,
                             "slot_at": slot.isoformat() + "Z", "status": slot_status(slot, upper, mine, now, grace)})
     return out
+
+
+def pending_entries(db: Session, equipment: list[Equipment], now: datetime) -> list[dict]:
+    """Time-in entries of two-step logs that still wait for their time out, oldest first."""
+    points = {eq.id: eq for eq in equipment if eq.active}
+    if not points:
+        return []
+    lead: dict[int, int] = {}
+    has_finish: set[int] = set()
+    for equipment_id, schedule_id, phase in db.execute(select(EquipmentSchedule.equipment_id, EquipmentSchedule.id, EquipmentSchedule.phase).where(
+            EquipmentSchedule.equipment_id.in_(points), EquipmentSchedule.active.is_(True), EquipmentSchedule.phase.is_not(None)).order_by(EquipmentSchedule.id)):
+        if phase == "start":
+            lead.setdefault(equipment_id, schedule_id)
+        else:
+            has_finish.add(equipment_id)
+    lead_ids = [schedule_id for equipment_id, schedule_id in lead.items() if equipment_id in has_finish]
+    if not lead_ids:
+        return []
+    closed = select(TemperatureReading.start_reading_id).where(TemperatureReading.start_reading_id.is_not(None))
+    entries = db.scalars(select(TemperatureReading).where(
+        TemperatureReading.schedule_id.in_(lead_ids), TemperatureReading.retest_of_id.is_(None),
+        TemperatureReading.id.not_in(closed)).order_by(TemperatureReading.recorded_at).limit(200))
+    return [{"start_reading_id": r.id, "equipment_id": r.equipment_id, "equipment": points[r.equipment_id].name,
+             "location_id": r.location_id, "item": r.reference, "started_at": r.recorded_at.isoformat() + "Z",
+             "minutes_open": int((now - r.recorded_at).total_seconds() // 60)} for r in entries]
 
 
 def resolve_alerts(db: Session, reading_id: int, now: datetime) -> None:

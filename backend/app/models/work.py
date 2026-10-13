@@ -114,6 +114,8 @@ class EquipmentSchedule(Base):
     fail_options: Mapped[list | None] = mapped_column(JSON)  # the choices that count as a failure
     max_length: Mapped[int | None] = mapped_column(Integer)  # longest written answer
     require_reference: Mapped[bool] = mapped_column(Boolean, default=False)  # batch, lot or product reference
+    reference_label: Mapped[str | None] = mapped_column(String(40))  # what the reference is called, e.g. Item name
+    phase: Mapped[str | None] = mapped_column(String(10))  # start or finish of a two-step log; empty for a single entry
     source: Mapped[str] = mapped_column(String(20), default="machine_display")  # or independent_probe
     timing: Mapped[str] = mapped_column(String(20))  # startup | interval | checkpoint
     weekdays: Mapped[str | None] = mapped_column(String(20))  # "0,2,4" Monday-based; empty means every day
@@ -148,6 +150,7 @@ class TemperatureReading(Base):
     comment: Mapped[str | None] = mapped_column(Text)
     evidence_path: Mapped[str | None] = mapped_column(String(300))
     retest_of_id: Mapped[int | None] = mapped_column(ForeignKey("temperature_reading.id"))
+    start_reading_id: Mapped[int | None] = mapped_column(ForeignKey("temperature_reading.id"), index=True)  # the time-in reading a finish closes
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
 

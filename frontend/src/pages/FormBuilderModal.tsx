@@ -18,6 +18,7 @@ const MODES = [
   ['weekly', 'On certain days of the week'],
   ['monthly', 'Once a month'],
   ['interval', 'Every few minutes'],
+  ['on_demand', 'No schedule - fill in whenever needed'],
 ] as const
 const STEPS = ['About the form', 'Fields', 'How often']
 
@@ -64,7 +65,7 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
     }
     if (forStep === 2) {
       if (mode === 'interval' && (!Number(interval) || Number(interval) < 5)) return 'Checks can be at most every 5 minutes apart.'
-      if (mode !== 'interval' && (times.length === 0 || times.some((t) => !t) || new Set(times).size !== times.length)) return 'Give at least one time, each different.'
+      if (mode !== 'interval' && mode !== 'on_demand' && (times.length === 0 || times.some((t) => !t) || new Set(times).size !== times.length)) return 'Give at least one time, each different.'
       if (mode === 'weekly' && weekdays.length === 0) return 'Choose the days of the week.'
       if (mode === 'monthly' && !(Number(dayOfMonth) >= 1 && Number(dayOfMonth) <= 31)) return 'Choose a day of the month from 1 to 31.'
     }
@@ -81,8 +82,8 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
     const found = check(0) ?? check(1) ?? check(2)
     setProblem(found)
     if (found) return
-    const frequency = mode === 'interval'
-      ? { mode, interval_minutes: Number(interval), start: `${start}:00` }
+    const frequency = mode === 'on_demand' ? { mode, times: [] }
+      : mode === 'interval' ? { mode, interval_minutes: Number(interval), start: `${start}:00` }
       : { mode, times: times.map((t) => `${t}:00`), weekdays: mode === 'weekly' ? weekdays : null, day_of_month: mode === 'monthly' ? Number(dayOfMonth) : null }
     const body = { name, kind, location_ids: locations, fields: fields.map(fieldPayload), frequency }
     if (await run(() => api('/equipment/forms', { body }), locations.length > 1 ? 'Form created at each location' : 'Form created')) onCreated()
@@ -162,7 +163,9 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
             </fieldset>
           )}
           {mode === 'monthly' && <Field label="Day of the month"><Input type="number" min={1} max={31} className="w-28" value={dayOfMonth} onChange={(e) => setDayOfMonth(e.target.value)} /></Field>}
-          {mode === 'interval' ? (
+          {mode === 'on_demand' ? (
+            <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">No reminders and nothing becomes overdue. Staff open Monitoring, choose this form under Record a check, and fill it in whenever they need it.</p>
+          ) : mode === 'interval' ? (
             <div className="flex flex-wrap gap-3">
               <Field label="Every (minutes)"><Input type="number" min={5} max={1440} className="w-32" value={interval} onChange={(e) => setInterval(e.target.value)} /></Field>
               <Field label="First one at"><Input type="time" value={start} onChange={(e) => setStart(e.target.value)} /></Field>

@@ -23,12 +23,13 @@ interface Template {
   key: string
   name: string
   type: string
-  checks: { stage: string; parameter: string; unit: string | null; value_type: string; min_value: number | null; max_value: number | null; timing: string }[]
+  checks: { stage: string; parameter: string; unit: string | null; value_type: string; min_value: number | null; max_value: number | null; timing: string; phase: string | null }[]
 }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 function when(s: Schedule): string {
+  if (s.phase === 'finish') return 'When the time in entry is closed'
   const days = s.weekdays.length ? s.weekdays.map((d) => DAYS[d]).join(', ') : 'Every day'
   const month = s.day_of_month ? `day ${s.day_of_month} of the month` : days
   const timing = s.timing === 'interval' ? `every ${s.interval_minutes} min` : s.timing === 'startup' ? 'at startup' : 'at a set time'
@@ -50,6 +51,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const { data, reload } = useApi<EquipmentItem[]>(locationId ? `/equipment${qs({ location_id: locationId })}` : null)
   const [editing, setEditing] = useState<{ equipmentId: number; schedule: Schedule | null } | null>(null)
   const [adding, setAdding] = useState(false)
+  const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null)
   const [presetOpen, setPresetOpen] = useState(false)
   const [preset, setPreset] = useState('')
   const [presetName, setPresetName] = useState('')
@@ -58,6 +60,14 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
 
   async function setStatus(eq: EquipmentItem, status: string) {
     if (await run(() => api(`/equipment/${eq.id}`, { method: 'PUT', body: { status } }), 'Status updated')) reload()
+  }
+
+  async function rename(event: FormEvent) {
+    event.preventDefault()
+    if (renaming && await run(() => api(`/equipment/${renaming.id}`, { method: 'PUT', body: { name: renaming.name.trim() } }), 'Name updated')) {
+      setRenaming(null)
+      reload()
+    }
   }
 
   async function addFromTemplate(event: FormEvent) {
@@ -101,18 +111,21 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
           <CardContent className="space-y-3">
             {eq.maintenance_notes && <p className="text-sm text-ink-muted">{eq.maintenance_notes}</p>}
             {canManage && (
-              <Select aria-label={`Status of ${eq.name}`} className="w-auto" value={eq.status} onChange={(e) => setStatus(eq, e.target.value)}>
-                <option value="operational">Operational</option>
-                <option value="attention">Needs attention</option>
-                <option value="out_of_service">Out of service</option>
-              </Select>
+              <div className="flex flex-wrap gap-2">
+                <Select aria-label={`Status of ${eq.name}`} className="w-auto" value={eq.status} onChange={(e) => setStatus(eq, e.target.value)}>
+                  <option value="operational">Operational</option>
+                  <option value="attention">Needs attention</option>
+                  <option value="out_of_service">Out of service</option>
+                </Select>
+                <Button size="sm" variant="outline" onClick={() => setRenaming({ id: eq.id, name: eq.name })}>Rename</Button>
+              </div>
             )}
             <Table>
               <thead><tr><Th>Check</Th><Th>Measures</Th><Th>When</Th><Th>Limits</Th>{canManage && <Th />}</tr></thead>
               <tbody>
                 {eq.schedules.map((s) => (
                   <tr key={s.id}>
-                    <Td>{s.stage}{s.require_reference && <Badge className="ml-2">Reference</Badge>}</Td>
+                    <Td>{s.stage}{s.require_reference && <Badge className="ml-2">{s.reference_label ?? 'Reference'}</Badge>}{s.phase && <Badge className="ml-2">{s.phase === 'start' ? 'Time in' : 'Time out'}</Badge>}</Td>
                     <Td>{({ yes_no: 'Yes or no', text: 'Short text', choice: 'Dropdown' } as Record<string, string>)[s.value_type] ?? s.parameter}</Td>
                     <Td>{when(s)}</Td>
                     <Td>{limits(s)}</Td>
@@ -138,8 +151,8 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
           </Field>
           {chosen && (
             <ul className="list-inside list-disc text-sm text-ink-muted">
-              {chosen.checks.map((c) => (
-                <li key={c.stage}>{c.stage}: {c.value_type === 'yes_no' ? 'yes or no' : `${c.parameter} ${c.min_value ?? '-'} to ${c.max_value ?? '-'} ${c.unit ?? ''}`}</li>
+              {chosen.checks.map((c, i) => (
+                <li key={i}>{c.stage}: {c.value_type === 'yes_no' ? 'yes or no' : `${c.parameter} ${c.min_value ?? '-'} to ${c.max_value ?? '-'} ${c.unit ?? ''}`}</li>
               ))}
             </ul>
           )}
@@ -148,6 +161,17 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setPresetOpen(false)}>Cancel</Button>
             <Button type="submit" disabled={!preset || !locationId}>Add</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={renaming !== null} title="Rename monitoring point" onClose={() => setRenaming(null)}>
+        <form onSubmit={rename} className="space-y-3">
+          <Field label="Name"><Input required minLength={2} maxLength={120} value={renaming?.name ?? ''} onChange={(e) => setRenaming((r) => r && { ...r, name: e.target.value })} /></Field>
+          <p className="text-xs text-ink-muted">The code and the recorded history stay the same; only the name shown changes.</p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>Cancel</Button>
+            <Button type="submit" disabled={!renaming || renaming.name.trim().length < 2}>Save</Button>
           </div>
         </form>
       </Modal>

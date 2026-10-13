@@ -23,7 +23,7 @@ EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer",
                     "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
                    "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "options",
-                   "fail_options", "max_length", "active")
+                   "fail_options", "max_length", "reference_label", "phase", "active")
 
 
 class EquipmentIn(BaseModel):
@@ -56,13 +56,15 @@ class ScheduleIn(BaseModel):
     stage: str = Field(min_length=2, max_length=60)
     parameter: str = Field(default="Temperature", min_length=2, max_length=60)
     unit: str | None = Field(default="°C", max_length=20)
-    value_type: str = Field(default="number", pattern="^(number|yes_no|text|choice)$")
+    value_type: str = Field(default="number", pattern="^(number|yes_no|text|choice|date|time)$")
     options: list[str] | None = None
     fail_options: list[str] | None = None
     max_length: int | None = Field(default=None, ge=1, le=500)
     require_reference: bool = False
+    reference_label: str | None = Field(default=None, max_length=40)
+    phase: Literal["start", "finish"] | None = None
     source: str = Field(default="machine_display", pattern="^(machine_display|independent_probe)$")
-    timing: str = Field(pattern="^(startup|interval|checkpoint)$")
+    timing: str = Field(pattern="^(startup|interval|checkpoint|manual)$")
     time_of_day: time | None = None
     interval_minutes: int | None = Field(default=None, gt=0, le=1440)
     weekdays: list[int] | None = None
@@ -102,7 +104,7 @@ class ScheduleIn(BaseModel):
 
 
 def _schedule_values(body: ScheduleIn) -> dict:
-    values = body.model_dump()
+    values = body.model_dump(exclude={"phase", "reference_label"} - body.model_fields_set)
     values["weekdays"] = ",".join(str(d) for d in sorted(set(body.weekdays))) if body.weekdays else None
     return values
 
@@ -232,7 +234,8 @@ def _next_code(db: Session, prefix: str, location_code: str) -> str:
 def list_templates(user: User = Depends(require("equipment.manage"))):
     return [{"key": t["key"], "name": t["name"], "type": t["type"], "checks": [
         {"stage": c["stage"], "parameter": c["parameter"], "unit": c["unit"], "value_type": c["value_type"],
-         "min_value": c.get("min_value"), "max_value": c.get("max_value"), "timing": c["timing"]} for c in t["checks"]]}
+         "min_value": c.get("min_value"), "max_value": c.get("max_value"), "timing": c["timing"], "phase": c.get("phase")}
+        for c in t["checks"]]}
         for t in TEMPLATES]
 
 
@@ -259,7 +262,7 @@ def create_from_template(body: FromTemplateIn, user: User = Depends(require("equ
 
 class FieldIn(BaseModel):
     title: str = Field(min_length=2, max_length=60)
-    value_type: str = Field(pattern="^(number|yes_no|text|choice)$")
+    value_type: str = Field(pattern="^(number|yes_no|text|choice|date|time)$")
     unit: str | None = Field(default=None, max_length=20)
     min_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
     max_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
@@ -270,7 +273,7 @@ class FieldIn(BaseModel):
 
 
 class FrequencyIn(BaseModel):
-    mode: Literal["daily", "weekly", "monthly", "interval"]
+    mode: Literal["daily", "weekly", "monthly", "interval", "on_demand"]
     times: list[time] = Field(default_factory=list, max_length=6)
     weekdays: list[int] | None = None
     day_of_month: int | None = Field(default=None, ge=1, le=31)
@@ -282,7 +285,7 @@ class FrequencyIn(BaseModel):
         if self.mode == "interval":
             if not self.interval_minutes or self.start is None:
                 raise ValueError("Say how many minutes apart the checks are and when the first one is")
-        elif not self.times or len(set(self.times)) != len(self.times):
+        elif self.mode != "on_demand" and (not self.times or len(set(self.times)) != len(self.times)):
             raise ValueError("Give at least one time, each different")
         if self.mode == "weekly" and not self.weekdays:
             raise ValueError("Choose the days of the week")
@@ -318,7 +321,7 @@ class FormIn(BaseModel):
 def _schedules_for(form: FormIn) -> list[dict]:
     """One check per field per time; checks that share a time are recorded together as a single form."""
     freq = form.frequency
-    slots = [{"timing": "interval", "interval_minutes": freq.interval_minutes, "time_of_day": freq.start}] if freq.mode == "interval" \
+    slots = [{"timing": "manual", "time_of_day": None, "interval_minutes": None}] if freq.mode == "on_demand" else [{"timing": "interval", "interval_minutes": freq.interval_minutes, "time_of_day": freq.start}] if freq.mode == "interval" \
         else [{"timing": "checkpoint", "time_of_day": t, "interval_minutes": None} for t in sorted(freq.times)]
     out = []
     for slot in slots:

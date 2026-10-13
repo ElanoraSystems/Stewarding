@@ -21,6 +21,15 @@ interface Due {
   status: 'done' | 'due' | 'overdue' | 'upcoming'
 }
 
+interface Pending {
+  start_reading_id: number
+  equipment_id: number
+  equipment: string
+  item: string | null
+  started_at: string
+  minutes_open: number
+}
+
 const RANK = { overdue: 3, due: 2, upcoming: 1, done: 0 } as const
 const TONE = { done: 'ok', due: 'warn', overdue: 'critical', upcoming: 'neutral' } as const
 
@@ -34,6 +43,7 @@ export function MonitoringPage() {
 
   const equipment = useApi<EquipmentItem[]>(locationId ? `/monitoring/equipment${qs({ location_id: locationId, k: refreshKey })}` : null)
   const due = useApi<Due[]>(locationId ? `/monitoring/due${qs({ location_id: locationId, k: refreshKey })}` : null)
+  const pending = useApi<Pending[]>(locationId ? `/monitoring/pending${qs({ location_id: locationId, k: refreshKey })}` : null)
   const items = equipment.data ?? []
   const overdue = (due.data ?? []).filter((d) => d.status === 'overdue')
   const actionable = (due.data ?? []).filter((d) => d.status !== 'upcoming' && d.status !== 'done')
@@ -56,6 +66,11 @@ export function MonitoringPage() {
     return [...out.entries()]
   })()
 
+  function timeOut(p: Pending) {
+    const finish = items.find((e) => e.id === p.equipment_id)?.schedules.find((s) => s.active && s.phase === 'finish')
+    if (finish) setPrefill({ equipmentId: p.equipment_id, scheduleId: finish.id, startReadingId: p.start_reading_id, item: p.item })
+  }
+
   function retest(equipmentId: number, readingId: number, stage: string) {
     const schedule = items.find((e) => e.id === equipmentId)?.schedules.find((s) => s.stage === stage)
     if (schedule) setPrefill({ equipmentId, scheduleId: schedule.id, retestOf: readingId })
@@ -77,7 +92,7 @@ export function MonitoringPage() {
       <Card>
         <CardHeader><CardTitle>Checks due today</CardTitle></CardHeader>
         <CardContent>
-          {(due.data ?? []).length === 0 ? <EmptyState title="No checks configured here" /> : (
+          {(due.data ?? []).length === 0 ? <EmptyState title="No scheduled checks here" hint="Forms without a schedule are filled in from Record a check below." /> : (
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {cards.map(([key, { first: d, stages, status }]) => (
                 <li key={key}>
@@ -94,6 +109,26 @@ export function MonitoringPage() {
           {actionable.length > 0 && canRecord && <p className="mt-2 text-xs text-ink-muted">Select a check to start recording it.</p>}
         </CardContent>
       </Card>
+
+      {(pending.data ?? []).length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Waiting for time out</CardTitle></CardHeader>
+          <CardContent>
+            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {pending.data!.map((p) => (
+                <li key={p.start_reading_id}>
+                  <button type="button" disabled={!canRecord} onClick={() => timeOut(p)}
+                    className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-surface-muted">
+                    <span><span className="block font-medium">{p.item ?? p.equipment}</span><span className="text-ink-muted">{p.equipment}, in at {fmtTime(p.started_at, timezone)}, {Math.floor(p.minutes_open / 60)} h {p.minutes_open % 60} min ago</span></span>
+                    <Badge tone="warn">Pending</Badge>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {canRecord && <p className="mt-2 text-xs text-ink-muted">Select an entry to record its time out.</p>}
+          </CardContent>
+        </Card>
+      )}
 
       {canRecord && (
         <Card>

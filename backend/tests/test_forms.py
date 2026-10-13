@@ -100,7 +100,7 @@ def test_the_form_definition_is_validated(client, login, db):
     bad(fields=[{"title": "Method", "value_type": "choice", "options": ["Only one"]}])
     bad(fields=[{"title": "Method", "value_type": "choice", "options": ["A", "B"], "fail_options": ["C"]}])
     bad(fields=[{"title": "Same", "value_type": "text"}, {"title": " same ", "value_type": "yes_no"}])
-    bad(fields=[{"title": "Odd", "value_type": "date"}])
+    bad(fields=[{"title": "Odd", "value_type": "photo"}])
     bad(fields=[])
     bad(name=" ")
     bad(location_ids=[9999])
