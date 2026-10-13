@@ -224,6 +224,9 @@ def _chart_groups(db: Session, now: datetime, scope, f: Filters, day_from: date,
     return groups
 
 
+PRESENT_STATUSES = ("present", "late", "on_duty", "missed_checkout", "unscheduled")
+
+
 def _attendance_groups(db: Session, now: datetime, scope, f: Filters, day_from: date, day_to: date) -> list[dict]:
     groups = []
     for win in metrics.windows(db, now, scope, f.location_id, day_from, day_to):
@@ -242,12 +245,11 @@ def _attendance_groups(db: Session, now: datetime, scope, f: Filters, day_from: 
             "columns": [("date", "Date"), ("employee", "Employee"), ("shift", "Shift"), ("status", "Status"), ("check_in", "In"),
                         ("check_out", "Out"), ("late", "Late (min)"), ("worked", "Worked"), ("overtime", "Overtime"), ("note", "Note")],
             "rows": rows,
-            "totals": [("Scheduled", stats["scheduled"]), ("Present", stats["present"]), ("Late", stats["late"]),
+            "totals": [("Scheduled", stats["scheduled"]), ("Present", sum(1 for r in stats["rows"] if r["status"] in PRESENT_STATUSES)), ("Late", stats["late"]),
                        ("Absent", stats["absent"]), ("On leave", stats["on_leave"]), ("Week off", stats["week_off"])]})
     return groups
 
 
-PRESENT_STATUSES = ("present", "late", "on_duty", "missed_checkout", "unscheduled")
 LEAVE_STATUSES = ("sick_leave", "annual_leave", "unpaid_leave", "other_leave")
 
 
