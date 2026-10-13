@@ -16,6 +16,7 @@ from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryIt
                       Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
 from ..services.inventory import StockError, norm, post_txn
+from ..services.similarity import classify, find_similar
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
@@ -286,8 +287,9 @@ def _check_links(db: Session, category_id: int | None, unit_id: int | None, supp
 def _check_duplicate(db: Session, name: str, exclude_id: int | None = None) -> None:
     """One item master entry per normalised name."""
     if name is not None:
-        clash = db.scalar(select(InventoryItem).where(InventoryItem.name_key == norm(name),
-                                                      InventoryItem.id != (exclude_id or 0)))
+        rows = db.execute(select(InventoryItem.id, InventoryItem.code, InventoryItem.name, InventoryItem.active)
+                          .where(InventoryItem.id != (exclude_id or 0))).all()
+        clash = next((r for r in rows if norm(r.name) == norm(name)), None) or next((r for r in rows if classify(name, r.name) == "same"), None)
         if clash:
             state = "" if clash.active else " (inactive - reactivate it instead)"
             raise HTTPException(status.HTTP_409_CONFLICT, f"{clash.name} ({clash.code}) already exists{state}")
@@ -295,12 +297,11 @@ def _check_duplicate(db: Session, name: str, exclude_id: int | None = None) -> N
 
 @router.get("/items/lookup")
 def similar_items(q: str, user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
-    """Existing items whose name contains the typed text, so a duplicate is noticed before it is created."""
-    key = norm(q)
-    if len(key) < 3:
+    """Existing items that are the same as, or close to, the typed name, so a duplicate is noticed before it is created."""
+    if len(norm(q)) < 3:
         return []
-    stmt = select(InventoryItem).where(InventoryItem.name_key.contains(key)).order_by(InventoryItem.name).limit(8)
-    return [row(i, "id", "code", "name", "active") for i in db.scalars(stmt)]
+    names = db.execute(select(InventoryItem.id, InventoryItem.code, InventoryItem.name, InventoryItem.active)).all()
+    return find_similar(q, names)
 
 
 @router.post("/items", status_code=201)

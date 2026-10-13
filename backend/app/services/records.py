@@ -300,9 +300,12 @@ def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from
         if not docs:
             continue
         rows = []
+        lines_by_doc: dict[int, list] = {}  # every line of every document in one query, grouped by document
+        for ln in db.scalars(select(ReceiptLine).where(ReceiptLine.receipt_id.in_([d.id for d in docs])).order_by(ReceiptLine.id)):
+            lines_by_doc.setdefault(ln.receipt_id, []).append(ln)
         for doc in docs:
             kind = "Return" if doc.doc_type == "supplier_return" else "Receipt"
-            for ln in db.scalars(select(ReceiptLine).where(ReceiptLine.receipt_id == doc.id).order_by(ReceiptLine.id)):
+            for ln in lines_by_doc.get(doc.id, []):
                 item = items[ln.item_id]
                 rows.append({"date": _local(doc.received_at, loc.timezone)[:11], "type": kind, "supplier": suppliers.get(doc.supplier_id, ""),
                              "invoice": doc.invoice_number, "item": f"{item.code} - {item.name}", "qty": ln.qty,

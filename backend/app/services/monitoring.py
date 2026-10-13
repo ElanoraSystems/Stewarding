@@ -1,3 +1,4 @@
+from bisect import bisect_left
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
@@ -47,9 +48,16 @@ def expected_slots(schedule: EquipmentSchedule, shift: Shift | None, tz: str, da
     return slots
 
 
+def has_reading(sorted_times: list[datetime], low: datetime, high: datetime) -> bool:
+    """Whether any time lies in [low, high); a binary search over a sorted list, so O(log n) rather than a scan."""
+    i = bisect_left(sorted_times, low)
+    return i < len(sorted_times) and sorted_times[i] < high
+
+
 def slot_status(slot: datetime, upper: datetime, readings: list[datetime], now: datetime, grace: int) -> str:
+    """`readings` must be sorted."""
     window_start = slot - timedelta(minutes=grace)
-    if any(window_start <= r < upper for r in readings):
+    if has_reading(readings, window_start, upper):
         return "done"
     if now < slot:
         return "upcoming"
@@ -72,7 +80,7 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
                                                                 EquipmentSchedule.active.is_(True))):
             slots = expected_slots(sched, shifts.get(sched.shift_id), tz, day)
             end_of_day = timeutil.local_to_utc(day + timedelta(days=1), time(0, 0), tz)
-            times = list(db.scalars(select(TemperatureReading.recorded_at).where(
+            times = sorted(db.scalars(select(TemperatureReading.recorded_at).where(
                 TemperatureReading.schedule_id == sched.id, TemperatureReading.retest_of_id.is_(None),
                 TemperatureReading.recorded_at >= day_start)))
             for i, slot in enumerate(slots):

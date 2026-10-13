@@ -1,6 +1,7 @@
+from collections import defaultdict
 from datetime import date, datetime, time
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
@@ -70,11 +71,26 @@ def received_to_date(db: Session, location_id: int, item_ids: list[int]) -> dict
 
 
 def reconcile(db: Session, location: Location, month: str) -> list[dict]:
-    """Per item: opening + movements = closing, plus the latest posted physical count in the month."""
+    """Per item: opening + movements = closing, plus the latest posted physical count in the month.
+
+    The ledger is summed by the database, grouped by item, movement type and before or inside the month, so the
+    work is one pass over the rows instead of a scan of every movement for every item.
+    """
     start, end = _month_bounds(location.timezone, month)
     items = db.scalars(select(InventoryItem).order_by(InventoryItem.code)).all()
-    txns = db.scalars(select(StockTransaction).where(StockTransaction.location_id == location.id,
-                                                     StockTransaction.occurred_at < end)).all()
+    in_month = case((StockTransaction.occurred_at >= start, 1), else_=0)
+    sums = db.execute(
+        select(StockTransaction.item_id, StockTransaction.txn_type, in_month.label("in_month"), func.sum(StockTransaction.qty_delta))
+        .where(StockTransaction.location_id == location.id, StockTransaction.occurred_at < end)
+        .group_by(StockTransaction.item_id, StockTransaction.txn_type, in_month)).all()
+    before: dict[int, int] = defaultdict(int)
+    during: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for item_id, txn_type, inside, total in sums:
+        if inside:
+            during[item_id][txn_type] += total
+        else:
+            before[item_id] += total
+    moved = set(before) | set(during)
     counts = db.execute(
         select(InventoryCountLine, InventoryCount).join(InventoryCount, InventoryCount.id == InventoryCountLine.count_id)
         .where(InventoryCount.location_id == location.id, InventoryCount.status == "posted",
@@ -83,24 +99,21 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
     last_count = {line.item_id: line for line, _ in counts}
     rows = []
     for item in items:
-        mine = [t for t in txns if t.item_id == item.id]
-        before = sum(t.qty_delta for t in mine if t.occurred_at < start)
-        month_txns = [t for t in mine if t.occurred_at >= start]
-        total = lambda *types: sum(t.qty_delta for t in month_txns if t.txn_type in types)  # noqa: E731
-        movements = {
-            "opening_stock": total("opening"), "receipts": total("receipt"), "returns": total("return"),
-            "issues": total("issue"), "breakage_damage": total("breakage", "damage"),
-            "transfers_in": total("transfer_in"), "transfers_out": total("transfer_out"),
-            "adjustments": total("adjustment"),
-        }
-        closing = before + sum(movements.values())
-        if not mine and item.id not in last_count:
+        if item.id not in moved and item.id not in last_count:
             continue
+        mine = during[item.id]
+        movements = {
+            "opening_stock": mine["opening"], "receipts": mine["receipt"], "returns": mine["return"],
+            "issues": mine["issue"], "breakage_damage": mine["breakage"] + mine["damage"],
+            "transfers_in": mine["transfer_in"], "transfers_out": mine["transfer_out"],
+            "adjustments": mine["adjustment"],
+        }
+        closing = before[item.id] + sum(movements.values())
         line = last_count.get(item.id)
         variance = line.counted_qty - line.system_qty if line else None
         cost = float(item.unit_cost) if item.unit_cost is not None else None
         rows.append({
-            "item_id": item.id, "code": item.code, "name": item.name, "opening": before, **movements,
+            "item_id": item.id, "code": item.code, "name": item.name, "opening": before[item.id], **movements,
             "closing": closing, "counted_qty": line.counted_qty if line else None,
             "count_variance": variance, "variance_value": round(variance * cost, 2) if variance and cost is not None else None,
             "value": float(closing * item.unit_cost) if item.unit_cost is not None else None,

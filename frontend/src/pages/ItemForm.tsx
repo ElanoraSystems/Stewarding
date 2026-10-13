@@ -23,6 +23,7 @@ interface Similar {
   code: string
   name: string
   active: boolean
+  match: 'same' | 'similar'
 }
 
 export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
@@ -59,8 +60,7 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
   }, [form.name, item?.id])
 
   const shownSimilar = form.name.trim().length >= 3 ? similar : []
-  const squash = (text: string) => text.toLowerCase().split(/\s+/).filter(Boolean).join(' ')
-  const exact = shownSimilar.find((s) => squash(s.name) === squash(form.name))
+  const exact = shownSimilar.find((s) => s.match === 'same')
 
   async function submit(event: FormEvent) {
     event.preventDefault()

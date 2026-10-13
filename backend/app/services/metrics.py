@@ -10,7 +10,7 @@ from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, Checkli
                       CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryItem,
                       InventoryTransfer, InventoryTransferLine, Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
 from .settings import get_setting
-from .monitoring import expected_slots
+from .monitoring import expected_slots, has_reading
 
 DONE = ("completed", "verified", "pending_verification")
 OPEN_STATES = ("not_started", "in_progress", "overdue")
@@ -230,15 +230,23 @@ def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | N
     for eq in db.scalars(stmt.order_by(Equipment.code)):
         entry = {"equipment_id": eq.id, "equipment": eq.name, "location": win.loc.name, "due": 0, "done": 0, "missed": 0,
                  "failed": 0, "readings": 0}
-        readings = db.scalars(select(TemperatureReading).where(
+        # only the four columns used, as plain tuples: thousands of full objects are not needed to count and match times
+        readings = db.execute(select(TemperatureReading.schedule_id, TemperatureReading.recorded_at, TemperatureReading.passed,
+                                     TemperatureReading.retest_of_id).where(
             TemperatureReading.equipment_id == eq.id, TemperatureReading.recorded_at >= win.start - grace,
             TemperatureReading.recorded_at < win.end)).all()
         entry["readings"] = sum(1 for r in readings if win.start <= r.recorded_at < win.end)
         entry["failed"] = sum(1 for r in readings if not r.passed and win.start <= r.recorded_at < win.end)
         if last >= win.d_from:
+            first_reads: dict[int, list[datetime]] = defaultdict(list)  # reading times per schedule, sorted for binary search
+            for r in readings:
+                if r.retest_of_id is None:
+                    first_reads[r.schedule_id].append(r.recorded_at)
+            for times in first_reads.values():
+                times.sort()
             for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id,
                                                                     EquipmentSchedule.active.is_(True))):
-                times = [r.recorded_at for r in readings if r.schedule_id == sched.id and r.retest_of_id is None]
+                times = first_reads.get(sched.id, [])
                 for day in daterange(win.d_from, last):
                     slots = expected_slots(sched, shifts.get(sched.shift_id), win.loc.timezone, day)
                     day_end = timeutil.local_to_utc(day + timedelta(days=1), time(0), win.loc.timezone)
@@ -247,7 +255,7 @@ def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | N
                             continue
                         upper = slots[i + 1] if i + 1 < len(slots) else day_end
                         entry["due"] += 1
-                        if any(slot - grace <= t < upper for t in times):
+                        if has_reading(times, slot - grace, upper):
                             entry["done"] += 1
                         elif now > slot + grace:
                             entry["missed"] += 1

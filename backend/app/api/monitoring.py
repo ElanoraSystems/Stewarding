@@ -91,12 +91,26 @@ def _latest_action(db: Session, reading_id: int) -> CorrectiveAction | None:
                      .order_by(CorrectiveAction.id.desc()))
 
 
-def _serialize_reading(db: Session, reading: TemperatureReading, names: dict[int, str]) -> dict:
+def _latest_actions(db: Session, reading_ids: list[int]) -> dict[int, CorrectiveAction]:
+    """The newest corrective action of each reading from one query, keyed by reading id."""
+    if not reading_ids:
+        return {}
+    rows = db.scalars(select(CorrectiveAction).where(CorrectiveAction.reading_id.in_(reading_ids)).order_by(CorrectiveAction.id))
+    return {action.reading_id: action for action in rows}
+
+
+def _serialize_readings(db: Session, readings: list[TemperatureReading], names: dict[int, str]) -> list[dict]:
+    actions = _latest_actions(db, [r.id for r in readings])
+    return [_serialize_reading(db, r, names, actions) for r in readings]
+
+
+def _serialize_reading(db: Session, reading: TemperatureReading, names: dict[int, str],
+                       actions: dict[int, CorrectiveAction] | None = None) -> dict:
     out = row(reading, *READING_FIELDS)
     out["recorded_by_name"] = names.get(reading.recorded_by)
     out["reviewed_by_name"] = names.get(reading.reviewed_by)
     out["display"] = describe(reading.value, reading.value_type, reading.unit)
-    action = _latest_action(db, reading.id)
+    action = actions.get(reading.id) if actions is not None else _latest_action(db, reading.id)
     out["corrective_action"] = row(action, *ACTION_FIELDS) if action else None
     return out
 
@@ -180,7 +194,7 @@ def record_readings(body: BatchIn, user: User = Depends(require("temp.record")),
     readings = [_record(db, user, ReadingIn(equipment_id=body.equipment_id, **r.model_dump())) for r in body.readings]
     db.commit()
     names = _names(db, {user.id})
-    return [_serialize_reading(db, r, names) for r in readings]
+    return _serialize_readings(db, readings, names)
 
 
 def _open_failure(db: Session, user: User, eq: Equipment, reading: TemperatureReading, text: str | None,
@@ -225,7 +239,7 @@ def list_readings(equipment_id: int | None = None, location_id: int | None = Non
     total, rows = paginate(db, stmt.order_by(TemperatureReading.recorded_at.desc()), page, size)
     readings = [r[0] for r in rows]
     names = _names(db, {r.recorded_by for r in readings} | {r.reviewed_by for r in readings if r.reviewed_by})
-    return {"total": total, "items": [_serialize_reading(db, r, names) for r in readings]}
+    return {"total": total, "items": _serialize_readings(db, readings, names)}
 
 
 @router.post("/readings/review")

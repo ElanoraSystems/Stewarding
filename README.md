@@ -5,6 +5,7 @@ Back-of-house operations for hospitality kitchens and F&B stewarding teams. Mult
 Manager, Stewarding Supervisor, Steward) are enforced on the server, including per-location access.
 
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) - run it with Docker, create the first manager, back up, upgrade.
+- [docs/DSA_SUMMARY.md](docs/DSA_SUMMARY.md) and [docs/DSA_IMPLEMENTATION_PLAN.md](docs/DSA_IMPLEMENTATION_PLAN.md) - where algorithms and data structures are used, measured results, and the plan for more.
 - [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) - rules that need management sign-off, assumptions, known limits.
 - [docs/PLAN.md](docs/PLAN.md) - architecture and phases.
 
