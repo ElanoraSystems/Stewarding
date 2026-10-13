@@ -42,7 +42,7 @@ function Transactions() {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-3">
+      <div className="filter-bar">
         <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />
         <Select aria-label="Type" className="w-auto" value={type} onChange={(e) => { setType(e.target.value); setPage(1) }}>
           <option value="">All types</option>

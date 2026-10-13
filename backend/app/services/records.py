@@ -96,7 +96,8 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                     "value": describe(r), "limits": _limits(r),
                     "result": "Pass" if r.passed else "FAIL", "reference": r.reference or "",
                     "recorded_by": names.get(r.recorded_by, ""),
-                    "approved_by": f"{names.get(r.reviewed_by, '')} {_local(r.reviewed_at, loc.timezone)}".strip() if r.reviewed_at else "Awaiting approval",
+                    "approved_by": f"Rejected by {names.get(r.rejected_by, '')}: {r.reject_reason}" if r.rejected_at
+                    else f"{names.get(r.reviewed_by, '')} {_local(r.reviewed_at, loc.timezone)}".strip() if r.reviewed_at else "Awaiting approval",
                     "corrective_action": taken})
             failed = sum(1 for r in readings if not r.passed)
             columns = [("date", "Date"), ("time", "Time in" if lead else "Time")] + ([("time_out", "Time out")] if lead else []) + [
@@ -108,7 +109,7 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                 "meta": [("Location", loc.name), ("Monitoring point", f"{eq.name} ({eq.code})"), ("Type", eq.kind)],
                 "columns": columns, "rows": rows,
                 "totals": [("Checks recorded", len(readings)), ("Passed", len(readings) - failed), ("Failed", failed),
-                           ("Awaiting approval", sum(1 for r in readings if not r.reviewed_at))]
+                           ("Awaiting approval", sum(1 for r in readings if not r.reviewed_at and not r.rejected_at))]
                 + ([("Waiting for time out", sum(1 for r in readings if r.schedule_id == lead and r.id not in time_out))] if lead else [])})
     return groups
 

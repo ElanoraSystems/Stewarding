@@ -46,7 +46,7 @@ export function CountsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
+      <div className="filter-bar">
         <LocationSelect value={locationId} onChange={setLocationId} />
       </div>
       <Card>

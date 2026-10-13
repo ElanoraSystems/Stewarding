@@ -113,3 +113,24 @@ def test_a_scheduled_check_cannot_be_recorded_twice_for_the_same_time(client, lo
     assert [d["status"] for d in due] == ["done"]
     clock.advance(days=1)
     assert client.post("/api/monitoring/readings", json=body, headers=m).status_code == 201
+
+
+def test_a_reviewer_rejects_readings_and_the_check_can_be_recorded_again(client, login, db, clock):
+    m, steward, sup = login(MGR), login(STEWARD), login("sup.mk@example.test")
+    point = make(client, m, db, "chiller")
+    morning = point["schedules"][0]
+    body = {"equipment_id": point["id"], "schedule_id": morning["id"], "value": 3}
+    clock.set(2026, 3, 2, 4, 30)
+    first = client.post("/api/monitoring/readings", json=body, headers=steward).json()
+    assert client.post("/api/monitoring/readings", json=body, headers=steward).status_code == 409
+    url = "/api/monitoring/readings/reject"
+    assert client.post(url, json={"reading_ids": [first["id"]], "reason": "Probe was not in the product"}, headers=steward).status_code == 403
+    assert client.post(url, json={"reading_ids": [first["id"]], "reason": "x"}, headers=sup).status_code == 422
+    assert client.post(url, json={"reading_ids": [first["id"]], "reason": "Probe was not in the product"}, headers=sup).json() == {"rejected": 1, "skipped": 0}
+    assert client.post(url, json={"reading_ids": [first["id"]], "reason": "Probe was not in the product"}, headers=sup).json() == {"rejected": 0, "skipped": 1}
+    assert client.post(f"/api/monitoring/readings/{first['id']}/review", headers=m).status_code == 409
+    shown = client.get("/api/monitoring/readings", headers=m).json()["items"][0]
+    assert shown["reject_reason"] == "Probe was not in the product" and shown["rejected_by_name"] == "Sam Supervisor"
+    assert client.post("/api/monitoring/readings", json=body, headers=steward).status_code == 201
+    note = client.get("/api/notifications", headers=steward).json()["items"]
+    assert any(n["title"] == "Record again: Morning temperature" for n in note)

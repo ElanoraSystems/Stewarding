@@ -44,7 +44,7 @@ export function ReconciliationTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
+      <div className="filter-bar">
         <LocationSelect value={locationId} onChange={setLocationId} />
         <Input aria-label="Month" type="month" className="w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />
       </div>

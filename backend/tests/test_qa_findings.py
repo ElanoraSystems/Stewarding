@@ -90,3 +90,25 @@ def test_the_employee_id_is_generated_when_left_blank_and_never_repeats(client, 
     typed = client.post("/api/employees", json={**body, "email": "auto3@example.com", "employee_code": "X-900"}, headers=m)
     assert typed.json()["employee_code"] == "X-900"
     assert client.post("/api/employees", json={**body, "email": "auto4@example.com"}, headers=m).json()["employee_code"] == "E009"
+
+
+def test_checklist_tasks_are_assigned_and_waived_in_bulk(client, login, db, clock):
+    mk = loc_id(db, "MK")
+    m, sup, steward = login(MGR), login(SUP), login(STEWARD)
+    template = client.post("/api/checklists/templates", headers=m, json={"name": "QA Many", "category": "Opening", "location_id": mk, "frequency": "daily"}).json()
+    for n in range(3):
+        client.post(f"/api/checklists/templates/{template['id']}/tasks", headers=m, json={"description": f"Many task {n}"})
+    client.post("/api/checklists/generate", json={"location_id": mk}, headers=m)
+    items = [i for i in client.get(f"/api/checklists/instances?location_id={mk}&size=200", headers=m).json()["items"] if i["description"].startswith("Many task")]
+    ids = [i["id"] for i in items]
+    sid = next(e["id"] for e in client.get("/api/employees?size=50", headers=m).json()["items"] if e["employee_code"] == "E004")
+    rita = next(e["id"] for e in client.get("/api/employees?size=50", headers=m).json()["items"] if e["employee_code"] == "E003")
+    assert client.post("/api/checklists/instances/assign-many", json={"instance_ids": ids, "employee_id": sid}, headers=steward).status_code == 403
+    assert client.post("/api/checklists/instances/assign-many", json={"instance_ids": ids, "employee_id": 9999}, headers=sup).status_code == 400
+    assert client.post("/api/checklists/instances/assign-many", json={"instance_ids": ids, "employee_id": rita}, headers=sup).json() == {"assigned": 0, "skipped": 3}
+    assert client.post("/api/checklists/instances/assign-many", json={"instance_ids": ids, "employee_id": sid}, headers=sup).json() == {"assigned": 3, "skipped": 0}
+    assert {client.get(f"/api/checklists/instances/{i}", headers=m).json()["assigned_employee_id"] for i in ids} == {sid}
+    assert client.post("/api/checklists/instances/waive-many", json={"instance_ids": ids, "reason": "x"}, headers=sup).status_code == 422
+    assert client.post("/api/checklists/instances/waive-many", json={"instance_ids": ids, "reason": "Closed for deep clean"}, headers=sup).json() == {"waived": 3, "skipped": 0}
+    assert client.post("/api/checklists/instances/waive-many", json={"instance_ids": ids, "reason": "Closed for deep clean"}, headers=sup).json() == {"waived": 0, "skipped": 3}
+    assert client.post("/api/checklists/instances/assign-many", json={"instance_ids": ids, "employee_id": sid}, headers=sup).json() == {"assigned": 0, "skipped": 3}

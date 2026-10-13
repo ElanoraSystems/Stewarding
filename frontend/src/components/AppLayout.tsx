@@ -138,7 +138,7 @@ export function AppLayout() {
             <NotificationBell />
           </div>
         </header>
-        <main className="flex-1 px-4 pb-8 lg:px-6">
+        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pb-8 lg:px-6">
           <Outlet />
         </main>
       </div>

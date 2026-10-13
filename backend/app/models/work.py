@@ -153,6 +153,9 @@ class TemperatureReading(Base):
     start_reading_id: Mapped[int | None] = mapped_column(ForeignKey("temperature_reading.id"), index=True)  # the time-in reading a finish closes
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    rejected_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))  # a rejected reading must be recorded again
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime)
+    reject_reason: Mapped[str | None] = mapped_column(String(300))
 
 
 class CorrectiveAction(Base):

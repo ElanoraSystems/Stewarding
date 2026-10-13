@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Button } from '@/components/ui/button'
+import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { EmptyState, Skeleton } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDate, todayIso, weekRange } from '@/lib/format'
-import { useRun } from '@/lib/toast'
+import { useRun, useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
 import { ChecklistConfig } from '@/pages/ChecklistConfig'
@@ -19,12 +21,18 @@ const DONE = ['completed', 'pending_verification', 'verified', 'waived']
 export function ChecklistsPage() {
   const { me } = useAuth()
   const run = useRun()
+  const toast = useToast()
   const [locationId, setLocationId] = useState<number | null>(null)
   const [day, setDay] = useState(todayIso())
   const [view, setView] = useState<'day' | 'week'>('day')
   const [status, setStatus] = useState('')
   const [frequency, setFrequency] = useState('')
   const [configuring, setConfiguring] = useState(false)
+  const [selected, setSelected] = useState<number[]>([])
+  const [selecting, setSelecting] = useState(false)
+  const [assignee, setAssignee] = useState('')
+  const [waiving, setWaiving] = useState(false)
+  const [reason, setReason] = useState('')
   const canConfigure = me?.permissions.includes('checklist.configure') ?? false
   const range = weekRange(day)
 
@@ -41,6 +49,24 @@ export function ChecklistsPage() {
   const timezone = me?.locations.find((l) => l.id === locationId)?.timezone
   const approvable = me?.permissions.includes('checklist.verify') ? items.filter((i) => i.effective_status === 'pending_verification' && i.completed_by !== me.id) : []
   const days = [...new Set(items.map((i) => i.local_date))].sort()
+  const canAssign = me?.permissions.includes('task.assign') ?? false
+  const canWaive = me?.permissions.includes('checklist.verify') ?? false
+  const selectable = items.filter((i) => !['verified', 'waived'].includes(i.effective_status)).map((i) => i.id)
+  const people = (staff.data?.items ?? []).filter((e) => e.location_ids.includes(locationId ?? -1))
+  const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  async function afterBulk(path: string, body: Record<string, unknown>, done: (r: Record<string, number>) => string) {
+    try {
+      toast('ok', done(await api<Record<string, number>>(`/checklists/instances/${path}`, { body })))
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Something went wrong')
+      return
+    }
+    setSelected([])
+    setWaiving(false)
+    setReason('')
+    reload()
+  }
 
   async function approveAll() {
     const ids = approvable.map((i) => i.id)
@@ -50,7 +76,10 @@ export function ChecklistsPage() {
 
   const cards = (list: Instance[]) => (
     <div className="grid gap-3 lg:grid-cols-2">
-      {list.map((i) => <ChecklistTaskCard key={i.id} item={i} timezone={timezone} staff={staff.data?.items ?? []} onChanged={reload} />)}
+      {list.map((i) => (
+        <ChecklistTaskCard key={i.id} item={i} timezone={timezone} staff={staff.data?.items ?? []} onChanged={reload}
+          selection={selecting && selectable.includes(i.id) ? { checked: selected.includes(i.id), onToggle: () => toggle(i.id) } : undefined} />
+      ))}
     </div>
   )
 
@@ -63,7 +92,7 @@ export function ChecklistsPage() {
 
       {configuring ? <ChecklistConfig locationId={locationId} onLocation={setLocationId} /> : (
         <>
-          <div className="flex flex-wrap gap-3">
+          <div className="filter-bar">
             <LocationSelect value={locationId} onChange={setLocationId} />
             <div role="group" aria-label="View" className="inline-flex rounded-lg border border-border bg-surface p-0.5">
               {(['day', 'week'] as const).map((v) => (
@@ -99,6 +128,28 @@ export function ChecklistsPage() {
             <div className="h-2 overflow-hidden rounded bg-border"><div className="h-full bg-brand" style={{ width: `${percent}%` }} /></div>
           </div>
 
+          {(canAssign || canWaive) && items.length > 0 && (
+            <div className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
+              <Button size="sm" variant={selecting ? 'default' : 'outline'} onClick={() => { setSelecting((s) => !s); setSelected([]) }}>{selecting ? 'Done selecting' : 'Select tasks'}</Button>
+              {selecting && (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => setSelected(selectable)}>Select all ({selectable.length})</Button>
+                  <span className="py-1.5 text-ink-muted">{selected.length} selected</span>
+                  {canAssign && (
+                    <>
+                      <Select aria-label="Assign to" className="h-8 w-48" value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+                        <option value="">Assign to...</option>
+                        {people.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                      </Select>
+                      <Button size="sm" disabled={selected.length === 0 || !assignee}
+                        onClick={() => afterBulk('assign-many', { instance_ids: selected, employee_id: Number(assignee) }, (r) => `${r.assigned} assigned${r.skipped ? `, ${r.skipped} skipped` : ''}`)}>Assign</Button>
+                    </>
+                  )}
+                  {canWaive && <Button size="sm" variant="outline" disabled={selected.length === 0} onClick={() => setWaiving(true)}>Waive...</Button>}
+                </>
+              )}
+            </div>
+          )}
           {approvable.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
               <span>{approvable.length} task{approvable.length === 1 ? '' : 's'} awaiting your approval</span>
@@ -119,6 +170,15 @@ export function ChecklistsPage() {
           ) : cards(items)}
         </>
       )}
+      <Modal open={waiving} title={`Waive ${selected.length} task${selected.length === 1 ? '' : 's'}`} onClose={() => setWaiving(false)}>
+        <p className="mb-3 text-sm text-ink-muted">Waived tasks are closed without being done. The reason is recorded on every one of them.</p>
+        <Field label="Reason"><Input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></Field>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setWaiving(false)}>Cancel</Button>
+          <Button variant="danger" disabled={reason.trim().length < 5}
+            onClick={() => afterBulk('waive-many', { instance_ids: selected, reason: reason.trim() }, (r) => `${r.waived} waived${r.skipped ? `, ${r.skipped} skipped` : ''}`)}>Waive</Button>
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, CalendarCheck, ClipboardCheck, ClipboardList, Clock, Coffee, HeartCrack, LogIn, Package, PackageMinus, Thermometer, TriangleAlert, UserX, Wrench } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { greeting, HeroCard } from '@/components/HeroCard'
@@ -107,7 +107,7 @@ export function ManagerDashboard() {
         ] : []}
       />
 
-      <div className="flex flex-wrap gap-3">
+      <div className="filter-bar">
         <LocationSelect allowAll value={locationId} onChange={setLocationId} />
         <Input aria-label="From date" type="date" className="w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
         <Input aria-label="To date" type="date" className="w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
@@ -152,25 +152,25 @@ export function ManagerDashboard() {
             </Link>
           )}
           <KpiGroup title="People today" link="/attendance">
-            <KpiCard label="Scheduled" value={k.scheduled_today} />
-            <KpiCard label="Checked in" value={k.checked_in} hint={`${k.on_duty} on duty now`} tone="ok" />
-            <KpiCard label="Not checked in" value={k.not_checked_in} hint={`${k.absent} absent`} tone={k.absent ? 'warn' : 'default'} />
-            <KpiCard label="Off today" value={k.off_today} hint="week off or leave" />
+            <KpiCard icon={CalendarCheck} label="Scheduled" value={k.scheduled_today} />
+            <KpiCard icon={LogIn} label="Checked in" value={k.checked_in} hint={`${k.on_duty} on duty now`} tone="ok" />
+            <KpiCard icon={UserX} label="Not checked in" value={k.not_checked_in} hint={`${k.absent} absent`} tone={k.absent ? 'warn' : 'default'} />
+            <KpiCard icon={Coffee} label="Off today" value={k.off_today} hint="week off or leave" />
           </KpiGroup>
           <KpiGroup title="Checklists" link="/checklists">
-            <KpiCard label="Daily completion" value={pct(k.daily_completion)} hint={ratio(k.daily_completion)} />
-            <KpiCard label="Weekly completion" value={pct(k.weekly_completion)} hint={ratio(k.weekly_completion)} />
-            <KpiCard label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
+            <KpiCard icon={ClipboardCheck} label="Daily completion" value={pct(k.daily_completion)} hint={ratio(k.daily_completion)} />
+            <KpiCard icon={ClipboardList} label="Weekly completion" value={pct(k.weekly_completion)} hint={ratio(k.weekly_completion)} />
+            <KpiCard icon={Clock} label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
           </KpiGroup>
           <KpiGroup title="Food safety monitoring" link="/monitoring">
-            <KpiCard label="Checks recorded" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} hint="recorded / due so far today" />
-            <KpiCard label="Failed checks" value={k.failed_checks} tone={k.failed_checks ? 'critical' : 'default'} />
-            <KpiCard label="Points needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
+            <KpiCard icon={Thermometer} label="Checks recorded" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} hint="recorded / due so far today" />
+            <KpiCard icon={TriangleAlert} label="Failed checks" value={k.failed_checks} tone={k.failed_checks ? 'critical' : 'default'} />
+            <KpiCard icon={Wrench} label="Points needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
           </KpiGroup>
           <KpiGroup title="Stock and breakage" link="/stock-movements">
-            <KpiCard label="Stock on hand" value={k.inventory.qty} hint={`Value ${k.inventory.value.toFixed(2)}`} />
-            <KpiCard label="Low-stock items" value={k.low_stock_items} tone={k.low_stock_items ? 'warn' : 'default'} />
-            <KpiCard label="Breakage today" value={k.breakage_today} hint={`${k.breakage_month} this month`} />
+            <KpiCard icon={Package} label="Stock on hand" value={k.inventory.qty} hint={`Value ${k.inventory.value.toFixed(2)}`} />
+            <KpiCard icon={PackageMinus} label="Low-stock items" value={k.low_stock_items} tone={k.low_stock_items ? 'warn' : 'default'} />
+            <KpiCard icon={HeartCrack} label="Breakage today" value={k.breakage_today} hint={`${k.breakage_month} this month`} />
           </KpiGroup>
         </div>
       )}

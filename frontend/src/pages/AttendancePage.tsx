@@ -86,7 +86,7 @@ export function AttendancePage() {
         {canCorrect && <Button size="sm" onClick={() => setAdding(true)}>Add missing attendance</Button>}
       </div>
       {canView && (
-        <div className="flex flex-wrap gap-3">
+        <div className="filter-bar">
           <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />
           <Input aria-label="From date" type="date" className="w-auto" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
           <Input aria-label="To date" type="date" className="w-auto" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />

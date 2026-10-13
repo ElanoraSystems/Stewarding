@@ -237,7 +237,7 @@ export function ReceivingTab() {
       </Card>
 
       <h2 className="text-lg font-semibold">Documents</h2>
-      <div className="flex flex-wrap gap-3">
+      <div className="filter-bar">
         <Select aria-label="Supplier filter" className="w-auto" value={filterSupplier} onChange={(e) => { setFilterSupplier(e.target.value); setPage(1) }}>
           <option value="">All suppliers</option>
           {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}

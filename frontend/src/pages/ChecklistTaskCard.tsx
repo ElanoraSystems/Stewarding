@@ -44,9 +44,10 @@ interface TaskCardProps {
   timezone?: string
   staff: EmployeeRow[]
   onChanged: () => void
+  selection?: { checked: boolean; onToggle: () => void }
 }
 
-export function ChecklistTaskCard({ item, timezone, staff, onChanged }: TaskCardProps) {
+export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection }: TaskCardProps) {
   const { me } = useAuth()
   const run = useRun()
   const can = (permission: string) => me?.permissions.includes(permission) ?? false
@@ -86,12 +87,15 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged }: TaskCard
     <Card className={status === 'overdue' || status === 'failed' ? 'border-danger/50' : undefined}>
       <div className="space-y-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
+          <div className="flex items-start gap-3">
+            {selection && <input type="checkbox" className="mt-1" aria-label={`Select ${item.description}`} checked={selection.checked} onChange={selection.onToggle} />}
+            <div>
             <p className="font-medium">{item.description}</p>
             <p className="flex items-center gap-1 text-xs text-ink-muted">
               <Clock className="h-3 w-3" aria-hidden /> Due {fmtTime(item.due_at, timezone)}
               {item.requires_verification && ' - needs verification'}
             </p>
+            </div>
           </div>
           <div className="flex items-center gap-1">
             {(item.priority === 'high' || item.priority === 'critical') && <Badge tone="warn">{item.priority}</Badge>}

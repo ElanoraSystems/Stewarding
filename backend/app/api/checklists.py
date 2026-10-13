@@ -386,6 +386,57 @@ def verify_many(body: VerifyManyIn, user: User = Depends(require("checklist.veri
     return {"approved": len(approved), "skipped": len(set(body.instance_ids)) - len(approved)}
 
 
+class AssignManyIn(VerifyManyIn):
+    employee_id: int
+
+
+class WaiveManyIn(VerifyManyIn):
+    reason: str = Field(min_length=5, max_length=500)
+
+
+def _many(db: Session, user: User, ids: list[int]) -> list[ChecklistInstance]:
+    found = list(db.scalars(select(ChecklistInstance).where(ChecklistInstance.id.in_(set(ids)))))
+    for inst in found:
+        check_location(user, db, inst.location_id)
+    return found
+
+
+@router.post("/instances/assign-many")
+def assign_many(body: AssignManyIn, user: User = Depends(require("task.assign")), db: Session = Depends(get_db)):
+    """Gives the chosen unfinished tasks to one employee; tasks at a location they do not work at, or already finished, are skipped."""
+    emp = db.get(Employee, body.employee_id)
+    if not emp or emp.status != "active":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Employee is not active")
+    places = set(db.scalars(select(EmployeeLocation.location_id).where(EmployeeLocation.employee_id == emp.id)))
+    now, given = timeutil.utc_now(), []
+    for inst in _many(db, user, body.instance_ids):
+        if inst.location_id not in places or inst.status in DONE:
+            continue
+        db.add(TaskAssignment(instance_id=inst.id, employee_id=emp.id, assigned_by=user.id))
+        inst.assigned_employee_id = emp.id
+        given.append(inst.id)
+    audit(db, user, "task.assign_many", "checklist_instance", None, None, {"employee_id": emp.id, "instance_ids": sorted(given)})
+    if given and emp.user_id:
+        notify(db, [emp.user_id], "task_assigned", f"{len(given)} task{'s' if len(given) != 1 else ''} assigned to you",
+               key=f"assign-many:{emp.id}:{now.isoformat()}", priority="normal", link="/checklists")
+    db.commit()
+    return {"assigned": len(given), "skipped": len(set(body.instance_ids)) - len(given)}
+
+
+@router.post("/instances/waive-many")
+def waive_many(body: WaiveManyIn, user: User = Depends(require("checklist.verify")), db: Session = Depends(get_db)):
+    """Waives the chosen tasks with one reason; tasks already verified or waived are skipped."""
+    now, waived = timeutil.utc_now(), []
+    for inst in _many(db, user, body.instance_ids):
+        if inst.status in ("verified", "waived"):
+            continue
+        inst.status, inst.waive_reason, inst.verified_by, inst.verified_at = "waived", body.reason, user.id, now
+        waived.append(inst.id)
+    audit(db, user, "checklist.waive_many", "checklist_instance", None, None, {"reason": body.reason, "instance_ids": sorted(waived)})
+    db.commit()
+    return {"waived": len(waived), "skipped": len(set(body.instance_ids)) - len(waived)}
+
+
 @router.post("/instances/{instance_id}/waive")
 def waive(instance_id: int, body: WaiveIn, user: User = Depends(require("checklist.verify")),
           db: Session = Depends(get_db)):

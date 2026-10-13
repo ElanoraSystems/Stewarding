@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 READING_FIELDS = ("id", "equipment_id", "schedule_id", "location_id", "recorded_at", "stage", "source", "parameter", "unit",
                   "value_type", "value", "reference", "min_limit", "max_limit", "passed", "recorded_by", "comment", "evidence_path", "retest_of_id",
-                  "reviewed_by", "reviewed_at", "start_reading_id")
+                  "reviewed_by", "reviewed_at", "start_reading_id", "rejected_by", "rejected_at", "reject_reason")
 ACTION_FIELDS = ("id", "reading_id", "action", "taken_by", "taken_at", "retest_due_at", "status", "resolved_at",
                  "escalated_at")
 
@@ -114,6 +114,7 @@ def _serialize_reading(db: Session, reading: TemperatureReading, names: dict[int
     out = row(reading, *READING_FIELDS)
     out["recorded_by_name"] = names.get(reading.recorded_by)
     out["reviewed_by_name"] = names.get(reading.reviewed_by)
+    out["rejected_by_name"] = names.get(reading.rejected_by)
     out["display"] = describe(reading)
     action = actions.get(reading.id) if actions is not None else _latest_action(db, reading.id)
     out["corrective_action"] = row(action, *ACTION_FIELDS) if action else None
@@ -265,7 +266,7 @@ def list_readings(equipment_id: int | None = None, location_id: int | None = Non
                                                                             datetime.min.time()))
     total, rows = paginate(db, stmt.order_by(TemperatureReading.recorded_at.desc()), page, size)
     readings = [r[0] for r in rows]
-    names = _names(db, {r.recorded_by for r in readings} | {r.reviewed_by for r in readings if r.reviewed_by})
+    names = _names(db, {r.recorded_by for r in readings} | {r.reviewed_by for r in readings if r.reviewed_by} | {r.rejected_by for r in readings if r.rejected_by})
     return {"total": total, "items": _serialize_readings(db, readings, names)}
 
 
@@ -275,7 +276,7 @@ def review_readings(body: ReviewManyIn, user: User = Depends(require("temp.revie
     now, reviewed = timeutil.utc_now(), []
     for reading in db.scalars(select(TemperatureReading).where(TemperatureReading.id.in_(set(body.reading_ids)))):
         check_location(user, db, reading.location_id)
-        if reading.reviewed_at or reading.recorded_by == user.id:
+        if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id:
             continue
         reading.reviewed_by, reading.reviewed_at = user.id, now
         reviewed.append(reading.id)
@@ -292,12 +293,33 @@ def review_reading(reading_id: int, user: User = Depends(require("temp.review"))
     check_location(user, db, reading.location_id)
     if reading.recorded_by == user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot review your own reading")
-    if reading.reviewed_at:
+    if reading.reviewed_at or reading.rejected_at:
         raise HTTPException(status.HTTP_409_CONFLICT, "Reading was already reviewed")
     reading.reviewed_by, reading.reviewed_at = user.id, timeutil.utc_now()
     audit(db, user, "monitoring.review", "temperature_reading", reading.id)
     db.commit()
     return _serialize_reading(db, reading, _names(db, {reading.recorded_by}))
+
+
+class RejectManyIn(ReviewManyIn):
+    reason: str = Field(min_length=5, max_length=300)
+
+
+@router.post("/readings/reject")
+def reject_readings(body: RejectManyIn, user: User = Depends(require("temp.review")), db: Session = Depends(get_db)):
+    """Rejects the chosen readings with one reason so they are recorded again; reviewed readings and your own are skipped."""
+    now, rejected = timeutil.utc_now(), []
+    for reading in db.scalars(select(TemperatureReading).where(TemperatureReading.id.in_(set(body.reading_ids)))):
+        check_location(user, db, reading.location_id)
+        if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id:
+            continue
+        reading.rejected_by, reading.rejected_at, reading.reject_reason = user.id, now, body.reason.strip()
+        rejected.append(reading)
+        notify(db, [reading.recorded_by], "monitoring_rejected", f"Record again: {reading.stage}",
+               key=f"reject_reading:{reading.id}", body=body.reason.strip(), priority="high", location_id=reading.location_id, link="/monitoring")
+    audit(db, user, "monitoring.reject_many", "temperature_reading", None, None, {"reading_ids": sorted(r.id for r in rejected), "reason": body.reason.strip()})
+    db.commit()
+    return {"rejected": len(rejected), "skipped": len(set(body.reading_ids)) - len(rejected)}
 
 
 @router.get("/corrective-actions")

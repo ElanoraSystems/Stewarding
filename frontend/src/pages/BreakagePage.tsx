@@ -82,7 +82,7 @@ export function BreakagePage() {
 
       <h2 className="text-lg font-semibold">{canList ? 'Incidents' : 'My reports'}</h2>
       {canList && (
-        <div className="flex flex-wrap gap-3">
+        <div className="filter-bar">
           <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />
           <Select aria-label="Status" className="w-auto" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
             <option value="">Any status</option>

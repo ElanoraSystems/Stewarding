@@ -58,7 +58,7 @@ export function OperationsSummary() {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="filter-bar">
         <Select aria-label="Report period" className="w-auto" value={period} onChange={(e) => setPeriod(e.target.value)}>
           <option value="daily">Daily</option>
           <option value="weekly">Weekly</option>

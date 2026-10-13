@@ -240,7 +240,7 @@ def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | N
         for row_ in db.execute(select(TemperatureReading.equipment_id, TemperatureReading.schedule_id, TemperatureReading.recorded_at,
                                       TemperatureReading.passed, TemperatureReading.retest_of_id).where(
                 TemperatureReading.equipment_id.in_(ids), TemperatureReading.recorded_at >= win.start - grace,
-                TemperatureReading.recorded_at < win.end)):
+                TemperatureReading.recorded_at < win.end, TemperatureReading.rejected_at.is_(None))):
             readings[row_.equipment_id].append(row_)
     out: dict[int, dict] = {}
     for eq in points:

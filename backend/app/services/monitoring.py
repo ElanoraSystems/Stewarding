@@ -124,7 +124,7 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
     ids = [s.id for scheds in schedules.values() for s in scheds]
     if ids:
         for schedule_id, recorded_at in db.execute(select(TemperatureReading.schedule_id, TemperatureReading.recorded_at).where(
-                TemperatureReading.schedule_id.in_(ids), TemperatureReading.retest_of_id.is_(None),
+                TemperatureReading.schedule_id.in_(ids), TemperatureReading.retest_of_id.is_(None), TemperatureReading.rejected_at.is_(None),
                 TemperatureReading.recorded_at >= min(starts.values()))):
             times[schedule_id].append(recorded_at)
     out = []
@@ -157,7 +157,7 @@ def already_recorded(db: Session, eq: Equipment, sched: EquipmentSchedule, now: 
     i = started[-1]
     upper = slots[i + 1] if i + 1 < len(slots) else timeutil.local_to_utc(day + timedelta(days=1), time(0, 0), tz)
     times = sorted(db.scalars(select(TemperatureReading.recorded_at).where(
-        TemperatureReading.schedule_id == sched.id, TemperatureReading.retest_of_id.is_(None),
+        TemperatureReading.schedule_id == sched.id, TemperatureReading.retest_of_id.is_(None), TemperatureReading.rejected_at.is_(None),
         TemperatureReading.recorded_at >= slots[i] - timedelta(minutes=grace), TemperatureReading.recorded_at < upper)))
     return has_reading(times, slots[i] - timedelta(minutes=grace), upper)
 

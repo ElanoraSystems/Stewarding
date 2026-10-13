@@ -99,7 +99,7 @@ export function EmployeesPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="filter-bar">
         <div className="relative min-w-52 flex-1">
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted" aria-hidden />
           <Input aria-label="Search employees" className="pl-9" placeholder="Search name or ID" value={search}
@@ -134,7 +134,12 @@ export function EmployeesPage() {
           {loading && !data ? <SkeletonRows cols={canManage ? 8 : 5} /> : data?.items.map((e) => (
             <tr key={e.id}>
               <Td>{e.employee_code}</Td>
-              <Td className="font-medium">{e.full_name}</Td>
+              <Td className="font-medium">
+                <span className="flex items-center gap-3">
+                  <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand">{e.full_name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}</span>
+                  {e.full_name}
+                </span>
+              </Td>
               <Td>{e.job_title}{e.company && <span className="block text-xs text-ink-muted">{e.company}</span>}</Td>
               <Td><StatusBadge status={e.status} /></Td>
               <Td>{e.location_ids.map((id) => locationNames.get(id) ?? id).join(', ')}</Td>
@@ -143,7 +148,7 @@ export function EmployeesPage() {
                 <Td>{e.account?.change_required ? <Badge tone="warn">Temporary password</Badge> : e.account?.last_login_at ? fmtDateTime(e.account.last_login_at) : 'Never'}</Td>
               )}
               {canManage && (
-                <Td className="space-x-2 text-right">
+                <Td className="space-x-1.5 whitespace-nowrap text-right">
                   <Button size="sm" variant="outline" onClick={() => { setEditing(e); setFormOpen(true) }}>Edit</Button>
                   <Button size="sm" variant="outline" onClick={() => setEnrolling(e)}>{e.face_enrolled ? 'Update face' : 'Enroll face'}</Button>
                   {e.id !== me?.employee?.id && <Button size="sm" variant="outline" onClick={() => setResetting(e)}>Reset password</Button>}
