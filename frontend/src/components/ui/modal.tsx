@@ -7,9 +7,10 @@ interface ModalProps {
   title: string
   onClose: () => void
   children: ReactNode
+  wide?: boolean
 }
 
-export function Modal({ open, title, onClose, children }: ModalProps) {
+export function Modal({ open, title, onClose, children, wide = false }: ModalProps) {
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose()
@@ -25,7 +26,7 @@ export function Modal({ open, title, onClose, children }: ModalProps) {
         aria-modal="true"
         aria-label={title}
         onMouseDown={(event) => event.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface p-5 shadow-xl"
+        className={`max-h-[90vh] w-full overflow-y-auto rounded-lg bg-surface p-5 shadow-xl ${wide ? 'max-w-3xl' : 'max-w-lg'}`}
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>

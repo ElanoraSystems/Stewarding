@@ -3,6 +3,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .cache import memo
 from .db import get_db
 from .models import EmployeeLocation, Location, User
 from .permissions import MANAGER
@@ -49,8 +50,9 @@ def scoped_locations(user: User, db: Session) -> set[int] | None:
         return None
     if not user.employee:
         return set()
-    rows = db.scalars(select(EmployeeLocation.location_id).where(EmployeeLocation.employee_id == user.employee.id))
-    return set(rows)
+    employee_id = user.employee.id
+    return memo(db, ("scope", employee_id), lambda: set(db.scalars(
+        select(EmployeeLocation.location_id).where(EmployeeLocation.employee_id == employee_id))))
 
 
 def check_location(user: User, db: Session, location_id: int) -> None:

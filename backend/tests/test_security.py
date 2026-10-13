@@ -57,7 +57,7 @@ MANAGER_ONLY = [
     ("POST", "/api/suppliers", {}), ("PUT", "/api/suppliers/1", {}), ("PUT", "/api/inventory/categories/1", {}),
     ("PUT", "/api/inventory/units/1", {}), ("POST", "/api/lookups", {}), ("PUT", "/api/lookups/1", {}),
     ("POST", "/api/receipts/1/void", {"reason": "Entered by mistake"}),
-    ("GET", "/api/equipment/templates", None), ("PUT", "/api/organization", {"name": "Test Org"}), ("POST", "/api/organization/logo", None), ("DELETE", "/api/organization/logo", None), ("POST", "/api/equipment/from-template", {}),
+    ("GET", "/api/equipment/templates", None), ("PUT", "/api/organization", {"name": "Test Org"}), ("POST", "/api/organization/logo", None), ("DELETE", "/api/organization/logo", None), ("POST", "/api/equipment/from-template", {}), ("POST", "/api/equipment/forms", {}),
 ]
 
 SUPERVISOR_UP = [

@@ -6,6 +6,9 @@ WORDS = re.compile(r"[a-z0-9]+")
 
 
 def _stem(word: str) -> str:
+    """A very small singular form: glasses to glass, boxes to box, plates to plate."""
+    if len(word) > 4 and word.endswith(("sses", "xes", "ches", "shes", "zes")):
+        return word[:-2]
     return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
 
 
@@ -17,6 +20,14 @@ def tokens(text: str) -> frozenset[str]:
 def compact(text: str) -> str:
     """Letters and digits only, so 'Dinner Plate 27 cm' and 'dinner-plate 27cm' become the same string."""
     return "".join(WORDS.findall(text.lower()))
+
+
+def token_key(text: str) -> str:
+    """The words of a name, singular and sorted, as one string; equal keys mean the same words in any order."""
+    return " ".join(sorted(tokens(text)))
+
+
+SCAN_LIMIT = 5000  # up to this many items every name is compared; beyond it the database narrows the candidates first
 
 
 def within_edits(a: str, b: str, limit: int) -> bool:

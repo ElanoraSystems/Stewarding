@@ -1,8 +1,9 @@
 from datetime import time
 from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,7 +22,8 @@ router = APIRouter(prefix="/api/equipment", tags=["monitoring points"])
 EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer", "model", "serial_number",
                     "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
-                   "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "active")
+                   "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "options",
+                   "fail_options", "max_length", "active")
 
 
 class EquipmentIn(BaseModel):
@@ -54,7 +56,10 @@ class ScheduleIn(BaseModel):
     stage: str = Field(min_length=2, max_length=60)
     parameter: str = Field(default="Temperature", min_length=2, max_length=60)
     unit: str | None = Field(default="°C", max_length=20)
-    value_type: str = Field(default="number", pattern="^(number|yes_no)$")
+    value_type: str = Field(default="number", pattern="^(number|yes_no|text|choice)$")
+    options: list[str] | None = None
+    fail_options: list[str] | None = None
+    max_length: int | None = Field(default=None, ge=1, le=500)
     require_reference: bool = False
     source: str = Field(default="machine_display", pattern="^(machine_display|independent_probe)$")
     timing: str = Field(pattern="^(startup|interval|checkpoint)$")
@@ -69,10 +74,24 @@ class ScheduleIn(BaseModel):
 
     @model_validator(mode="after")
     def _check(self):
-        if self.value_type == "yes_no":
+        if self.value_type != "number":
             self.min_value = self.max_value = self.unit = None
-        elif self.min_value is None and self.max_value is None:
-            raise ValueError("Set a minimum or a maximum limit")
+        if self.value_type != "choice":
+            self.options = self.fail_options = None
+        if self.value_type != "text":
+            self.max_length = None
+        if self.value_type == "text":
+            self.max_length = self.max_length or 200
+        if self.value_type == "choice":
+            options = list(dict.fromkeys(" ".join(o.split()) for o in (self.options or []) if o.strip()))
+            if not 2 <= len(options) <= 20 or any(len(o) > 80 for o in options):
+                raise ValueError("Give between 2 and 20 answers to choose from, each up to 80 characters")
+            fails = [" ".join(o.split()) for o in (self.fail_options or [])]
+            if any(f not in options for f in fails):
+                raise ValueError("A failing answer must be one of the listed answers")
+            self.options, self.fail_options = options, list(dict.fromkeys(fails))
+        if self.value_type == "number" and self.min_value is None and self.max_value is None:
+            raise ValueError("A number field needs a minimum or a maximum; use Short text for anything without limits")
         if None not in (self.min_value, self.max_value) and self.min_value > self.max_value:
             raise ValueError("Minimum limit cannot exceed the maximum limit")
         if self.timing == "interval" and not self.interval_minutes:
@@ -236,3 +255,106 @@ def create_from_template(body: FromTemplateIn, user: User = Depends(require("equ
     audit(db, user, "equipment.create", "equipment", eq.id, None, {"template": body.template, "code": eq.code})
     db.commit()
     return serialize(db, eq)
+
+
+class FieldIn(BaseModel):
+    title: str = Field(min_length=2, max_length=60)
+    value_type: str = Field(pattern="^(number|yes_no|text|choice)$")
+    unit: str | None = Field(default=None, max_length=20)
+    min_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
+    max_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
+    options: list[str] | None = None
+    fail_options: list[str] | None = None
+    max_length: int | None = Field(default=None, ge=1, le=500)
+    require_reference: bool = False
+
+
+class FrequencyIn(BaseModel):
+    mode: Literal["daily", "weekly", "monthly", "interval"]
+    times: list[time] = Field(default_factory=list, max_length=6)
+    weekdays: list[int] | None = None
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
+    interval_minutes: int | None = Field(default=None, ge=5, le=1440)
+    start: time | None = None
+
+    @model_validator(mode="after")
+    def _by_mode(self):
+        if self.mode == "interval":
+            if not self.interval_minutes or self.start is None:
+                raise ValueError("Say how many minutes apart the checks are and when the first one is")
+        elif not self.times or len(set(self.times)) != len(self.times):
+            raise ValueError("Give at least one time, each different")
+        if self.mode == "weekly" and not self.weekdays:
+            raise ValueError("Choose the days of the week")
+        if self.mode == "monthly" and not self.day_of_month:
+            raise ValueError("Choose the day of the month")
+        return self
+
+
+class FormIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    kind: str = Field(default="Other", min_length=2, max_length=40)
+    location_ids: list[int] = Field(min_length=1, max_length=20)
+    fields: list[FieldIn] = Field(min_length=1, max_length=20)
+    frequency: FrequencyIn
+    supervisor_id: int | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value):
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Give the form a name")
+        return value
+
+    @model_validator(mode="after")
+    def _titles(self):
+        titles = [" ".join(f.title.split()).lower() for f in self.fields]
+        if len(set(titles)) != len(titles):
+            raise ValueError("Two fields have the same title")
+        return self
+
+
+def _schedules_for(form: FormIn) -> list[dict]:
+    """One check per field per time; checks that share a time are recorded together as a single form."""
+    freq = form.frequency
+    slots = [{"timing": "interval", "interval_minutes": freq.interval_minutes, "time_of_day": freq.start}] if freq.mode == "interval" \
+        else [{"timing": "checkpoint", "time_of_day": t, "interval_minutes": None} for t in sorted(freq.times)]
+    out = []
+    for slot in slots:
+        for f in form.fields:
+            title = " ".join(f.title.split())
+            check = ScheduleIn(stage=title, parameter=title, unit=f.unit, value_type=f.value_type, require_reference=f.require_reference,
+                               source="machine_display", weekdays=freq.weekdays if freq.mode == "weekly" else None,
+                               day_of_month=freq.day_of_month if freq.mode == "monthly" else None, min_value=f.min_value,
+                               max_value=f.max_value, options=f.options, fail_options=f.fail_options, max_length=f.max_length, **slot)
+            out.append(_schedule_values(check))
+    return out
+
+
+@router.post("/forms", status_code=201)
+def create_form(body: FormIn, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
+    """Creates a log form, which is a monitoring point with a check per field, at each chosen location."""
+    _validate_refs(db, body.supervisor_id)
+    locations = []
+    for location_id in dict.fromkeys(body.location_ids):
+        check_location(user, db, location_id)
+        location = db.get(Location, location_id)
+        if not location or not location.active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inactive location")
+        locations.append(location)
+    try:
+        schedules = _schedules_for(body)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    made = []
+    for location in locations:
+        eq = Equipment(code=_next_code(db, "FM", location.code), name=body.name, kind=body.kind, location_id=location.id,
+                       supervisor_id=body.supervisor_id)
+        db.add(eq)
+        db.flush()
+        db.add_all(EquipmentSchedule(equipment_id=eq.id, **values) for values in schedules)
+        audit(db, user, "equipment.create", "equipment", eq.id, None, {"form": body.name, "code": eq.code, "fields": len(body.fields)})
+        made.append(eq)
+    db.commit()
+    return {"points": [serialize(db, eq) for eq in made]}

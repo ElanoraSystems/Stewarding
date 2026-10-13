@@ -15,7 +15,7 @@ from ..services import metrics
 from ..services.checklists import OPEN, effective_status
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
-from ..services.monitoring import due_checks, failure_count
+from ..services.monitoring import due_checks, failure_count, failure_counts
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -43,7 +43,9 @@ def _equipment_attention(db: Session, scope: set[int] | None, location_id: int |
     elif scope is not None:
         stmt = stmt.where(Equipment.location_id.in_(scope))
     limit = get_setting(db, "temp.repeat_failure_count")
-    return sum(1 for eq in db.scalars(stmt) if eq.status != "operational" or failure_count(db, eq.id, now) >= limit)
+    points = list(db.scalars(stmt))
+    failures = failure_counts(db, [eq.id for eq in points], now)
+    return sum(1 for eq in points if eq.status != "operational" or failures.get(eq.id, 0) >= limit)
 
 
 def _manager_view(db: Session, user: User, now: datetime, location_id: int | None, date_from, date_to,
@@ -121,11 +123,11 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
 
     temp_range = [metrics.monitoring_stats(db, w, now, equipment_id) for w in range_wins]
     movement: dict[date, dict] = defaultdict(lambda: {"in": 0, "out": 0})
-    for txn, day in metrics.movements(db, range_wins):
-        if txn.txn_type in ("receipt", "return"):
-            movement[day]["in"] += txn.qty_delta
-        elif txn.txn_type in ("issue", "breakage", "damage"):
-            movement[day]["out"] += -txn.qty_delta
+    for move in metrics.movements(db, range_wins):
+        if move.txn_type in ("receipt", "return"):
+            movement[move.day]["in"] += move.qty_delta
+        elif move.txn_type in ("issue", "breakage", "damage"):
+            movement[move.day]["out"] += -move.qty_delta
 
     months = _breakage_by_month(db, scope, location_id, now)
     return {

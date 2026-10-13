@@ -1,6 +1,8 @@
+from bisect import bisect_right
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +13,7 @@ from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, Checkli
                       InventoryTransfer, InventoryTransferLine, Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
 from .settings import get_setting
 from .monitoring import expected_slots, has_reading
+from .reference import employee_names, locations_by_id, shifts_by_id
 
 DONE = ("completed", "verified", "pending_verification")
 OPEN_STATES = ("not_started", "in_progress", "overdue")
@@ -31,12 +34,9 @@ class Win:
 
 def windows_by(db: Session, now: datetime, scope: set[int] | None, location_id: int | None, span) -> list[Win]:
     """One window per location; `span(local_today)` returns that location's (from, to) local dates."""
-    stmt = select(Location).where(Location.active.is_(True)).order_by(Location.name)
-    if location_id is not None:
-        stmt = stmt.where(Location.id == location_id)
     out = []
-    for loc in db.scalars(stmt):
-        if scope is not None and loc.id not in scope:
+    for loc in sorted((l for l in locations_by_id(db).values() if l.active), key=lambda l: l.name):
+        if (location_id is not None and loc.id != location_id) or (scope is not None and loc.id not in scope):
             continue
         tz = loc.timezone
         today = timeutil.local_date(now, tz)
@@ -137,8 +137,7 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
     absences = {(a.employee_id, a.local_date): a for a in db.scalars(select(AbsenceRecord).where(
         AbsenceRecord.location_id == win.loc.id, AbsenceRecord.local_date >= win.d_from, AbsenceRecord.local_date <= last,
         AbsenceRecord.voided_at.is_(None), *((AbsenceRecord.employee_id == employee_id,) if employee_id is not None else ())))}
-    names = {e.id: e.full_name for e in db.scalars(select(Employee))}
-    shifts = {sh.id: sh for sh in db.scalars(select(Shift))}
+    names, shifts = employee_names(db), shifts_by_id(db)
     missed_hours = get_setting(db, "attendance.missed_checkout_hours")
     expected: dict[tuple[int, date], tuple[ShiftAssignment, Shift]] = {}
     off_days: dict[tuple[int, date], Shift] = {}
@@ -219,33 +218,44 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
 
 
 def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | None = None) -> dict:
-    """Checks due so far versus recorded, per equipment, plus failed readings in the window."""
+    """Checks due so far versus recorded, per equipment, plus failed readings in the window.
+
+    The schedules and the readings of every point come from two queries and are grouped by point and schedule.
+    """
     grace = timedelta(minutes=get_setting(db, "temp.due_grace_minutes"))
     stmt = select(Equipment).where(Equipment.location_id == win.loc.id, Equipment.active.is_(True))
     if equipment_id is not None:
         stmt = stmt.where(Equipment.id == equipment_id)
-    shifts = {s.id: s for s in db.scalars(select(Shift))}
+    points = list(db.scalars(stmt.order_by(Equipment.code)))
+    shifts = shifts_by_id(db)
     last = min(win.d_to, win.today)
+    schedules: dict[int, list[EquipmentSchedule]] = defaultdict(list)
+    readings: dict[int, list] = defaultdict(list)
+    if points:
+        ids = [eq.id for eq in points]
+        for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id.in_(ids), EquipmentSchedule.active.is_(True))):
+            schedules[sched.equipment_id].append(sched)
+        # only the columns used, as plain tuples: thousands of full objects are not needed to count and match times
+        for row_ in db.execute(select(TemperatureReading.equipment_id, TemperatureReading.schedule_id, TemperatureReading.recorded_at,
+                                      TemperatureReading.passed, TemperatureReading.retest_of_id).where(
+                TemperatureReading.equipment_id.in_(ids), TemperatureReading.recorded_at >= win.start - grace,
+                TemperatureReading.recorded_at < win.end)):
+            readings[row_.equipment_id].append(row_)
     out: dict[int, dict] = {}
-    for eq in db.scalars(stmt.order_by(Equipment.code)):
+    for eq in points:
         entry = {"equipment_id": eq.id, "equipment": eq.name, "location": win.loc.name, "due": 0, "done": 0, "missed": 0,
                  "failed": 0, "readings": 0}
-        # only the four columns used, as plain tuples: thousands of full objects are not needed to count and match times
-        readings = db.execute(select(TemperatureReading.schedule_id, TemperatureReading.recorded_at, TemperatureReading.passed,
-                                     TemperatureReading.retest_of_id).where(
-            TemperatureReading.equipment_id == eq.id, TemperatureReading.recorded_at >= win.start - grace,
-            TemperatureReading.recorded_at < win.end)).all()
-        entry["readings"] = sum(1 for r in readings if win.start <= r.recorded_at < win.end)
-        entry["failed"] = sum(1 for r in readings if not r.passed and win.start <= r.recorded_at < win.end)
+        mine = readings[eq.id]
+        entry["readings"] = sum(1 for r in mine if win.start <= r.recorded_at < win.end)
+        entry["failed"] = sum(1 for r in mine if not r.passed and win.start <= r.recorded_at < win.end)
         if last >= win.d_from:
             first_reads: dict[int, list[datetime]] = defaultdict(list)  # reading times per schedule, sorted for binary search
-            for r in readings:
+            for r in mine:
                 if r.retest_of_id is None:
                     first_reads[r.schedule_id].append(r.recorded_at)
             for times in first_reads.values():
                 times.sort()
-            for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id,
-                                                                    EquipmentSchedule.active.is_(True))):
+            for sched in schedules[eq.id]:
                 times = first_reads.get(sched.id, [])
                 for day in daterange(win.d_from, last):
                     slots = expected_slots(sched, shifts.get(sched.shift_id), win.loc.timezone, day)
@@ -283,24 +293,48 @@ def stock_snapshot(db: Session, scope: set[int] | None, location_id: int | None 
     return {"total": total, "low": low}
 
 
-def movements(db: Session, wins: list[Win]) -> list[tuple[StockTransaction, date]]:
+class Move(NamedTuple):
+    txn_type: str
+    qty_delta: int
+    day: date
+    location_id: int
+    item_id: int
+
+
+def day_finder(win: Win):
+    """A function from a UTC time inside the window to its local date, by binary search over the day starts.
+
+    The start of every local day is worked out once, so a daylight-saving change is handled exactly and each lookup
+    is a bisect instead of a time zone conversion.
+    """
+    days = list(daterange(win.d_from, win.d_to))
+    starts = [timeutil.local_to_utc(d, time(0), win.loc.timezone) for d in days]
+    return lambda moment: days[bisect_right(starts, moment) - 1]
+
+
+def movements(db: Session, wins: list[Win]) -> list[Move]:
+    """Stock movements in the windows with their local day; only the columns used are read, as plain tuples."""
     out = []
     for win in wins:
-        for txn in db.scalars(select(StockTransaction).where(
-                StockTransaction.location_id == win.loc.id, StockTransaction.occurred_at >= win.start,
-                StockTransaction.occurred_at < win.end).order_by(StockTransaction.id)):
-            out.append((txn, timeutil.local_date(txn.occurred_at, win.loc.timezone)))
+        day_of = day_finder(win)
+        for txn_type, qty_delta, occurred_at, item_id in db.execute(
+                select(StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.occurred_at,
+                       StockTransaction.item_id).where(
+                    StockTransaction.location_id == win.loc.id, StockTransaction.occurred_at >= win.start,
+                    StockTransaction.occurred_at < win.end)):
+            out.append(Move(txn_type, qty_delta, day_of(occurred_at), win.loc.id, item_id))
     return out
 
 
 def breakage_in(db: Session, wins: list[Win]) -> list[tuple[BreakageIncident, date]]:
     out = []
     for win in wins:
+        day_of = day_finder(win)
         for inc in db.scalars(select(BreakageIncident).where(
                 BreakageIncident.location_id == win.loc.id, BreakageIncident.occurred_at >= win.start,
                 BreakageIncident.occurred_at < win.end, BreakageIncident.status != "rejected")
                 .order_by(BreakageIncident.id)):
-            out.append((inc, timeutil.local_date(inc.occurred_at, win.loc.timezone)))
+            out.append((inc, day_of(inc.occurred_at)))
     return out
 
 
@@ -322,12 +356,12 @@ def stock_insights(db: Session, wins: list[Win], d_from: date, d_to: date) -> di
     periods = sorted({key(d) for d in daterange(d_from, d_to)})
     moves = {p: {"date": p, "in": 0, "out": 0} for p in periods}
     by_type: Counter = Counter()
-    for txn, day in movements(db, wins):
-        if txn.txn_type == "opening":
+    for move in movements(db, wins):
+        if move.txn_type == "opening":
             continue
-        slot = moves[key(day)]
-        slot["in" if txn.qty_delta > 0 else "out"] += abs(txn.qty_delta)
-        by_type[txn.txn_type] += abs(txn.qty_delta)
+        slot = moves[key(move.day)]
+        slot["in" if move.qty_delta > 0 else "out"] += abs(move.qty_delta)
+        by_type[move.txn_type] += abs(move.qty_delta)
     breakage = {p: {"period": p, "incidents": 0, "qty": 0, "est_cost": 0.0} for p in periods}
     reasons: Counter = Counter()
     top_items: Counter = Counter()

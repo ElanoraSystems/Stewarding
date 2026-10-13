@@ -11,6 +11,7 @@ from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, Corre
                       TemperatureReading)
 from . import metrics
 from .monitoring import describe
+from .reference import user_names
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
          "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements"}
@@ -38,6 +39,8 @@ def _local(dt: datetime | None, tz: str) -> str:
 def _limits(reading: TemperatureReading) -> str:
     if reading.value_type == "yes_no":
         return "Must be Yes"
+    if reading.value_type in ("text", "choice"):
+        return "Choice" if reading.value_type == "choice" else "Written answer"
     low = "-" if reading.min_limit is None else f"{reading.min_limit.normalize():f}"
     high = "-" if reading.max_limit is None else f"{reading.max_limit.normalize():f}"
     return f"{low} to {high} {reading.unit or ''}".strip()
@@ -48,7 +51,7 @@ def _bounds(day_from: date, day_to: date, tz: str) -> tuple[datetime, datetime]:
 
 
 def _names(db: Session) -> dict[int, str]:
-    return {e.user_id: e.full_name for e in db.scalars(select(Employee)) if e.user_id}
+    return user_names(db)
 
 
 def _locations(db: Session, scope: set[int] | None, location_id: int | None) -> list[Location]:
@@ -84,7 +87,7 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                 when = _local(r.recorded_at, loc.timezone)
                 rows.append({
                     "date": when[:11], "time": when[12:], "check": r.stage[:1].upper() + r.stage[1:].replace("_", " "), "measure": r.parameter,
-                    "value": describe(r.value, r.value_type, r.unit), "limits": _limits(r),
+                    "value": describe(r), "limits": _limits(r),
                     "result": "Pass" if r.passed else "FAIL", "reference": r.reference or "",
                     "recorded_by": names.get(r.recorded_by, ""),
                     "approved_by": f"{names.get(r.reviewed_by, '')} {_local(r.reviewed_at, loc.timezone)}".strip() if r.reviewed_at else "Awaiting approval",

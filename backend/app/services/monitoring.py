@@ -1,4 +1,5 @@
 from bisect import bisect_left
+from collections import defaultdict
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..models import (CorrectiveAction, Equipment, EquipmentSchedule, Location, Notification, Shift,
                       TemperatureReading)
+from .reference import locations_by_id, shifts_by_id
 from .settings import get_setting
 
 DEFAULT_START = time(6, 0)
@@ -17,11 +19,39 @@ def evaluate(value: Decimal, minimum: Decimal | None, maximum: Decimal | None) -
     return (minimum is None or value >= minimum) and (maximum is None or value <= maximum)
 
 
-def describe(value: Decimal, value_type: str, unit: str | None) -> str:
-    """A reading as people say it: 'Yes', 'No' or the number with its unit."""
-    if value_type == "yes_no":
-        return "Yes" if value == 1 else "No"
-    return f"{value.normalize():f} {unit}".strip() if unit else f"{value.normalize():f}"
+def describe(reading) -> str:
+    """A reading as people say it: the written or chosen answer, 'Yes' or 'No', or the number with its unit."""
+    if reading.value_type in ("text", "choice"):
+        return reading.answer or ""
+    if reading.value_type == "yes_no":
+        return "Yes" if reading.value == 1 else "No"
+    value = f"{reading.value.normalize():f}"
+    return f"{value} {reading.unit}".strip() if reading.unit else value
+
+
+def judge(sched, value, answer) -> tuple[Decimal | None, str | None, bool]:
+    """Checks an answer against the field's rules and returns the value to store, the answer to store and whether it passed.
+
+    Raises ValueError with a message for the person when the answer is not acceptable.
+    """
+    if sched.value_type == "number":
+        if value is None:
+            raise ValueError("Enter a number")
+        return value, None, evaluate(value, sched.min_value, sched.max_value)
+    if sched.value_type == "yes_no":
+        if value not in (0, 1):
+            raise ValueError("Answer yes or no")
+        return value, None, value == 1
+    text = (answer or "").strip()
+    if not text:
+        raise ValueError("Enter an answer")
+    if sched.value_type == "choice":
+        if text not in (sched.options or []):
+            raise ValueError("Choose one of the listed answers")
+        return None, text, text not in (sched.fail_options or [])
+    if len(text) > (sched.max_length or 500):
+        raise ValueError(f"The answer can be at most {sched.max_length or 500} characters")
+    return None, text, True
 
 
 def applies_on(schedule: EquipmentSchedule, day) -> bool:
@@ -65,29 +95,44 @@ def slot_status(slot: datetime, upper: datetime, readings: list[datetime], now: 
 
 
 def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[dict]:
-    """Every expected check today for the given equipment, with done/due/overdue/upcoming status."""
+    """Every expected check today for the given equipment, with done/due/overdue/upcoming status.
+
+    Schedules and readings of all the points come from two queries and are grouped in dictionaries, instead of
+    two queries per point and per schedule.
+    """
     grace = get_setting(db, "temp.due_grace_minutes")
-    shifts = {s.id: s for s in db.scalars(select(Shift))}
-    locations = {loc.id: loc for loc in db.scalars(select(Location))}
+    shifts, locations = shifts_by_id(db), locations_by_id(db)
+    active = [eq for eq in equipment if eq.active]
+    if not active:
+        return []
+    schedules: dict[int, list[EquipmentSchedule]] = defaultdict(list)
+    for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id.in_([eq.id for eq in active]),
+                                                            EquipmentSchedule.active.is_(True)).order_by(EquipmentSchedule.id)):
+        schedules[sched.equipment_id].append(sched)
+    starts = {}
+    for eq in active:
+        tz = locations[eq.location_id].timezone
+        starts[eq.id] = timeutil.local_to_utc(timeutil.local_date(now, tz), time(0, 0), tz) - timedelta(minutes=grace)
+    times: dict[int, list[datetime]] = defaultdict(list)
+    ids = [s.id for scheds in schedules.values() for s in scheds]
+    if ids:
+        for schedule_id, recorded_at in db.execute(select(TemperatureReading.schedule_id, TemperatureReading.recorded_at).where(
+                TemperatureReading.schedule_id.in_(ids), TemperatureReading.retest_of_id.is_(None),
+                TemperatureReading.recorded_at >= min(starts.values()))):
+            times[schedule_id].append(recorded_at)
     out = []
-    for eq in equipment:
-        if not eq.active:
-            continue
+    for eq in active:
         tz = locations[eq.location_id].timezone
         day = timeutil.local_date(now, tz)
-        day_start = timeutil.local_to_utc(day, time(0, 0), tz) - timedelta(minutes=grace)
-        for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id,
-                                                                EquipmentSchedule.active.is_(True))):
+        end_of_day = timeutil.local_to_utc(day + timedelta(days=1), time(0, 0), tz)
+        for sched in schedules[eq.id]:
             slots = expected_slots(sched, shifts.get(sched.shift_id), tz, day)
-            end_of_day = timeutil.local_to_utc(day + timedelta(days=1), time(0, 0), tz)
-            times = sorted(db.scalars(select(TemperatureReading.recorded_at).where(
-                TemperatureReading.schedule_id == sched.id, TemperatureReading.retest_of_id.is_(None),
-                TemperatureReading.recorded_at >= day_start)))
+            mine = sorted(t for t in times[sched.id] if t >= starts[eq.id])
             for i, slot in enumerate(slots):
                 upper = slots[i + 1] if i + 1 < len(slots) else end_of_day
                 out.append({"equipment_id": eq.id, "equipment": eq.name, "location_id": eq.location_id,
                             "schedule_id": sched.id, "stage": sched.stage,
-                            "slot_at": slot.isoformat() + "Z", "status": slot_status(slot, upper, times, now, grace)})
+                            "slot_at": slot.isoformat() + "Z", "status": slot_status(slot, upper, mine, now, grace)})
     return out
 
 
@@ -105,6 +150,16 @@ def resolve_chain(db: Session, reading: TemperatureReading, now: datetime) -> No
             action.status, action.resolved_at = "resolved", now
         resolve_alerts(db, previous_id, now)
         previous_id = db.scalar(select(TemperatureReading.retest_of_id).where(TemperatureReading.id == previous_id))
+
+
+def failure_counts(db: Session, equipment_ids: list[int], now: datetime) -> dict[int, int]:
+    """Recent failed readings per point from one grouped query, for the points that have any."""
+    if not equipment_ids:
+        return {}
+    since = now - timedelta(days=get_setting(db, "temp.repeat_failure_days"))
+    return dict(db.execute(select(TemperatureReading.equipment_id, func.count()).where(
+        TemperatureReading.equipment_id.in_(equipment_ids), TemperatureReading.passed.is_(False),
+        TemperatureReading.recorded_at >= since).group_by(TemperatureReading.equipment_id)).all())
 
 
 def failure_count(db: Session, equipment_id: int, now: datetime) -> int:

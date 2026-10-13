@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from . import timeutil
 from .db import SessionLocal
 from .models import Location
-from .services import checklists
+from .services import checklists, snapshots
 from .services.alerts import run_alerts
 
 log = logging.getLogger("stewarding.scheduler")
@@ -23,8 +23,9 @@ def run_cycle(db: Session, now=None) -> dict:
         created += checklists.generate_for_location(db, location, now)
     overdue = checklists.mark_overdue(db, now)
     alerts = run_alerts(db, now)
+    stock = snapshots.refresh(db, now)
     db.commit()
-    return {"created": created, "overdue": overdue, "alerts": alerts}
+    return {"created": created, "overdue": overdue, "alerts": alerts, "snapshots": stock}
 
 
 def _loop() -> None:

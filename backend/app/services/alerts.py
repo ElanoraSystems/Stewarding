@@ -143,12 +143,12 @@ def corrective_alerts(db: Session, now: datetime) -> int:
     for action, reading in rows:
         if action.status == "retest_due" and action.retest_due_at and action.retest_due_at < now:
             created += notify(db, recipients(db, reading.location_id, SUPERVISOR) + [action.taken_by], "retest_due",
-                              f"Retest overdue for {reading.stage}: {describe(reading.value, reading.value_type, reading.unit)}", key=f"retest:{action.id}",
+                              f"Retest overdue for {reading.stage}: {describe(reading)}", key=f"retest:{action.id}",
                               priority="critical", location_id=reading.location_id, link="/monitoring", requires_ack=True)
         if now - reading.recorded_at >= escalate_after and action.escalated_at is None:
             action.escalated_at = now
             created += notify(db, recipients(db, None, MANAGER), "monitoring_escalated",
-                              f"Unresolved failed check ({describe(reading.value, reading.value_type, reading.unit)}, {reading.stage})",
+                              f"Unresolved failed check ({describe(reading)}, {reading.stage})",
                               key=f"check_esc:{action.id}", priority="critical", location_id=reading.location_id,
                               link="/monitoring", requires_ack=True)
     return created

@@ -15,8 +15,8 @@ import { useAuth } from '@/lib/auth'
 import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
-import { useLookup } from '@/lib/useLookups'
 import { CheckFormModal } from '@/pages/CheckFormModal'
+import { FormBuilderModal } from '@/pages/FormBuilderModal'
 import type { EquipmentItem, Schedule } from '@/pages/MonitoringRecordForm'
 
 interface Template {
@@ -36,7 +36,10 @@ function when(s: Schedule): string {
 }
 
 function limits(s: Schedule): string {
-  return s.value_type === 'yes_no' ? 'Must be Yes' : `${s.min_value ?? '-'} to ${s.max_value ?? '-'} ${s.unit ?? ''}`.trim()
+  if (s.value_type === 'yes_no') return 'Must be Yes'
+  if (s.value_type === 'text') return `Written, up to ${s.max_length ?? 200} characters`
+  if (s.value_type === 'choice') return `Choose: ${(s.options ?? []).join(', ')}${s.fail_options?.length ? ` (fails: ${s.fail_options.join(', ')})` : ''}`
+  return `${s.min_value ?? '-'} to ${s.max_value ?? '-'} ${s.unit ?? ''}`.trim()
 }
 
 export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
@@ -50,22 +53,11 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const [presetOpen, setPresetOpen] = useState(false)
   const [preset, setPreset] = useState('')
   const [presetName, setPresetName] = useState('')
-  const [newEq, setNewEq] = useState({ code: '', name: '', kind: 'Other', manufacturer: '', model: '' })
-  const types = useLookup('monitoring_type')
   const templates = useApi<Template[]>(canManage ? '/equipment/templates' : null)
   const chosen = templates.data?.find((t) => t.key === preset)
 
   async function setStatus(eq: EquipmentItem, status: string) {
     if (await run(() => api(`/equipment/${eq.id}`, { method: 'PUT', body: { status } }), 'Status updated')) reload()
-  }
-
-  async function addEquipment(event: FormEvent) {
-    event.preventDefault()
-    const ok = await run(() => api('/equipment', { body: { ...newEq, location_id: locationId, manufacturer: newEq.manufacturer || null, model: newEq.model || null } }), 'Monitoring point added')
-    if (ok) {
-      setAdding(false)
-      reload()
-    }
   }
 
   async function addFromTemplate(event: FormEvent) {
@@ -86,11 +78,11 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
         <div className="flex gap-3">
           <LocationSelect value={locationId} onChange={setLocationId} />
           {canManage && <Button onClick={() => setPresetOpen(true)}><Plus className="h-4 w-4" /> From template</Button>}
-          {canManage && <Button variant="outline" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Custom point</Button>}
+          {canManage && <Button variant="outline" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Create form</Button>}
         </div>
       </div>
       <p className="text-sm text-ink-muted">
-        A monitoring point is anything you keep a log for: a chiller, a freezer, a dishwasher, a cooking or cooling batch, a delivery.
+        A log form is anything you keep a record for: a chiller, a freezer, a dishwasher, a cooking or cooling batch, a delivery. Create your own form with the fields and rules you need, or start from a template.
         Each point has checks. A check says what is measured (a temperature, ppm, pH or a yes or no), the limits, and how often it is due:
         at startup, at set times, every few minutes, on chosen days or monthly. Take the limits from your approved food-safety procedure.
       </p>
@@ -121,7 +113,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
                 {eq.schedules.map((s) => (
                   <tr key={s.id}>
                     <Td>{s.stage}{s.require_reference && <Badge className="ml-2">Reference</Badge>}</Td>
-                    <Td>{s.value_type === 'yes_no' ? 'Yes or no' : s.parameter}</Td>
+                    <Td>{({ yes_no: 'Yes or no', text: 'Short text', choice: 'Dropdown' } as Record<string, string>)[s.value_type] ?? s.parameter}</Td>
                     <Td>{when(s)}</Td>
                     <Td>{limits(s)}</Td>
                     {canManage && <Td><Button size="sm" variant="outline" onClick={() => setEditing({ equipmentId: eq.id, schedule: s })}>Edit</Button></Td>}
@@ -160,25 +152,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
         </form>
       </Modal>
 
-      <Modal open={adding} title="Add custom monitoring point" onClose={() => setAdding(false)}>
-        <form onSubmit={addEquipment} className="space-y-3">
-          <Field label="Point ID"><Input required value={newEq.code} onChange={(e) => setNewEq({ ...newEq, code: e.target.value })} /></Field>
-          <Field label="Name"><Input required value={newEq.name} onChange={(e) => setNewEq({ ...newEq, name: e.target.value })} /></Field>
-          <Field label="Type">
-            <Select value={newEq.kind} onChange={(e) => setNewEq({ ...newEq, kind: e.target.value })}>
-              {types.map((t) => <option key={t} value={t}>{t}</option>)}
-            </Select>
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Manufacturer"><Input value={newEq.manufacturer} onChange={(e) => setNewEq({ ...newEq, manufacturer: e.target.value })} /></Field>
-            <Field label="Model"><Input value={newEq.model} onChange={(e) => setNewEq({ ...newEq, model: e.target.value })} /></Field>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setAdding(false)}>Cancel</Button>
-            <Button type="submit">Add</Button>
-          </div>
-        </form>
-      </Modal>
+      {adding && <FormBuilderModal initialLocation={locationId} onClose={() => setAdding(false)} onCreated={() => { setAdding(false); reload() }} />}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 """Times the heavy read paths on a large synthetic dataset: `python -m scripts.benchmark [--small]`.
 
-It builds a throwaway SQLite database, so nothing real is touched. Run it before and after a change to see the effect.
+It builds a throwaway SQLite database, so nothing real is touched. Set STW_BENCH_DATABASE_URL to a disposable PostgreSQL
+database to time PostgreSQL instead; the tables are dropped and recreated there. Run it before and after a change to see the effect.
 """
 import os
 import random
@@ -10,7 +11,7 @@ import time
 from datetime import datetime, timedelta
 
 _tmp = tempfile.mkdtemp()
-os.environ["STW_DATABASE_URL"] = f"sqlite:///{_tmp}/bench.db"
+os.environ["STW_DATABASE_URL"] = os.environ.get("STW_BENCH_DATABASE_URL", f"sqlite:///{_tmp}/bench.db")
 os.environ["STW_SECRET_KEY"] = "benchmark-only-secret-key-not-for-production"
 os.environ["STW_SCHEDULER_ENABLED"] = "false"
 os.environ["STW_BCRYPT_ROUNDS"] = "4"
@@ -28,6 +29,7 @@ from app.seed import seed  # noqa: E402
 from app.services import metrics  # noqa: E402
 from app.services.inventory import reconcile  # noqa: E402
 from app.services.monitoring import due_checks  # noqa: E402
+from app.services import snapshots  # noqa: E402
 
 PASSWORD = "bench-pass-12345"
 SMALL = "--small" in sys.argv
@@ -50,7 +52,7 @@ def build(db) -> None:
     seed(db, PASSWORD)
     rng = random.Random(7)
     now = datetime.utcnow()
-    db.bulk_insert_mappings(InventoryItem, [{"code": f"B-{n:05d}", "name": f"Bench Item {n}", "name_key": f"bench item {n}",
+    db.bulk_insert_mappings(InventoryItem, [{"code": f"B-{n:05d}", "name": f"Bench Item {n}", "name_key": f"bench item {n}", "compact_key": f"benchitem{n}", "token_key": f"{n} bench item",
                                              "category_id": 1, "unit_id": 1, "min_level": 5, "active": True} for n in range(ITEMS)])
     db.commit()
     item_ids = [i for (i,) in db.execute(select(InventoryItem.id).where(InventoryItem.code.like("B-%")))]
@@ -125,6 +127,8 @@ def main() -> None:
         auth = {"Authorization": f"Bearer {token}"}
         results = [
             timed("reconcile: one location, one month", lambda: reconcile(db, mk, month)),
+            timed("reconcile with month-end snapshots", lambda: (snapshots.refresh(db, now), db.commit(), reconcile(db, mk, month))[-1], repeat=1),
+            timed("reconcile again, snapshots in place", lambda: reconcile(db, mk, month)),
             timed("due_checks: today, all points", lambda: due_checks(db, points, now)),
             timed("monitoring_stats: whole range", lambda: metrics.monitoring_stats(db, wins[0], now)),
             timed("GET /api/dashboard", lambda: client.get("/api/dashboard", headers=auth)),

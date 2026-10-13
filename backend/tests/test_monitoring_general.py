@@ -79,7 +79,7 @@ def test_check_configuration_is_validated(client, login, db):
     assert check(client, m, eq, min_value=None, max_value=None).status_code == 422  # a number needs a limit
     assert check(client, m, eq, weekdays=[9]).status_code == 422
     assert check(client, m, eq, day_of_month=32).status_code == 422
-    assert check(client, m, eq, value_type="text").status_code == 422
+    assert check(client, m, eq, value_type="date").status_code == 422
 
 
 def test_templates_create_ready_made_monitoring_points(client, login, db):

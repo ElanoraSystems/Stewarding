@@ -1,14 +1,15 @@
 from collections import defaultdict
 from datetime import date, datetime, time
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, event, func, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import (InventoryBalance, InventoryCount, InventoryCountLine, InventoryItem, Location, StockTransaction,
+from ..models import (InventoryBalance, InventoryCount, InventoryCountLine, InventoryItem, Location, StockSnapshot, StockTransaction,
                       User)
 from ..permissions import MANAGER, SUPERVISOR
 from .notify import notify, recipients
+from .similarity import compact, token_key
 
 # Direction of each transaction type; adjustments carry their own sign.
 SIGN = {"opening": 1, "receipt": 1, "return": 1, "transfer_in": 1, "issue": -1, "damage": -1, "breakage": -1,
@@ -18,6 +19,13 @@ OUTFLOW_TYPES = ("issue", "damage", "breakage")
 
 class StockError(Exception):
     pass
+
+
+@event.listens_for(InventoryItem, "before_insert")
+@event.listens_for(InventoryItem, "before_update")
+def _set_search_keys(_mapper, _connection, item: InventoryItem) -> None:
+    """The two stored keys always follow the name, whichever code path creates or renames an item."""
+    item.compact_key, item.token_key = compact(item.name), token_key(item.name)
 
 
 def norm(text: str) -> str:
@@ -79,18 +87,25 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
     start, end = _month_bounds(location.timezone, month)
     items = db.scalars(select(InventoryItem).order_by(InventoryItem.code)).all()
     in_month = case((StockTransaction.occurred_at >= start, 1), else_=0)
+    # Start from the latest stored month-end balance when there is one, so only the movements since then are summed.
+    base_month = db.scalar(select(func.max(StockSnapshot.month)).where(StockSnapshot.location_id == location.id, StockSnapshot.month < month))
+    before: dict[int, int] = defaultdict(int)
+    window = [StockTransaction.location_id == location.id, StockTransaction.occurred_at < end]
+    if base_month:
+        before.update(dict(db.execute(select(StockSnapshot.item_id, StockSnapshot.qty).where(
+            StockSnapshot.location_id == location.id, StockSnapshot.month == base_month)).all()))
+        window.append(StockTransaction.occurred_at >= _month_bounds(location.timezone, base_month)[1])
+    seen_before_start = set(before)
     sums = db.execute(
         select(StockTransaction.item_id, StockTransaction.txn_type, in_month.label("in_month"), func.sum(StockTransaction.qty_delta))
-        .where(StockTransaction.location_id == location.id, StockTransaction.occurred_at < end)
-        .group_by(StockTransaction.item_id, StockTransaction.txn_type, in_month)).all()
-    before: dict[int, int] = defaultdict(int)
+        .where(*window).group_by(StockTransaction.item_id, StockTransaction.txn_type, in_month)).all()
     during: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for item_id, txn_type, inside, total in sums:
         if inside:
             during[item_id][txn_type] += total
         else:
             before[item_id] += total
-    moved = set(before) | set(during)
+    moved = seen_before_start | set(before) | set(during)
     counts = db.execute(
         select(InventoryCountLine, InventoryCount).join(InventoryCount, InventoryCount.id == InventoryCountLine.count_id)
         .where(InventoryCount.location_id == location.id, InventoryCount.status == "posted",

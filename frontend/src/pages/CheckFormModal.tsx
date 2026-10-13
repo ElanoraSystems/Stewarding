@@ -6,6 +6,8 @@ import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { useRun } from '@/lib/toast'
+import { blankField, optionList } from '@/lib/formFields'
+import { FieldRestrictions } from '@/pages/FieldEditor'
 import type { Schedule } from '@/pages/MonitoringRecordForm'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -28,6 +30,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     min_value: schedule?.min_value != null ? String(Number(schedule.min_value)) : '', max_value: schedule?.max_value != null ? String(Number(schedule.max_value)) : '',
     require_reference: schedule?.require_reference ?? false,
   })
+  const [extra, setExtra] = useState({ options: (schedule?.options ?? []).join('\n'), fail: schedule?.fail_options ?? [], maxLength: String(schedule?.max_length ?? 200) })
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
   const isNumber = form.value_type === 'number'
   const toggleDay = (day: number) => set('weekdays', form.weekdays.includes(day) ? form.weekdays.filter((d) => d !== day) : [...form.weekdays, day])
@@ -47,6 +50,9 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
       weekdays: form.weekdays.length ? form.weekdays : null, day_of_month: form.day_of_month ? Number(form.day_of_month) : null,
       min_value: isNumber && form.min_value !== '' ? Number(form.min_value) : null,
       max_value: isNumber && form.max_value !== '' ? Number(form.max_value) : null,
+      options: form.value_type === 'choice' ? optionList(extra.options) : null,
+      fail_options: form.value_type === 'choice' ? extra.fail.filter((o) => optionList(extra.options).includes(o)) : null,
+      max_length: form.value_type === 'text' ? Number(extra.maxLength) : null,
     }
     const ok = await run(() => schedule
       ? api(`/equipment/schedules/${schedule.id}`, { method: 'PUT', body })
@@ -63,9 +69,11 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Answer type">
-            <Select value={form.value_type} onChange={(e) => set('value_type', e.target.value as 'number' | 'yes_no')}>
+            <Select value={form.value_type} onChange={(e) => set('value_type', e.target.value as typeof form.value_type)}>
               <option value="number">A measurement (number)</option>
               <option value="yes_no">Yes or no</option>
+              <option value="text">Short text</option>
+              <option value="choice">Dropdown (choose one)</option>
             </Select>
           </Field>
           <Field label="What is checked">
@@ -95,6 +103,9 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
           )}
           <Field label="Day of month" hint="Leave blank unless it is monthly."><Input type="number" min={1} max={31} value={form.day_of_month} onChange={(e) => set('day_of_month', e.target.value)} /></Field>
         </div>
+        {(form.value_type === 'text' || form.value_type === 'choice') && (
+          <FieldRestrictions value={{ ...blankField(), type: form.value_type, ...extra }} onChange={(v) => setExtra({ options: v.options, fail: v.fail, maxLength: v.maxLength })} />
+        )}
         <fieldset>
           <legend className="mb-1 text-sm font-medium">Days (none selected means every day)</legend>
           <div className="flex flex-wrap gap-3">

@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, Time, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -109,7 +109,10 @@ class EquipmentSchedule(Base):
     stage: Mapped[str] = mapped_column(String(60))  # check name, e.g. Wash, Core temperature
     parameter: Mapped[str] = mapped_column(String(60), default="Temperature")
     unit: Mapped[str | None] = mapped_column(String(20))
-    value_type: Mapped[str] = mapped_column(String(10), default="number")  # number | yes_no
+    value_type: Mapped[str] = mapped_column(String(10), default="number")  # number | yes_no | text | choice
+    options: Mapped[list | None] = mapped_column(JSON)  # the answers a choice field offers
+    fail_options: Mapped[list | None] = mapped_column(JSON)  # the choices that count as a failure
+    max_length: Mapped[int | None] = mapped_column(Integer)  # longest written answer
     require_reference: Mapped[bool] = mapped_column(Boolean, default=False)  # batch, lot or product reference
     source: Mapped[str] = mapped_column(String(20), default="machine_display")  # or independent_probe
     timing: Mapped[str] = mapped_column(String(20))  # startup | interval | checkpoint
@@ -135,7 +138,8 @@ class TemperatureReading(Base):
     parameter: Mapped[str] = mapped_column(String(60), default="Temperature")  # snapshot at time of reading
     unit: Mapped[str | None] = mapped_column(String(20))
     value_type: Mapped[str] = mapped_column(String(10), default="number")
-    value: Mapped[Decimal] = mapped_column(Numeric(10, 2))  # a yes/no answer is stored as 1 or 0
+    value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # a yes/no answer is stored as 1 or 0; none for text and choice
+    answer: Mapped[str | None] = mapped_column(String(500))  # the written or chosen answer
     reference: Mapped[str | None] = mapped_column(String(120))
     min_limit: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     max_limit: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))

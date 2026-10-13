@@ -1,5 +1,7 @@
-from sqlalchemy import event, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from ..cache import memo
 
 from ..models import Setting
 
@@ -20,26 +22,9 @@ DEFAULTS: dict[str, int | bool] = {
 }
 
 
-CACHE_KEY = "settings"
-
-
 def _stored(db: Session) -> dict:
-    """Every stored setting, read once per transaction and kept on the session; it is dropped when the transaction ends."""
-    cache = db.info.get(CACHE_KEY)
-    if cache is None:
-        cache = db.info[CACHE_KEY] = {row.key: row.value["v"] for row in db.scalars(select(Setting))}
-    return cache
-
-
-@event.listens_for(Session, "after_transaction_end")
-def _forget_after_transaction(session, _transaction):
-    session.info.pop(CACHE_KEY, None)
-
-
-@event.listens_for(Session, "before_flush")
-def _forget_when_settings_change(session, _context, _instances):
-    if any(isinstance(obj, Setting) for obj in (*session.new, *session.dirty)):
-        session.info.pop(CACHE_KEY, None)
+    """Every stored setting, read once per transaction."""
+    return memo(db, "settings", lambda: {row.key: row.value["v"] for row in db.scalars(select(Setting))})
 
 
 def get_setting(db: Session, key: str):

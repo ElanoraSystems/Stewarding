@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/select'
 import { Skeleton, Table, Td, Th } from '@/components/ui/table'
 import { TimezoneInput } from '@/components/TimezoneInput'
 import { api } from '@/lib/api'
+import { useAuth } from '@/lib/auth'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 
@@ -29,6 +30,7 @@ export function SettingsLocations() {
   const { data, reload } = useApi<{ locations: LocationRow[] }>('/settings')
   const [loc, setLoc] = useState<typeof BLANK | null>(null)
   const org = useApi<{ timezone: string }>('/organization')
+  const { refresh } = useAuth()
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -40,6 +42,7 @@ export function SettingsLocations() {
     if (ok) {
       setLoc(null)
       reload()
+      await refresh()
     }
   }
 

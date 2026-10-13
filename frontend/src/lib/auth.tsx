@@ -17,6 +17,7 @@ interface AuthState {
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   changePassword: (current: string, next: string) => Promise<void>
+  refresh: () => Promise<void>
   logout: () => void
 }
 
@@ -51,7 +52,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(await api<Me>('/auth/me'))
   }, [])
 
-  const value = useMemo(() => ({ me, loading, login, changePassword, logout }), [me, loading, login, changePassword, logout])
+  /** Reloads the signed-in user, so new locations and changed access show up without signing in again. */
+  const refresh = useCallback(async () => {
+    setMe(await api<Me>('/auth/me'))
+  }, [])
+
+  const value = useMemo(() => ({ me, loading, login, changePassword, refresh, logout }), [me, loading, login, changePassword, refresh, logout])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

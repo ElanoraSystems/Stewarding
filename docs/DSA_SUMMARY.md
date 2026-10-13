@@ -21,15 +21,16 @@ heaviest read paths and counts database queries. Run it with `python -m scripts.
 
 | Path | Before | After | Change |
 |---|---|---|---|
-| Month-end reconciliation, one location | 2,417 ms | 14 ms | about 178 times faster |
-| `GET /api/stock/reconciliation` | 2,455 ms | 20 ms | about 122 times faster |
-| Monitoring compliance stats, 45 days | 696 ms | 62 ms | about 11 times faster |
-| `GET /api/dashboard` | 228 ms, 212 queries | 128 ms, 182 queries | 1.8 times faster |
+| Month-end reconciliation, one location | 2,417 ms | 22 ms, or 5 ms with snapshots | about 110 to 480 times faster |
+| `GET /api/stock/reconciliation` | 2,455 ms | 12 ms | about 200 times faster |
+| Monitoring compliance stats, 45 days | 696 ms, 35 queries | 65 ms, 3 queries | about 11 times faster |
+| `GET /api/dashboard` | 228 ms, 212 queries | 65 ms, 81 queries | 3.5 times faster, 2.6 times fewer queries |
+| Due checks for today | 7.2 ms, 51 queries | 1.8 ms, 3 queries | 4 times faster, 17 times fewer queries |
 | Monitoring log page of 25 readings | 31 queries | 7 queries | 4.4 times fewer queries |
-| Due checks for today | 7 ms | 7 ms | unchanged (already small) |
 
-Times are the best of three runs on one laptop with SQLite; use them to compare, not as production promises.
-The suite passes on SQLite and PostgreSQL (435 tests).
+On PostgreSQL the same run gives reconciliation 13 ms (6.6 ms with snapshots), dashboard 95 ms and 81 queries.
+Times are the best of three runs on one laptop; use them to compare, not as production promises.
+The suite passes on SQLite and PostgreSQL (457 tests).
 
 ## 3. What was implemented
 
@@ -83,6 +84,43 @@ The suite passes on SQLite and PostgreSQL (435 tests).
   or `match: similar` and ranks the same item first.
 - **Guarantee:** table-driven tests for ten cases, the edit-distance limit, ranking, and the refuse-versus-warn behaviour.
 
+### 3.7 Phase 2 - lookups and batches inside one request
+- **Where:** new `cache.py` (a per-transaction memo) and `services/reference.py` (shifts, locations, employee names);
+  `deps.scoped_locations`; `monitoring.due_checks`; `metrics.monitoring_stats`, `failure_counts`, `movements`.
+- **Problem:** the same small tables (shifts, locations, names, a user's locations) were read again by every function,
+  and monitoring code ran two queries per point and per check.
+- **Change:** those tables are loaded once per request and dropped when the transaction ends or a row they came from
+  changes. Schedules and readings of all points come from two queries. Stock movements are read as plain tuples and each
+  one finds its local day by binary search over that location's day starts, which stays exact across a clock change.
+- **Guarantee:** the day finder is tested against converting every time, across the London clock change; the movement
+  days are compared with the per-row method; a copy is shown to be dropped on a flush and a rollback.
+
+### 3.8 Phase 3 - one index, chosen from query plans
+- **Where:** `stock_transaction (location_id, occurred_at, item_id)`, migration `e6b4c8d2f9a3`.
+- **Evidence:** on PostgreSQL the date-range read of a location's movements went from 1.58 ms to 0.75 ms and stopped
+  visiting 9,486 rows it threw away. A matching index on readings changed nothing at this size, so it was not added.
+  Checklist and attendance indexes were not added because there was no measured scan to fix.
+
+### 3.9 Phase 4 - month-end balance snapshots
+- **Where:** new `services/snapshots.py`, table `stock_snapshot` (migration `f7c5d9e3a0b4`), the scheduler, and `reconcile`.
+- **Technique:** prefix sums. The closing quantity per item and location is stored at each month end; reconciliation starts
+  from the latest snapshot and sums only the movements since. A build starts from the previous snapshot, in one batched insert.
+- **Safety:** the ledger stays the source of truth. Every scheduler run checks the two newest snapshots against a full ledger
+  sum; a snapshot that differs is dropped with all later ones, managers are notified, and reconciliation falls back to the full
+  sum until the next run rebuilds it. Changing a location's time zone drops its snapshots.
+- **Guarantee:** identical reconciliation with and without snapshots on random ledgers, proof that a deliberately damaged
+  snapshot is used and then healed, idempotent runs, and no snapshot for the month still in progress.
+
+### 3.10 Phase 5 - item search keys
+- **Where:** `compact_key` and `token_key` columns on items (migration `a1e7f3c9d5b2`, backfilled), set by a model event on every
+  insert and rename, and used by `api/inventory`.
+- **Change:** a duplicate is now an indexed equality lookup on three keys (spaced name, letters only, sorted words) instead of a scan.
+  The word rules also treat "glasses" and "glass", "boxes" and "box" as the same word. The similar-name warning compares every name up
+  to 5,000 items; beyond that the database first narrows candidates to names that contain the typed letters, share a word or start
+  the same way, so a typo in the first three letters is the one case a very large list could miss.
+- **Guarantee:** the indexed check agrees with the full comparison on about 90 generated name variants, and the narrowed lookup returns
+  the same best match as the full one on seven queries.
+
 ## 4. Structures and algorithms Plato already used
 
 Plato already relies on sound ones, and none were changed: hash maps for lookups by id (item, location, employee name
@@ -101,7 +139,7 @@ These are the usual textbook choices. None earns its place here today, and addin
 | Heap or priority queue for pending items and alerts | The lists are tens of rows; sorting is simpler and as fast | Pending lists reach tens of thousands |
 | Segment tree or Fenwick tree for stock totals | Totals are computed by the database over indexed columns; a second structure would need keeping in sync | Reports over many years of ledger |
 | Bloom filter for duplicates | The database unique constraint is exact and cheap | Never needed at this size |
-| Process-wide LRU cache for reads | Several workers or a restart would serve stale data; the per-transaction copy gives the win without the risk | A shared cache such as Redis, with a clear invalidation rule |
+| Process-wide LRU cache for reads | Several workers or a restart would serve stale data; the per-transaction copy (section 3.7) gives the win without the risk | A shared cache such as Redis, with a clear invalidation rule |
 | Graph algorithms, union-find | There is no graph in the data | A real dependency graph appears |
 | Interval tree for shift conflicts | The conflict query is indexed and returns a handful of rows | Thousands of assignments per employee |
 
@@ -137,6 +175,7 @@ These are the usual textbook choices. None earns its place here today, and addin
 
 ## 7. Where the time still goes
 
-The dashboard still makes 182 queries, mostly one or two per monitoring point and per location window. The next gains
-are in batching those, in a composite index on the stock ledger, and in month-end balance snapshots. They are set out,
-with order, effort and acceptance tests, in [DSA_IMPLEMENTATION_PLAN.md](DSA_IMPLEMENTATION_PLAN.md).
+The dashboard makes 81 queries, down from 212. Most of what is left is one query per statistic per location window (checklists,
+attendance, breakage, absences). Batching those across locations is the next gain and is listed at the end of
+[DSA_IMPLEMENTATION_PLAN.md](DSA_IMPLEMENTATION_PLAN.md). Snapshots and the large-list search narrowing pay off as the data grows; at the
+benchmark size they cost nothing and gain a little.

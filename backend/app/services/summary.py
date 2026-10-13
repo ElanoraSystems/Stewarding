@@ -8,6 +8,7 @@ from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, Che
 from .checklists import OPEN
 from .settings import get_setting
 from .monitoring import describe, due_checks
+from .reference import employee_names, user_names
 
 URGENCY_RANK = {"critical": 0, "high": 1, "normal": 2}
 
@@ -19,8 +20,7 @@ def _minutes(now: datetime, since: datetime | None) -> int:
 def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> list[dict]:
     """Everything outstanding right now, with location, urgency, responsible person and overdue minutes."""
     locations = {loc.id: loc.name for loc in db.scalars(select(Location)) if location_ids is None or loc.id in location_ids}
-    names = {e.id: e.full_name for e in db.scalars(select(Employee))}
-    user_names = {e.user_id: e.full_name for e in db.scalars(select(Employee)) if e.user_id}
+    names, by_user = employee_names(db), user_names(db)
     items: list[dict] = []
 
     def add(category, loc_id, urgency, responsible, description, since, link):
@@ -53,8 +53,8 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
     for action, reading in db.execute(
             select(CorrectiveAction, TemperatureReading).join(TemperatureReading, TemperatureReading.id == CorrectiveAction.reading_id)
             .where(TemperatureReading.location_id.in_(locations), CorrectiveAction.status != "resolved")).all():
-        add("corrective_action", reading.location_id, "critical", user_names.get(action.taken_by, "Supervisor"),
-            f"Failed reading {describe(reading.value, reading.value_type, reading.unit)} ({reading.stage}) - {action.status.replace('_', ' ')}",
+        add("corrective_action", reading.location_id, "critical", by_user.get(action.taken_by, "Supervisor"),
+            f"Failed reading {describe(reading)} ({reading.stage}) - {action.status.replace('_', ' ')}",
             reading.recorded_at, "/monitoring")
 
     cutoff = now - timedelta(days=14)

@@ -1,7 +1,7 @@
 # Data structures and algorithms - implementation plan
 
-This is the plan, separate from the findings in [DSA_SUMMARY.md](DSA_SUMMARY.md). Phase 1 is finished. Phases 2 to 5 are
-proposed, in the order that gives the most benefit for the least risk.
+This is the plan, separate from the findings in [DSA_SUMMARY.md](DSA_SUMMARY.md). Phases 1 to 5 are implemented, with the results
+below; the one remaining item is Phase 6.
 
 ## 0. Rules for every phase
 
@@ -25,7 +25,11 @@ proposed, in the order that gives the most benefit for the least risk.
 | Duplicate and near-duplicate item names | Compact key, token set, bounded edit distance | `services/similarity.py`, `api/inventory.py`, `pages/ItemForm.tsx` |
 | Benchmark and equivalence tests | Synthetic large dataset, brute-force reference | `scripts/benchmark.py`, `tests/test_algorithms.py` |
 
-## Phase 2 - Remove repeated lookups inside a request (recommended next)
+## Phase 2 - Remove repeated lookups inside a request (done)
+
+**Result.** Dashboard 212 to 81 queries and 228 ms to 65 ms; due checks 51 to 3 queries; monitoring stats 35 to 3. The time target
+(under 80 ms) is met. The query target (60 or fewer) is not: 81 remain, and Phase 6 covers them. Task 2.4 (item list batching) needed
+no change: the page already makes a fixed 11 queries however many rows it shows.
 
 **Evidence.** A dashboard request still runs 132 queries on the small benchmark and 182 on the large one. The profile
 by table: `temperature_reading` 25, `equipment_schedule` 16, `checklist_instance` 14, `employee_location` 13,
@@ -45,7 +49,11 @@ for compliance, attendance and checklists stay in place).
 **Risk.** A request-scoped copy could hide a change made earlier in the same request. Mitigation: drop it on flush of
 the affected tables, as the settings copy does, and test each lookup with a write followed by a read.
 
-## Phase 3 - Indexes for the large tables
+## Phase 3 - Indexes for the large tables (done, one index)
+
+**Result.** Plans checked on PostgreSQL with `EXPLAIN (ANALYZE)`. Added `stock_transaction (location_id, occurred_at, item_id)`: the date-range
+read went from 1.58 ms to 0.75 ms. The readings index showed no change and was left out. Checklist and attendance indexes were not
+added for lack of a measured problem. Re-run the plans on production data before adding any more.
 
 **Evidence to collect first.** Run the slowest endpoints on PostgreSQL with `EXPLAIN (ANALYZE, BUFFERS)` and enable
 `pg_stat_statements` on the production database for a week. Add an index only where the plan shows a scan.
@@ -62,7 +70,10 @@ on the benchmark insert test. One migration per index with a matching downgrade.
 
 **Risk.** Indexes slow writes and use disk. Keep only the ones the plans justify.
 
-## Phase 4 - Month-end balance snapshots (only when history is large)
+## Phase 4 - Month-end balance snapshots (done)
+
+**Result.** Built by the scheduler, verified every run, self-healing, and identical to the full sum in tests. At the benchmark size
+reconciliation goes from 13 to 7 ms on PostgreSQL; the gain grows with history. The trigger below now only says when it starts to matter.
 
 **Trigger.** Reconciliation or stock reports take more than 300 ms on production data, or the ledger passes about
 2 million rows.
@@ -77,7 +88,10 @@ affected months.
 
 **Effort.** 3 days including the migration, the rebuild command and the check.
 
-## Phase 5 - Item search at larger scale (only if needed)
+## Phase 5 - Item search at larger scale (done)
+
+**Result.** Stored `compact_key` and `token_key` with indexes make the duplicate check an index lookup. The similar-name warning scans every name
+up to 5,000 items and narrows candidates in the database above that. The trigram alternative was not needed.
 
 **Trigger.** The item master passes about 20,000 names or the lookup takes more than 100 ms.
 
@@ -87,14 +101,25 @@ PostgreSQL trigram search (`pg_trgm`) is the alternative if installing an extens
 
 **Acceptance.** The same classification results as the current in-memory method on a fixed set of 500 name pairs.
 
+## Phase 6 - Batch the remaining dashboard statistics (proposed)
+
+**Evidence.** 81 queries remain per dashboard request, one per statistic per location window: `checklist_instance` 14, `employee_location` 8,
+`breakage_incident` 8, `attendance_record` 7, `shift_assignment` 6, `absence_record` 6.
+
+| Task | Technique | Effort |
+|---|---|---|
+| 6.1 Checklist statistics for all locations at once | One query filtered by the location list, grouped into dictionaries by location and day | 1 day |
+| 6.2 Attendance statistics for all locations at once | The same, for assignments, records and absences | 1 day |
+| 6.3 Breakage and employee-location lookups | One grouped query each | 0.5 day |
+
+**Acceptance.** Dashboard at 40 queries or fewer, and every figure unchanged (the existing comparison tests stay in place).
+
 ## Order and effort
 
 | Order | Phase | Effort | Value | Decide by |
 |---|---|---|---|---|
-| 1 | Phase 2 (2.1 to 2.4) | about 3.5 days | Dashboard and reports lighter under load | Next release |
-| 2 | Phase 3 | about 1 day plus a week of observation | Protects large tables | After a week of production data |
-| 3 | Phase 4 | about 3 days | Month-end stays fast for years | When the trigger is met |
-| 4 | Phase 5 | about 2 days | Search at very large scale | When the trigger is met |
+| Done | Phases 1 to 5 | - | See the results under each phase | - |
+| Next | Phase 6 | about 2.5 days | Dashboard under 40 queries | Next release |
 
 ## Verification and rollout
 

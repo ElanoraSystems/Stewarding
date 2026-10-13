@@ -13,6 +13,7 @@ from ..models import Location, Setting, User
 from ..pagination import row
 from ..security import hash_password
 from ..services.settings import DEFAULTS, all_settings
+from ..services.snapshots import forget_from
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -105,6 +106,8 @@ def update_location(location_id: int, body: LocationUpdate, user: User = Depends
     if "timezone" in data:
         _check_tz(data["timezone"])
     before = {k: getattr(loc, k) for k in data}
+    if "timezone" in data and data["timezone"] != loc.timezone:
+        forget_from(db, loc.id)  # month boundaries move with the time zone, so stored month-end balances no longer apply
     for key, value in data.items():
         setattr(loc, key, value)
     pin_changed = False

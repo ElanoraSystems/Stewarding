@@ -16,7 +16,7 @@ from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services.notify import notify, recipients
 from ..services.settings import get_setting
-from ..services.monitoring import describe, due_checks, evaluate, failure_count, resolve_alerts, resolve_chain
+from ..services.monitoring import describe, due_checks, failure_count, judge, resolve_alerts, resolve_chain
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
 
@@ -32,7 +32,8 @@ ACTION_FIELDS = ("id", "reading_id", "action", "taken_by", "taken_at", "retest_d
 class ReadingIn(BaseModel):
     equipment_id: int
     schedule_id: int
-    value: Decimal = Field(ge=-100000, le=100000)
+    value: Decimal | None = Field(default=None, ge=-100000, le=100000)
+    answer: str | None = Field(default=None, max_length=500)
     reference: str | None = Field(default=None, max_length=120)
     comment: str | None = Field(default=None, max_length=1000)
     evidence_path: str | None = None
@@ -46,7 +47,8 @@ class ReviewManyIn(BaseModel):
 
 class BatchItem(BaseModel):
     schedule_id: int
-    value: Decimal = Field(ge=-100000, le=100000)
+    value: Decimal | None = Field(default=None, ge=-100000, le=100000)
+    answer: str | None = Field(default=None, max_length=500)
     reference: str | None = Field(default=None, max_length=120)
     comment: str | None = Field(default=None, max_length=1000)
     evidence_path: str | None = None
@@ -109,7 +111,7 @@ def _serialize_reading(db: Session, reading: TemperatureReading, names: dict[int
     out = row(reading, *READING_FIELDS)
     out["recorded_by_name"] = names.get(reading.recorded_by)
     out["reviewed_by_name"] = names.get(reading.reviewed_by)
-    out["display"] = describe(reading.value, reading.value_type, reading.unit)
+    out["display"] = describe(reading)
     action = actions.get(reading.id) if actions is not None else _latest_action(db, reading.id)
     out["corrective_action"] = row(action, *ACTION_FIELDS) if action else None
     return out
@@ -140,8 +142,10 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown check for this monitoring point")
     if sched.value_type == "number" and sched.min_value is None and sched.max_value is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Limits are not configured for this check")
-    if sched.value_type == "yes_no" and body.value not in (0, 1):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Answer yes or no")
+    try:
+        value, answer, passed = judge(sched, body.value.quantize(Decimal("0.01")) if body.value is not None else None, body.answer)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{sched.stage}: {exc}") from None
     reference = (body.reference or "").strip() or None
     if sched.require_reference and reference is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the batch, lot or product reference for this check")
@@ -160,12 +164,10 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
             raise HTTPException(status.HTTP_409_CONFLICT, "Record the corrective action before retesting")
 
     now = timeutil.utc_now()
-    value = body.value.quantize(Decimal("0.01"))
-    passed = value == 1 if sched.value_type == "yes_no" else evaluate(value, sched.min_value, sched.max_value)
     reading = TemperatureReading(
         equipment_id=eq.id, schedule_id=sched.id, location_id=eq.location_id, recorded_at=now, stage=sched.stage,
         source=sched.source, parameter=sched.parameter, unit=sched.unit, value_type=sched.value_type, value=value,
-        reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed,
+        answer=answer, reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed,
         recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, retest_of_id=body.retest_of_id)
     db.add(reading)
     db.flush()
@@ -204,9 +206,10 @@ def _open_failure(db: Session, user: User, eq: Equipment, reading: TemperatureRe
         reading_id=reading.id, action=text.strip() if has_text else "", taken_by=user.id,
         status="retest_due" if has_text else "action_required",
         retest_due_at=now + timedelta(minutes=get_setting(db, "temp.retest_minutes")) if has_text else None))
-    limits = "Answered No" if reading.value_type == "yes_no" else f"Limits {reading.min_limit or '-'} to {reading.max_limit or '-'} {reading.unit or ''}".strip()
+    answered = {"yes_no": "Answered No", "choice": f"Answered {reading.answer}"}
+    limits = answered[reading.value_type] if reading.value_type in answered else f"Limits {reading.min_limit or '-'} to {reading.max_limit or '-'} {reading.unit or ''}".strip()
     notify(db, recipients(db, eq.location_id, SUPERVISOR, MANAGER), "monitoring_failed",
-           f"Failed check: {eq.name} ({reading.stage}) {describe(reading.value, reading.value_type, reading.unit)}",
+           f"Failed check: {eq.name} ({reading.stage}) {describe(reading)}",
            key=f"temp_fail:{reading.id}", body=f"{limits}. Corrective action and retest required.",
            priority="critical", location_id=eq.location_id, link="/monitoring", requires_ack=True)
     if failure_count(db, eq.id, now) >= get_setting(db, "temp.repeat_failure_count"):
@@ -287,7 +290,7 @@ def list_actions(action_status: str | None = Query(None, alias="status"), locati
     if action_status:
         stmt = stmt.where(CorrectiveAction.status == action_status)
     items = db.execute(stmt.order_by(CorrectiveAction.id.desc()).limit(200)).all()
-    return [{**row(a, *ACTION_FIELDS), "equipment_id": r.equipment_id, "stage": r.stage, "display": describe(r.value, r.value_type, r.unit),
+    return [{**row(a, *ACTION_FIELDS), "equipment_id": r.equipment_id, "stage": r.stage, "display": describe(r),
              "recorded_at": row(r, "recorded_at")["recorded_at"], "location_id": r.location_id} for a, r in items]
 
 

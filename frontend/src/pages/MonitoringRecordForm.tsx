@@ -15,7 +15,10 @@ export interface Schedule {
   stage: string
   parameter: string
   unit: string | null
-  value_type: 'number' | 'yes_no'
+  value_type: 'number' | 'yes_no' | 'text' | 'choice'
+  options: string[] | null
+  fail_options: string[] | null
+  max_length: number | null
   require_reference: boolean
   source: string
   timing: string
@@ -58,9 +61,16 @@ interface RecordFormProps {
 
 const num = (v: number | string | null) => (v === null ? null : Number(v))
 
+/** The answer in the form the server expects: a number for measurements and yes or no, words for text and choices. */
+function answerOf(s: Schedule | undefined, raw: string | undefined) {
+  return s?.value_type === 'text' || s?.value_type === 'choice' ? { answer: raw ?? '' } : { value: Number(raw) }
+}
+
 function verdict(value: string, schedule?: Schedule): 'pass' | 'fail' | null {
   if (value === '' || !schedule) return null
   if (schedule.value_type === 'yes_no') return value === '1' ? 'pass' : 'fail'
+  if (schedule.value_type === 'text') return 'pass'
+  if (schedule.value_type === 'choice') return schedule.fail_options?.includes(value) ? 'fail' : 'pass'
   const amount = Number(value)
   const low = num(schedule.min_value)
   const high = num(schedule.max_value)
@@ -116,9 +126,9 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       const evidence = file ? await uploadFile(file) : null
       const common = { comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null }
       if (prefill?.retestOf) {
-        await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), value: Number(values[Number(scheduleId)]), retest_of_id: prefill.retestOf, ...common } })
+        await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), ...answerOf(schedule, values[Number(scheduleId)]), retest_of_id: prefill.retestOf, ...common } })
       } else {
-        await api('/monitoring/readings/batch', { body: { equipment_id: Number(equipmentId), readings: cycle.map((s) => ({ schedule_id: s.id, value: Number(values[s.id]), ...common })) } })
+        await api('/monitoring/readings/batch', { body: { equipment_id: Number(equipmentId), readings: cycle.map((s) => ({ schedule_id: s.id, ...answerOf(s, values[s.id]), ...common })) } })
       }
     }, anyFail ? 'Failed check recorded - supervisor notified' : cycle.length > 1 ? 'Checks recorded' : 'Check recorded')
     setBusy(false)
@@ -172,13 +182,24 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
                   <option value="0">No</option>
                 </Select>
               </Field>
+            ) : s.value_type === 'choice' ? (
+              <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter}>
+                <Select required className="w-52" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}>
+                  <option value="">Select</option>
+                  {s.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+                </Select>
+              </Field>
+            ) : s.value_type === 'text' ? (
+              <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter} hint={`Up to ${s.max_length ?? 200} characters`}>
+                <Input required maxLength={s.max_length ?? 200} className="w-72" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
+              </Field>
             ) : (
               <Field label={`${cycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}`}
                 hint={`Acceptable ${s.min_value ?? 'no minimum'} to ${s.max_value ?? 'no maximum'} ${s.unit ?? ''}`}>
                 <Input required type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             )}
-            {results[i] && <Badge tone={results[i] === 'pass' ? 'ok' : 'critical'}>{results[i] === 'pass' ? 'Within limits' : 'Out of range'}</Badge>}
+            {results[i] && s.value_type !== 'text' && <Badge tone={results[i] === 'pass' ? 'ok' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
           </div>
         ))}
         {needsReference && (

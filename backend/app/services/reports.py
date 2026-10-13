@@ -10,6 +10,7 @@ from ..models import (BreakageIncident, CorrectiveAction, Employee, Equipment, I
                       TemperatureReading)
 from . import metrics
 from .monitoring import describe
+from .reference import user_names
 from .inventory import reconcile
 from .settings import get_setting
 from .summary import pending_items
@@ -117,7 +118,7 @@ def sec_monitoring_log(c: Ctx) -> dict:
     for w, r in _readings(c):
         rows.append({"location": w.loc.name, "time": local(r.recorded_at, w.loc.timezone), "equipment": eq.get(r.equipment_id),
                      "parameter": r.parameter, "stage": r.stage, "source": r.source,
-                     "value": describe(r.value, r.value_type, r.unit), "reference": r.reference,
+                     "value": describe(r), "reference": r.reference,
                      "limits": f"{r.min_limit if r.min_limit is not None else '-'} to {r.max_limit if r.max_limit is not None else '-'}",
                      "result": "Pass" if r.passed else "FAIL", "retest": "Yes" if r.retest_of_id else "",
                      "recorded_by": c.names_by_user.get(r.recorded_by), "action": actions.get(r.id)})
@@ -309,7 +310,7 @@ def sec_corrective_actions(c: Ctx) -> dict:
         a = actions.get(r.id)
         minutes = int((a.resolved_at - r.recorded_at).total_seconds() // 60) if a and a.resolved_at else None
         rows.append({"location": w.loc.name, "time": local(r.recorded_at, w.loc.timezone), "equipment": eq.get(r.equipment_id),
-                     "stage": r.stage, "value": describe(r.value, r.value_type, r.unit), "status": a.status if a else "none",
+                     "stage": r.stage, "value": describe(r), "status": a.status if a else "none",
                      "action": a.action if a else None, "minutes_to_resolve": minutes})
     return section("corrective_actions", "Failed readings and corrective actions",
                    [("location", "Location"), ("time", "Time"), ("equipment", "Equipment"), ("stage", "Stage"),
@@ -336,7 +337,7 @@ def sec_reconciliation(c: Ctx) -> dict:
 
 def sec_stock_consumption(c: Ctx) -> dict:
     agg: dict[tuple[str, str], Counter] = defaultdict(Counter)
-    for t, _ in metrics.movements(c.db, c.wins):
+    for t in metrics.movements(c.db, c.wins):
         loc = next(w.loc.name for w in c.wins if w.loc.id == t.location_id)
         a = agg[(loc, c.items[t.item_id].name)]
         if t.txn_type in ("issue", "breakage", "damage"):
@@ -416,7 +417,7 @@ def build_report(db: Session, now: datetime, scope: set[int] | None, period: str
         raise ValueError("No locations in scope")
     d_from, d_to, label = period_bounds(period, anchor or first[0].today)
     wins = metrics.windows(db, now, scope, location_id, d_from, d_to)
-    names = {e.user_id: e.full_name for e in db.scalars(select(Employee)) if e.user_id}
+    names = user_names(db)
     items = {i.id: i for i in db.scalars(select(InventoryItem))}
     ctx = Ctx(db, now, wins, scope, d_from, d_to, employee_id, names, items)
     sections = [fn(ctx) for fn in REPORTS[period]]

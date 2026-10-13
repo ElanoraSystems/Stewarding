@@ -52,6 +52,8 @@ class InventoryItem(Base):
     unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("supplier.id"), index=True)
     name_key: Mapped[str] = mapped_column(String(120), default="", index=True)  # normalised name for duplicate checks
+    compact_key: Mapped[str] = mapped_column(String(120), default="", index=True)  # letters and digits only, set from the name
+    token_key: Mapped[str] = mapped_column(String(200), default="", index=True)  # sorted singular words, set from the name
     is_tracked_asset: Mapped[bool] = mapped_column(Boolean, default=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -67,6 +69,8 @@ class InventoryBalance(Base):
 
 class StockTransaction(Base):
     __tablename__ = "stock_transaction"
+    # location and time range reads (reconciliation, movement reports, dashboard charts) use this one index
+    __table_args__ = (Index("ix_stock_transaction_location_time_item", "location_id", "occurred_at", "item_id"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), index=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
@@ -84,6 +88,19 @@ class StockTransaction(Base):
 @event.listens_for(StockTransaction, "before_delete")
 def _immutable(*_):
     raise ValueError("Stock transactions are immutable; post an adjustment instead")
+
+
+class StockSnapshot(Base):
+    """The closing quantity of an item at a location at the end of a month; a copy rebuilt from the ledger, never a source."""
+
+    __tablename__ = "stock_snapshot"
+    __table_args__ = (UniqueConstraint("location_id", "month", "item_id", name="uq_stock_snapshot"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"))
+    month: Mapped[str] = mapped_column(String(7))  # YYYY-MM in the location's time zone
+    qty: Mapped[int] = mapped_column(Integer)
+    built_at: Mapped[datetime] = ts()
 
 
 class InventoryCount(Base):

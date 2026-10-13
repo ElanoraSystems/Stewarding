@@ -16,7 +16,7 @@ from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryIt
                       Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
 from ..services.inventory import StockError, norm, post_txn
-from ..services.similarity import classify, find_similar
+from ..services.similarity import SCAN_LIMIT, compact, find_similar, token_key, tokens
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
@@ -287,9 +287,11 @@ def _check_links(db: Session, category_id: int | None, unit_id: int | None, supp
 def _check_duplicate(db: Session, name: str, exclude_id: int | None = None) -> None:
     """One item master entry per normalised name."""
     if name is not None:
-        rows = db.execute(select(InventoryItem.id, InventoryItem.code, InventoryItem.name, InventoryItem.active)
-                          .where(InventoryItem.id != (exclude_id or 0))).all()
-        clash = next((r for r in rows if norm(r.name) == norm(name)), None) or next((r for r in rows if classify(name, r.name) == "same"), None)
+        # the same item written differently shares a compact key (spacing, punctuation) or a token key (word order, plurals)
+        clash = db.execute(select(InventoryItem.code, InventoryItem.name, InventoryItem.active).where(
+            InventoryItem.id != (exclude_id or 0),
+            or_(InventoryItem.name_key == norm(name), InventoryItem.compact_key == compact(name),
+                InventoryItem.token_key == token_key(name))).order_by(InventoryItem.id).limit(1)).first()
         if clash:
             state = "" if clash.active else " (inactive - reactivate it instead)"
             raise HTTPException(status.HTTP_409_CONFLICT, f"{clash.name} ({clash.code}) already exists{state}")
@@ -300,8 +302,14 @@ def similar_items(q: str, user: User = Depends(require("inventory.view")), db: S
     """Existing items that are the same as, or close to, the typed name, so a duplicate is noticed before it is created."""
     if len(norm(q)) < 3:
         return []
-    names = db.execute(select(InventoryItem.id, InventoryItem.code, InventoryItem.name, InventoryItem.active)).all()
-    return find_similar(q, names)
+    columns = (InventoryItem.id, InventoryItem.code, InventoryItem.name, InventoryItem.active)
+    stmt = select(*columns)
+    if db.scalar(select(func.count()).select_from(InventoryItem)) > SCAN_LIMIT:
+        # a large list: only names that contain the typed letters, share a word, or start the same way are compared
+        key = compact(q)
+        shared = [InventoryItem.token_key.contains(w) for w in tokens(q) if len(w) >= 3]
+        stmt = stmt.where(or_(InventoryItem.compact_key.contains(key), InventoryItem.compact_key.startswith(key[:3]), *shared)).limit(500)
+    return find_similar(q, db.execute(stmt).all())
 
 
 @router.post("/items", status_code=201)

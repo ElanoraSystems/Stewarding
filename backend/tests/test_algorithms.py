@@ -76,7 +76,9 @@ def test_the_window_is_half_open():
     ("Dinner Plate", "Dinner Plate 27cm", "similar"),
     ("Soup Bowl", "Dinner Plate 27cm", None),
     ("Side Plate 18cm", "Dinner Plate 27cm", None),
-    ("Glass", "Glasses", "similar"),
+    ("Glass", "Glasses", "same"),
+    ("Wine Glasses", "wine glass", "same"),
+    ("Cutting Boxes", "Cutting Box", "same"),
     ("", "Dinner Plate", None),
 ])
 def test_names_are_classified(query, name, expected):
@@ -152,3 +154,104 @@ def test_a_page_of_readings_costs_the_same_number_of_queries_however_many_rows(c
         record(client, steward, eq, wash, 40, corrective_action="Descaled the heater")  # failed readings, each with an action
     many = count_queries(lambda: client.get(url, headers=mgr))
     assert many == few
+
+
+def test_the_day_finder_agrees_with_converting_every_time_even_across_a_clock_change():
+    from datetime import date
+
+    from app import timeutil
+    from app.services.metrics import Win, day_finder
+
+    class Place:
+        timezone = "Europe/London"
+
+    first, last = date(2026, 3, 26), date(2026, 4, 1)  # the clocks go forward on 29 March
+    win = Win(Place, first, last, timeutil.local_to_utc(first, datetime.min.time(), "Europe/London"),
+              timeutil.local_to_utc(date(2026, 4, 2), datetime.min.time(), "Europe/London"), last)
+    find = day_finder(win)
+    rng = random.Random(3)
+    moments = [win.start + timedelta(minutes=rng.randint(0, int((win.end - win.start).total_seconds() // 60) - 1)) for _ in range(3000)]
+    moments += [win.start, win.end - timedelta(minutes=1), datetime(2026, 3, 29, 0, 59), datetime(2026, 3, 29, 1, 0), datetime(2026, 3, 28, 23, 59)]
+    assert all(find(m) == timeutil.local_date(m, "Europe/London") for m in moments)
+
+
+def test_movements_carry_the_same_days_as_the_per_row_conversion(client, login, db, clock):
+    from app import timeutil
+    from app.services import metrics
+
+    mk = db.scalar(select(Location).where(Location.code == "MK"))
+    rng = random.Random(5)
+    for _ in range(80):
+        db.add(StockTransaction(item_id=1, location_id=mk.id, txn_type="issue", qty_delta=-1, user_id=1,
+                                occurred_at=datetime(2026, 3, 2) + timedelta(days=rng.randint(-3, 3), minutes=rng.randint(0, 1439))))
+    db.commit()
+    wins = metrics.windows(db, datetime(2026, 3, 3), None, mk.id, datetime(2026, 2, 27).date(), datetime(2026, 3, 5).date())
+    moved = metrics.movements(db, wins)
+    expected = sorted(timeutil.local_date(t.occurred_at, mk.timezone)
+                      for t in db.scalars(select(StockTransaction).where(StockTransaction.location_id == mk.id, StockTransaction.occurred_at >= wins[0].start,
+                                                                         StockTransaction.occurred_at < wins[0].end)))
+    assert sorted(m.day for m in moved) == expected and all(m.location_id == mk.id and m.item_id == 1 for m in moved if m.txn_type == "issue")
+
+
+def test_request_copies_are_dropped_when_the_rows_they_came_from_change(db):
+    from app.deps import scoped_locations
+    from app.models import EmployeeLocation, Employee, User
+
+    user = db.scalar(select(User).where(User.email == "sup.mk@example.test"))
+    before = scoped_locations(user, db)
+    assert count_queries(lambda: [scoped_locations(user, db) for _ in range(20)]) == 0   # kept after the first call
+    emp = db.get(Employee, user.employee.id)
+    db.add(EmployeeLocation(employee_id=emp.id, location_id=3))
+    db.flush()
+    assert scoped_locations(user, db) == before | {3}
+    db.rollback()
+    assert scoped_locations(user, db) == before
+
+
+def test_search_keys_follow_the_name_on_every_path(client, login, db):
+    from app.services.similarity import compact, token_key
+
+    plate = db.scalar(select(InventoryItem).where(InventoryItem.code == "PL-001"))
+    assert (plate.compact_key, plate.token_key) == ("dinnerplate27cm", "27cm dinner plate")      # set for seeded items
+    m = login(MGR)
+    cat = client.get("/api/inventory/categories", headers=m).json()[0]["id"]
+    unit = client.get("/api/inventory/units", headers=m).json()[0]["id"]
+    made = client.post("/api/inventory/items", json={"name": "Wine Glasses 35cl", "category_id": cat, "unit_id": unit}, headers=m).json()
+    row_ = db.get(InventoryItem, made["id"])
+    assert (row_.compact_key, row_.token_key) == (compact("Wine Glasses 35cl"), token_key("Wine Glasses 35cl")) == ("wineglasses35cl", "35cl glass wine")
+    client.put(f"/api/inventory/items/{made['id']}", json={"name": "Red Wine Goblet"}, headers=m)
+    db.expire_all()
+    assert (db.get(InventoryItem, made["id"]).compact_key, db.get(InventoryItem, made["id"]).token_key) == ("redwinegoblet", "goblet red wine")
+
+
+def test_the_indexed_duplicate_check_refuses_exactly_what_a_full_comparison_would(client, login, db):
+    existing = [n for (n,) in db.execute(select(InventoryItem.name))]
+    rng = random.Random(21)
+    m = login(MGR)
+    cat = client.get("/api/inventory/categories", headers=m).json()[0]["id"]
+    unit = client.get("/api/inventory/units", headers=m).json()[0]["id"]
+    tried = 0
+    for base in list(existing):  # a snapshot, because accepted names are added to `existing` as the loop runs
+        words = base.split()
+        variants = [" ".join(reversed(words)), base.upper(), base.replace(" ", "-"), base.replace(" ", ""), base + "s", base[:-1],
+                    " ".join(rng.sample(words, len(words))), base + " extra", "new " + base]
+        for name in variants:
+            expected = any(classify(name, other) == "same" for other in existing)
+            r = client.post("/api/inventory/items", json={"name": name, "category_id": cat, "unit_id": unit}, headers=m)
+            assert (r.status_code == 409) == expected, (name, r.status_code)
+            tried += 1
+            if r.status_code == 201:
+                existing.append(name)  # a name that was accepted becomes a candidate for later ones
+    assert tried > 80
+
+
+def test_a_large_item_list_narrows_candidates_but_still_finds_the_obvious_matches(client, login, db, monkeypatch):
+    m = login(MGR)
+    queries = ["dinner pl", "Dinner Plat 27cm", "27cm plate dinner", "chef kn", "stock pot", "tongs", "gastronorm"]
+    everything = {q: [f["code"] for f in client.get(f"/api/inventory/items/lookup?q={q}", headers=m).json()] for q in queries}
+    monkeypatch.setattr("app.api.inventory.SCAN_LIMIT", 3)   # as if the list were huge
+    narrowed = {q: [f["code"] for f in client.get(f"/api/inventory/items/lookup?q={q}", headers=m).json()] for q in queries}
+    assert all(everything[q] for q in queries)
+    for q in queries:
+        assert narrowed[q][:1] == everything[q][:1], q        # the best match is the same
+        assert set(narrowed[q]) <= set(everything[q]) | set(narrowed[q])
