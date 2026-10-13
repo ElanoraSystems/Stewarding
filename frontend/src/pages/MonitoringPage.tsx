@@ -2,7 +2,9 @@ import { AlertTriangle } from 'lucide-react'
 import { useState } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Modal } from '@/components/ui/modal'
 import { EmptyState } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth'
 import { fmtTime, label } from '@/lib/format'
@@ -37,6 +39,7 @@ export function MonitoringPage() {
   const { me } = useAuth()
   const [locationId, setLocationId] = useState<number | null>(null)
   const [prefill, setPrefill] = useState<Prefill | null>(null)
+  const [recording, setRecording] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const canRecord = me?.permissions.includes('temp.record') ?? false
   const timezone = me?.locations.find((l) => l.id === locationId)?.timezone
@@ -46,8 +49,15 @@ export function MonitoringPage() {
   const pending = useApi<Pending[]>(locationId ? `/monitoring/pending${qs({ location_id: locationId, k: refreshKey })}` : null)
   const items = equipment.data ?? []
   const overdue = (due.data ?? []).filter((d) => d.status === 'overdue')
-  const actionable = (due.data ?? []).filter((d) => d.status !== 'upcoming' && d.status !== 'done')
   const refresh = () => setRefreshKey((k) => k + 1)
+  const startRecording = (next: Prefill | null) => {
+    setPrefill(next)
+    setRecording(true)
+  }
+  const stopRecording = () => {
+    setPrefill(null)
+    setRecording(false)
+  }
 
   // a check is recorded when its latest slot that has started is done
   const doneSchedules = (() => {
@@ -79,19 +89,22 @@ export function MonitoringPage() {
 
   function timeOut(p: Pending) {
     const finish = items.find((e) => e.id === p.equipment_id)?.schedules.find((s) => s.active && s.phase === 'finish')
-    if (finish) setPrefill({ equipmentId: p.equipment_id, scheduleId: finish.id, startReadingId: p.start_reading_id, item: p.item })
+    if (finish) startRecording({ equipmentId: p.equipment_id, scheduleId: finish.id, startReadingId: p.start_reading_id, item: p.item })
   }
 
   function retest(equipmentId: number, readingId: number, stage: string) {
     const schedule = items.find((e) => e.id === equipmentId)?.schedules.find((s) => s.stage === stage)
-    if (schedule) setPrefill({ equipmentId, scheduleId: schedule.id, retestOf: readingId })
+    if (schedule) startRecording({ equipmentId, scheduleId: schedule.id, retestOf: readingId })
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Monitoring</h1>
-        <LocationSelect value={locationId} onChange={setLocationId} />
+        <div className="flex flex-wrap items-center gap-3">
+          {canRecord && <Button variant="outline" onClick={() => startRecording(null)}>Record another check</Button>}
+          <LocationSelect value={locationId} onChange={setLocationId} />
+        </div>
       </div>
 
       {overdue.length > 0 && (
@@ -108,7 +121,7 @@ export function MonitoringPage() {
               {cards.map(([key, { first: d, stages, status }]) => (
                 <li key={key}>
                   <button type="button" disabled={!canRecord || status === 'done'}
-                    onClick={() => setPrefill({ equipmentId: d.equipment_id, scheduleId: d.schedule_id })}
+                    onClick={() => startRecording({ equipmentId: d.equipment_id, scheduleId: d.schedule_id })}
                     className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-surface-muted">
                     <span><span className="block font-medium">{d.equipment}</span><span className="text-ink-muted">{stages.map(label).join(' and ')} at {fmtTime(d.slot_at, timezone)}</span></span>
                     <Badge tone={TONE[status]}>{label(status)}</Badge>
@@ -117,7 +130,7 @@ export function MonitoringPage() {
               ))}
             </ul>
           )}
-          {actionable.length > 0 && canRecord && <p className="mt-2 text-xs text-ink-muted">Select a check to start recording it.</p>}
+          {canRecord && <p className="mt-2 text-xs text-ink-muted">Select a check to record it.</p>}
         </CardContent>
       </Card>
 
@@ -141,14 +154,9 @@ export function MonitoringPage() {
         </Card>
       )}
 
-      {canRecord && (
-        <Card>
-          <CardHeader><CardTitle>Record a check</CardTitle></CardHeader>
-          <CardContent>
-            <MonitoringRecordForm equipment={items} prefill={prefill} doneSchedules={doneSchedules} onSaved={refresh} onClearRetest={() => setPrefill(null)} />
-          </CardContent>
-        </Card>
-      )}
+      <Modal open={canRecord && recording} title={prefill?.retestOf ? 'Record a retest' : prefill?.startReadingId ? 'Record the time out' : 'Record a check'} onClose={stopRecording}>
+        <MonitoringRecordForm equipment={items} prefill={prefill} doneSchedules={doneSchedules} onSaved={() => { refresh(); stopRecording() }} onClearRetest={stopRecording} />
+      </Modal>
 
       <CorrectiveActionsPanel locationId={locationId} equipment={items} refreshKey={refreshKey} onRetest={retest} onChanged={refresh} />
 
