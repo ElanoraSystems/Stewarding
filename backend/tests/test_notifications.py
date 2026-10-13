@@ -37,9 +37,9 @@ def test_unread_counts_read_and_read_all(client, login, db):
 
 
 def test_notifications_carry_priority_location_link_and_due_time(client, login, db):
-    give(db, STEWARD, key="a", priority="high", location_id=loc_id(db, "MK"), link="/daily-checklists")
+    give(db, STEWARD, key="a", priority="high", location_id=loc_id(db, "MK"), link="/checklists")
     item = client.get("/api/notifications", headers=login(STEWARD)).json()["items"][0]
-    assert item["priority"] == "high" and item["location_id"] == loc_id(db, "MK") and item["link"] == "/daily-checklists"
+    assert item["priority"] == "high" and item["location_id"] == loc_id(db, "MK") and item["link"] == "/checklists"
     assert client.get("/api/notifications?priority=critical", headers=login(STEWARD)).json()["total"] == 0
 
 

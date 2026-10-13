@@ -134,7 +134,7 @@ export function ManagerDashboard() {
           <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden /> Needs attention now</p>
           <ul className="mt-1 list-inside list-disc">
             {k.failed_checks > 0 && <li><Link className="underline" to="/monitoring">{k.failed_checks} failed check(s) today</Link></li>}
-            {k.overdue_tasks > 0 && <li><Link className="underline" to="/daily-checklists">{k.overdue_tasks} overdue task(s)</Link></li>}
+            {k.overdue_tasks > 0 && <li><Link className="underline" to="/checklists">{k.overdue_tasks} overdue task(s)</Link></li>}
             {k.equipment_attention > 0 && <li><Link className="underline" to="/equipment">{k.equipment_attention} monitoring point(s) need attention</Link></li>}
           </ul>
         </div>
@@ -157,7 +157,7 @@ export function ManagerDashboard() {
             <KpiCard label="Not checked in" value={k.not_checked_in} hint={`${k.absent} absent`} tone={k.absent ? 'warn' : 'default'} />
             <KpiCard label="Off today" value={k.off_today} hint="week off or leave" />
           </KpiGroup>
-          <KpiGroup title="Checklists" link="/daily-checklists">
+          <KpiGroup title="Checklists" link="/checklists">
             <KpiCard label="Daily completion" value={pct(k.daily_completion)} hint={ratio(k.daily_completion)} />
             <KpiCard label="Weekly completion" value={pct(k.weekly_completion)} hint={ratio(k.weekly_completion)} />
             <KpiCard label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />

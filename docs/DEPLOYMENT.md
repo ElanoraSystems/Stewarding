@@ -45,7 +45,7 @@ Sign in as the manager and open **Settings**. Each tab manages one kind of data:
 
 Employees get their login when you add them (Employees, Add): give each person the temporary password in person; they choose their own at first sign-in. Use **Reset password** on the Employees page if someone forgets theirs.
 
-Then add employees and checklist templates (Daily Checklists, Configure) and receive opening stock under **Stock Movements, Receiving**.
+Then add employees and checklist templates (Checklists, Configure) and receive opening stock under **Stock Movements, Receiving**.
 
 ## Demo data (non-production only)
 ```bash

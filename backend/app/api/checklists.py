@@ -338,7 +338,7 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
     if inst.status == "pending_verification":
         notify(db, recipients(db, inst.location_id, SUPERVISOR, MANAGER), "verification_needed",
                f"Verify: {task.description}", key=f"verify:{inst.id}", location_id=inst.location_id,
-               link="/daily-checklists", priority="high")
+               link="/checklists", priority="high")
     db.commit()
     return _serialize(inst, task, template, now)
 

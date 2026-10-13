@@ -13,25 +13,19 @@ import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { useLookup } from '@/lib/useLookups'
 import { qs, useApi } from '@/lib/useApi'
+import { ChecklistTaskModal, type ConfigTask } from '@/pages/ChecklistTaskModal'
 
-interface Task {
-  id: number
-  description: string
-  deadline_time: string | null
-  priority: string
-  requires_photo: boolean
-  requires_reading: boolean
-  requires_verification: boolean
-  active: boolean
-}
 interface Template {
   id: number
   name: string
   category: string
   frequency: string
   active: boolean
-  tasks: Task[]
+  tasks: ConfigTask[]
 }
+
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const daysOf = (weekdays: string) => (weekdays.split(',').length === 7 ? 'Every day' : weekdays.split(',').map((d) => DAY_NAMES[Number(d)]).join(', '))
 
 interface ConfigProps {
   locationId: number | null
@@ -45,24 +39,14 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
   const [name, setName] = useState('')
   const [category, setCategory] = useState('')
   const [frequency, setFrequency] = useState('daily')
-  const [taskText, setTaskText] = useState<Record<number, string>>({})
-  const [removing, setRemoving] = useState<Task | null>(null)
+  const [editing, setEditing] = useState<{ templateId: number; frequency: string; task: ConfigTask | null } | null>(null)
+  const [removing, setRemoving] = useState<ConfigTask | null>(null)
 
   async function addTemplate(event: FormEvent) {
     event.preventDefault()
     const ok = await run(() => api('/checklists/templates', { body: { name, category: category || categories[0] || 'General', location_id: locationId, frequency } }), 'Template added')
     if (ok) {
       setName('')
-      reload()
-    }
-  }
-
-  async function addTask(templateId: number) {
-    const description = taskText[templateId]?.trim()
-    if (!description) return
-    const ok = await run(() => api(`/checklists/templates/${templateId}/tasks`, { body: { description } }), 'Task added')
-    if (ok) {
-      setTaskText((t) => ({ ...t, [templateId]: '' }))
       reload()
     }
   }
@@ -93,7 +77,7 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
             {categories.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
         </Field>
-        <Field label="Frequency">
+        <Field label="Frequency" hint="Sets the default days for new tasks; each task can repeat on any days.">
           <Select value={frequency} onChange={(e) => setFrequency(e.target.value)}>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
@@ -112,24 +96,22 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
             <ul className="divide-y divide-border text-sm">
               {t.tasks.map((task) => (
                 <li key={task.id} className={`flex flex-wrap items-center justify-between gap-2 py-2 ${task.active ? '' : 'opacity-50'}`}>
-                  <span>{task.description}</span>
+                  <span>{task.description}<span className="ml-2 text-xs text-ink-muted">{daysOf(task.weekdays)}</span></span>
                   <span className="flex items-center gap-1">
                     {task.requires_verification && <Badge tone="warn">Verify</Badge>}
                     {task.requires_photo && <Badge>Photo</Badge>}
                     {task.requires_reading && <Badge>Reading</Badge>}
+                    <Button size="sm" variant="outline" onClick={() => setEditing({ templateId: t.id, frequency: t.frequency, task })}>Edit</Button>
                     {task.active ? <Button size="sm" variant="outline" onClick={() => setRemoving(task)}>Deactivate</Button> : <Badge>Inactive</Badge>}
                   </span>
                 </li>
               ))}
             </ul>
-            <div className="flex gap-2">
-              <Input aria-label={`Add task to ${t.name}`} placeholder="New task description" value={taskText[t.id] ?? ''}
-                onChange={(e) => setTaskText((v) => ({ ...v, [t.id]: e.target.value }))} />
-              <Button onClick={() => addTask(t.id)}>Add</Button>
-            </div>
+            <Button size="sm" variant="outline" onClick={() => setEditing({ templateId: t.id, frequency: t.frequency, task: null })}>Add task</Button>
           </CardContent>
         </Card>
       ))}
+      {editing && <ChecklistTaskModal templateId={editing.templateId} templateFrequency={editing.frequency} task={editing.task} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
       <ConfirmDialog open={removing !== null} title="Deactivate task" message={`"${removing?.description}" will stop being generated. Past records are kept.`}
         confirmLabel="Deactivate" onConfirm={removeTask} onCancel={() => setRemoving(null)} />
     </div>

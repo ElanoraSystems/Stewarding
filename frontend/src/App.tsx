@@ -32,8 +32,9 @@ export default function App() {
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="roster" element={<RosterPage />} />
-        <Route path="daily-checklists" element={<ChecklistsPage frequency="daily" />} />
-        <Route path="weekly-checklists" element={<ChecklistsPage frequency="weekly" />} />
+        <Route path="checklists" element={<ChecklistsPage />} />
+        <Route path="daily-checklists" element={<Navigate to="/checklists" replace />} />
+        <Route path="weekly-checklists" element={<Navigate to="/checklists" replace />} />
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="temperature" element={<Navigate to="/monitoring" replace />} />
         <Route path="equipment" element={<EquipmentPage />} />

@@ -36,11 +36,11 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
     for inst, task in rows:
         if inst.status == "pending_verification":
             add("verification", inst.location_id, "normal", "Supervisor", f"Verify: {task.description}",
-                inst.completed_at, "/daily-checklists")
+                inst.completed_at, "/checklists")
         else:
             urgency = "high" if task.priority in ("high", "critical") else "normal"
             who = names.get(inst.assigned_employee_id) or f"Unassigned ({task.assigned_role or 'steward'})"
-            add("overdue_task", inst.location_id, urgency, who, task.description, inst.due_at, "/daily-checklists")
+            add("overdue_task", inst.location_id, urgency, who, task.description, inst.due_at, "/checklists")
 
     equipment = list(db.scalars(select(Equipment).where(Equipment.location_id.in_(locations), Equipment.active.is_(True))))
     sup_names = {eq.id: names.get(eq.supervisor_id, "Supervisor") for eq in equipment}

@@ -56,7 +56,7 @@ def _joined(value: date | None) -> date | None:
 
 
 class EmployeeIn(BaseModel):
-    employee_code: str = Field(min_length=2, max_length=20, pattern=CODE_RE.pattern)
+    employee_code: str | None = Field(default=None, min_length=2, max_length=20, pattern=CODE_RE.pattern)  # generated when empty
     full_name: str = Field(min_length=2, max_length=120)
     job_title: str = Field(min_length=2, max_length=80)
     company: str | None = Field(default=None, max_length=120)
@@ -173,6 +173,12 @@ def list_employees(
     return {"total": total, "page": page, "items": [serialize(r[0], full) for r in rows]}
 
 
+def _next_code(db: Session) -> str:
+    """E followed by the next number after the highest existing E-number, such as E007."""
+    numbers = [int(code[1:]) for code in db.scalars(select(Employee.employee_code).where(Employee.employee_code.like("E%"))) if code[1:].isdigit()]
+    return f"E{max(numbers, default=0) + 1:03d}"
+
+
 @router.post("", status_code=201)
 def create_employee(body: EmployeeIn, user: User = Depends(require("employee.manage")), db: Session = Depends(get_db)):
     _validate_refs(db, body.location_ids, body.supervisor_id)
@@ -183,7 +189,7 @@ def create_employee(body: EmployeeIn, user: User = Depends(require("employee.man
         db.add(account)
         db.flush()
         emp = Employee(
-            employee_code=body.employee_code, user_id=account.id, full_name=body.full_name, job_title=body.job_title, company=body.company,
+            employee_code=body.employee_code or _next_code(db), user_id=account.id, full_name=body.full_name, job_title=body.job_title, company=body.company,
             email=str(body.email).lower(), phone=body.phone, emergency_contact=body.emergency_contact,
             date_joined=body.date_joined, supervisor_id=body.supervisor_id, weekly_schedule=body.weekly_schedule)
         emp.locations = [EmployeeLocation(location_id=i) for i in set(body.location_ids)]

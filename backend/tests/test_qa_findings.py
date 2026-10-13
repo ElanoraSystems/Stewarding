@@ -78,3 +78,15 @@ def test_checklist_tasks_are_approved_in_bulk(client, login, db, clock):
     assert client.post("/api/checklists/instances/verify-many", json={"instance_ids": ids}, headers=sup).json() == {"approved": 2, "skipped": 0}
     assert client.post("/api/checklists/instances/verify-many", json={"instance_ids": ids}, headers=sup).json() == {"approved": 0, "skipped": 2}
     assert {client.get(f"/api/checklists/instances/{i}", headers=m).json()["status"] for i in ids} == {"verified"}
+
+
+def test_the_employee_id_is_generated_when_left_blank_and_never_repeats(client, login, db, clock):
+    m = login(MGR)
+    body = {"full_name": "Auto Id", "job_title": "Cook", "email": "auto1@example.com", "password": "qa-pass-12345", "role": "steward", "location_ids": [loc_id(db, "MK")]}
+    first = client.post("/api/employees", json=body, headers=m)
+    second = client.post("/api/employees", json={**body, "email": "auto2@example.com"}, headers=m)
+    assert (first.status_code, second.status_code) == (201, 201)
+    assert (first.json()["employee_code"], second.json()["employee_code"]) == ("E007", "E008")
+    typed = client.post("/api/employees", json={**body, "email": "auto3@example.com", "employee_code": "X-900"}, headers=m)
+    assert typed.json()["employee_code"] == "X-900"
+    assert client.post("/api/employees", json={**body, "email": "auto4@example.com"}, headers=m).json()["employee_code"] == "E009"

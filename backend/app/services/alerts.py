@@ -83,33 +83,33 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
         crew = recipients(db, location.id, STEWARD, SUPERVISOR)
         if due - lead <= now < due:
             created += notify(db, crew, "task_due_soon", f"{count} task(s) due at {label} - {location.name}",
-                              key=f"approach:{location.id}:{stamp}", location_id=location.id, due_at=due, link="/daily-checklists")
+                              key=f"approach:{location.id}:{stamp}", location_id=location.id, due_at=due, link="/checklists")
         if now >= due:
             late = now - due
             created += notify(db, crew, "task_overdue", f"{count} task(s) overdue since {label} - {location.name}",
                               key=f"overdue:{location.id}:{stamp}", priority="high", location_id=location.id,
-                              due_at=due, link="/daily-checklists")
+                              due_at=due, link="/checklists")
             if late >= to_supervisor:
                 created += notify(db, recipients(db, location.id, SUPERVISOR), "task_escalated",
                                   f"Escalation: {count} task(s) still open since {label} - {location.name}",
                                   key=f"esc_sup:{location.id}:{stamp}", priority="high", location_id=location.id,
-                                  due_at=due, link="/daily-checklists")
+                                  due_at=due, link="/checklists")
             if late >= to_manager:
                 created += notify(db, recipients(db, None, MANAGER), "task_escalated",
                                   f"Escalation to manager: {count} task(s) open since {label} - {location.name}",
                                   key=f"esc_mgr:{location.id}:{stamp}", priority="critical", location_id=location.id,
-                                  due_at=due, link="/daily-checklists", requires_ack=True)
+                                  due_at=due, link="/checklists", requires_ack=True)
         for inst, task in members:
             if now >= due and inst.assigned_employee_id:
                 emp = db.get(Employee, inst.assigned_employee_id)
                 if emp and emp.user_id:
                     created += notify(db, [emp.user_id], "task_overdue", f"Your task is overdue: {task.description}",
                                       key=f"taskover:{inst.id}", priority="high", location_id=location.id, due_at=due,
-                                      link="/daily-checklists")
+                                      link="/checklists")
             if task.escalation_minutes is not None and now >= due + timedelta(minutes=task.escalation_minutes):
                 created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "task_escalated",
                                   f"Escalation: {task.description}", key=f"esc_task:{inst.id}", priority="high",
-                                  location_id=location.id, due_at=due, link="/daily-checklists")
+                                  location_id=location.id, due_at=due, link="/checklists")
     return created
 
 

@@ -128,7 +128,7 @@ function MyTasks() {
     <ul className="space-y-2">
       {open.map((t) => (
         <li key={t.id}>
-          <Link to="/daily-checklists" className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface p-4 text-sm">
+          <Link to="/checklists" className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface p-4 text-sm">
             <span><span className="block font-medium">{t.description}</span><span className="text-xs text-ink-muted">Due {fmtDateTime(t.due_at)}</span></span>
             <StatusBadge status={t.effective_status} />
           </Link>

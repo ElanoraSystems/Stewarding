@@ -80,7 +80,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
       () =>
         editing
           ? api(`/employees/${employee.id}`, { method: 'PUT', body: common })
-          : api('/employees', { body: { ...common, employee_code: form.employee_code, email: form.email, password: form.password } }),
+          : api('/employees', { body: { ...common, employee_code: form.employee_code.trim() || undefined, email: form.email, password: form.password } }),
       editing ? 'Employee updated' : 'Employee created',
     )
     setBusy(false)
@@ -92,8 +92,8 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
       <form onSubmit={submit} className="space-y-3">
         {!editing && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Employee ID">
-              <Input required value={form.employee_code} onChange={(e) => set('employee_code', e.target.value)} />
+            <Field label="Employee ID" hint="Leave blank to generate one.">
+              <Input value={form.employee_code} onChange={(e) => set('employee_code', e.target.value)} />
             </Field>
             <Field label="Email">
               <Input required type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
