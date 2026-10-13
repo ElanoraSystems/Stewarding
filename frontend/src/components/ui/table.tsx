@@ -8,7 +8,7 @@ export function Skeleton({ className }: { className?: string }) {
 
 export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+    <div className="overflow-x-auto rounded-xl border border-border bg-surface">
       <table className={cn('w-full text-left text-sm', className)} {...props} />
     </div>
   )

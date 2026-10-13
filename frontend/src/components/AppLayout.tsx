@@ -4,12 +4,12 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { BrandMark } from '@/components/BrandMark'
 import { NotificationBell } from '@/components/NotificationBell'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
+import { APP_NAME } from '@/lib/brand'
 import { setDisplayTimeZone } from '@/lib/format'
 import { useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
@@ -34,8 +34,11 @@ const ICONS: Record<string, LucideIcon> = {
 
 const ROLE_LABEL = { manager: 'Back of House Manager', supervisor: 'Stewarding Supervisor', steward: 'Steward' }
 
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')
+
 export function AppLayout() {
   const { me, logout } = useAuth()
+  const { pathname } = useLocation()
   const org = useApi<{ name: string; logo: string | null; timezone: string }>('/organization')
   const reloadOrg = org.reload
   setDisplayTimeZone(org.data?.timezone)
@@ -46,21 +49,24 @@ export function AppLayout() {
   const [open, setOpen] = useState(false)
   if (!me) return null
 
+  const name = me.employee?.name ?? me.email
+  const current = me.modules.find(({ key }) => (key === 'dashboard' ? pathname === '/' : pathname === `/${key}` || pathname.startsWith(`/${key}/`)))
+
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[16rem_1fr]">
+    <div className="min-h-screen lg:grid lg:grid-cols-[17.5rem_1fr] lg:gap-2 lg:p-3">
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-border bg-surface transition-transform lg:static lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-30 flex w-72 flex-col bg-side text-white transition-transform lg:sticky lg:top-3 lg:h-[calc(100vh-1.5rem)] lg:w-auto lg:translate-x-0 lg:rounded-2xl',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <div className="flex h-16 items-center justify-between px-5 font-semibold">
-          <BrandMark organization={org.data?.name ?? ''} hasLogo={!!org.data?.logo} />
-          <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Close menu" onClick={() => setOpen(false)}>
+        <div className="flex h-16 items-center justify-between px-5">
+          <BrandMark organization={org.data?.name ?? ''} hasLogo={!!org.data?.logo} inverse />
+          <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 lg:hidden" aria-label="Close menu" onClick={() => setOpen(false)}>
             <X className="h-5 w-5" />
           </Button>
         </div>
-        <nav aria-label="Main" className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+        <nav aria-label="Main" className="flex-1 space-y-1 overflow-y-auto px-3 pb-4 pt-2">
           {me.modules.map(({ key, label }) => {
             const Icon = ICONS[key] ?? LayoutDashboard
             return (
@@ -71,37 +77,51 @@ export function AppLayout() {
                 onClick={() => setOpen(false)}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm',
-                    isActive ? 'bg-brand text-brand-ink' : 'text-ink-muted hover:bg-surface-muted hover:text-ink',
+                    'flex items-center gap-3 rounded-xl px-3 py-1.5 text-sm transition-colors',
+                    isActive ? 'bg-white/12 font-medium text-white' : 'text-white/65 hover:bg-white/8 hover:text-white',
                   )
                 }
               >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden />
-                {label}
+                {({ isActive }) => (
+                  <>
+                    <span className={cn('flex h-7 w-7 items-center justify-center rounded-lg', isActive ? 'bg-brand text-white' : 'bg-white/8')}>
+                      <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                    </span>
+                    {label}
+                  </>
+                )}
               </NavLink>
             )
           })}
         </nav>
+        <div className="m-3 flex items-center gap-3 rounded-xl bg-white/8 p-3">
+          <Link to="/account" title="Change password" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-white">
+            <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold">{initials(name)}</span>
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate text-sm font-medium">{name}</span>
+              <span className="block truncate text-xs text-white/60">{ROLE_LABEL[me.role]}</span>
+            </span>
+          </Link>
+          <Button variant="ghost" size="icon" className="text-white hover:bg-white/10" aria-label="Sign out" onClick={logout}>
+            <LogOut className="h-4 w-4" />
+          </Button>
+        </div>
       </aside>
-      {open && <div className="fixed inset-0 z-20 bg-black/30 lg:hidden" onClick={() => setOpen(false)} aria-hidden />}
+      {open && <div className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setOpen(false)} aria-hidden />}
 
       <div className="flex min-w-0 flex-col">
-        <header className="flex h-16 items-center justify-between gap-3 border-b border-border bg-surface px-4 lg:px-8">
+        <header className="flex h-14 items-center justify-between gap-3 px-4 lg:px-6">
           <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" onClick={() => setOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>
-          <div className="ml-auto flex items-center gap-3">
+          <nav aria-label="Breadcrumb" className="hidden text-sm text-ink-muted sm:block">
+            {APP_NAME} <span aria-hidden>/</span> <span className="font-medium text-ink">{current?.label ?? 'Home'}</span>
+          </nav>
+          <div className="ml-auto flex items-center gap-2">
             <NotificationBell />
-            <Link to="/account" title="Change password" className="rounded-md text-right text-sm leading-tight hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-brand">
-              <div className="font-medium">{me.employee?.name ?? me.email}</div>
-              <Badge>{ROLE_LABEL[me.role]}</Badge>
-            </Link>
-            <Button variant="outline" size="icon" aria-label="Sign out" onClick={logout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
           </div>
         </header>
-        <main className="flex-1 p-4 lg:p-8">
+        <main className="flex-1 px-4 pb-8 lg:px-6">
           <Outlet />
         </main>
       </div>

@@ -16,7 +16,7 @@ const TONES = {
 
 export function KpiCard({ label, value, hint, tone = 'default' }: KpiCardProps) {
   return (
-    <div className={cn('rounded-lg border p-4', TONES[tone])}>
+    <div className={cn('rounded-xl border p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]', TONES[tone])}>
       <p className="text-xs font-medium text-ink-muted">{label}</p>
       <p className={cn('mt-1 text-2xl font-semibold tabular-nums', tone === 'critical' && 'text-danger')}>{value}</p>
       {hint && <p className="mt-0.5 text-xs text-ink-muted">{hint}</p>}

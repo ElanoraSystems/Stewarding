@@ -1,9 +1,11 @@
 import { AlertTriangle, ThermometerSun } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { greeting, HeroCard } from '@/components/HeroCard'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { EmptyState, Skeleton } from '@/components/ui/table'
+import { useAuth } from '@/lib/auth'
 import { fmtTime } from '@/lib/format'
 import { useApi } from '@/lib/useApi'
 import { MyShiftCard } from '@/pages/MyShiftCard'
@@ -16,15 +18,22 @@ interface StewardData {
 }
 
 export function StewardDashboard() {
+  const { me } = useAuth()
   const { data, loading, reload } = useApi<StewardData>('/dashboard')
   const percent = data && data.tasks.total ? Math.round((data.tasks.done / data.tasks.total) * 100) : 0
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">My shift today</h1>
-        <p className="text-sm text-ink-muted">Your check-in, tasks and checks for this shift.</p>
-      </div>
+      <HeroCard
+        eyebrow={new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}
+        title={`${greeting()}, ${(me?.employee?.name ?? '').split(' ')[0] || 'there'}`}
+        subtitle="Your check-in, tasks and checks for this shift."
+        chips={data ? [
+          { label: `${data.tasks.done} of ${data.tasks.total} tasks done` },
+          ...(data.tasks.overdue > 0 ? [{ label: `${data.tasks.overdue} overdue`, urgent: true }] : []),
+          ...(data.monitoring_checks.due > 0 ? [{ label: `${data.monitoring_checks.due} checks due` }] : []),
+        ] : []}
+      />
 
       <MyShiftCard onChange={reload} />
 

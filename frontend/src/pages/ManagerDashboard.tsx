@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { greeting, HeroCard } from '@/components/HeroCard'
 import { LocationSelect } from '@/components/LocationSelect'
 import { BarList, ColumnChart, TrendLine } from '@/components/charts'
 import { KpiCard } from '@/components/KpiCard'
@@ -93,10 +94,18 @@ export function ManagerDashboard() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">{isManager ? 'All locations' : 'My locations'}</h1>
-        <p className="text-sm text-ink-muted">{isManager ? 'Consolidated multi-location view.' : 'Operations for your assigned locations.'}</p>
-      </div>
+      <HeroCard
+        eyebrow={new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}
+        title={`${greeting()}, ${(me?.employee?.name ?? '').split(' ')[0] || 'there'}`}
+        subtitle={isManager ? 'All locations, consolidated.' : 'Operations for your assigned locations.'}
+        chips={k ? [
+          { label: `${k.checked_in} of ${k.scheduled_today} checked in` },
+          { label: `Daily checklists ${pct(k.daily_completion)}` },
+          { label: `${k.monitoring_checks.done} of ${k.monitoring_checks.due} checks recorded` },
+          ...(k.failed_checks > 0 ? [{ label: `${k.failed_checks} failed check(s)`, urgent: true }] : []),
+          ...(k.overdue_tasks > 0 ? [{ label: `${k.overdue_tasks} overdue task(s)`, urgent: true }] : []),
+        ] : []}
+      />
 
       <div className="flex flex-wrap gap-3">
         <LocationSelect allowAll value={locationId} onChange={setLocationId} />
