@@ -167,37 +167,38 @@ export function ReceivingTab() {
           {suppliers.data?.length === 0 && <p className="text-sm text-warn">No suppliers yet. A manager adds them under Settings, Suppliers.</p>}
 
           <div ref={attachList} className="space-y-2">
-            {entry.rows.map((line, i) => (
-              <div key={i} {...entry.rowProps(i)} className="flex flex-wrap items-end gap-2">
-                <div className="min-w-56 flex-1">
-                  <Field label={i === 0 ? 'Item' : ''}>
-                    <Select aria-label="Item" value={line.item} onChange={(e) => pickItem(i, e.target.value)}>
-                      <option value="">Select item</option>
-                      {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
-                    </Select>
-                  </Field>
+            <div className="overflow-x-auto">
+              <div className="min-w-[46rem] space-y-2">
+                <div aria-hidden className="grid grid-cols-[minmax(14rem,1fr)_6rem_6rem_11rem_6rem_1.25rem_2.5rem] items-end gap-2 text-sm font-medium">
+                  <span>Item</span><span>Quantity</span><span>Unit cost</span><span>Discount</span><span className="text-right">Line total</span><span /><span />
                 </div>
-                <Field label={i === 0 ? 'Quantity' : ''}><Input aria-label="Quantity" type="number" min={1} className="w-24" value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} /></Field>
-                <Field label={i === 0 ? 'Unit cost' : ''}><Input aria-label="Unit cost" type="number" step="0.01" min={0} className="w-24" value={line.cost} onChange={(e) => entry.update(i, { cost: e.target.value })} /></Field>
-                <Field label={i === 0 ? 'Discount' : ''}>
-                  <div className="flex gap-1">
-                    <Select aria-label="Discount type" className="w-20" value={line.discType} onChange={(e) => entry.update(i, { discType: e.target.value as DiscountType })}>
-                      <option value="amount">Amt</option>
-                      <option value="percent">%</option>
-                    </Select>
-                    <Input aria-label="Discount" type="number" step="0.01" min={0} className="w-24" value={line.disc} onChange={(e) => entry.update(i, { disc: e.target.value })} />
+                {entry.rows.map((line, i) => (
+                  <div key={i} {...entry.rowProps(i)} className="space-y-1">
+                    <div className="grid grid-cols-[minmax(14rem,1fr)_6rem_6rem_11rem_6rem_1.25rem_2.5rem] items-center gap-2">
+                      <Select aria-label="Item" value={line.item} onChange={(e) => pickItem(i, e.target.value)}>
+                        <option value="">Select item</option>
+                        {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
+                      </Select>
+                      <Input aria-label="Quantity" type="number" min={1} value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} />
+                      <Input aria-label="Unit cost" type="number" step="0.01" min={0} value={line.cost} onChange={(e) => entry.update(i, { cost: e.target.value })} />
+                      <div className="flex gap-1">
+                        <Select aria-label="Discount type" className="w-[4.5rem] px-2" value={line.discType} onChange={(e) => entry.update(i, { discType: e.target.value as DiscountType })}>
+                          <option value="amount">Amt</option>
+                          <option value="percent">%</option>
+                        </Select>
+                        <Input aria-label="Discount" type="number" step="0.01" min={0} value={line.disc} onChange={(e) => entry.update(i, { disc: e.target.value })} />
+                      </div>
+                      <output aria-label="Line total" className="flex h-10 items-center justify-end text-sm font-medium tabular-nums">
+                        {line.cost !== '' && lineComplete(line) ? money(lineGross(line) - cut(line.discType, line.disc, lineGross(line))) : '-'}
+                      </output>
+                      <span className="flex h-10 items-center text-ok" aria-label={line.committed ? 'Line saved' : undefined}>{line.committed && <Check className="h-4 w-4" aria-hidden />}</span>
+                      {entry.rows.length > 1 ? <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => entry.remove(i)}><Trash2 className="h-4 w-4" /></Button> : <span />}
+                    </div>
+                    {entry.incomplete === i && <p role="alert" className="text-xs text-danger">Choose an item and a quantity, then press Enter.</p>}
                   </div>
-                </Field>
-                <Field label={i === 0 ? 'Line total' : ''}>
-                  <output aria-label="Line total" className="flex h-10 w-24 items-center justify-end text-sm font-medium tabular-nums">
-                    {line.cost !== '' && lineComplete(line) ? money(lineGross(line) - cut(line.discType, line.disc, lineGross(line))) : '-'}
-                  </output>
-                </Field>
-                <span className="flex h-10 w-5 items-center text-ok" aria-label={line.committed ? 'Line saved' : undefined}>{line.committed && <Check className="h-4 w-4" aria-hidden />}</span>
-                {entry.rows.length > 1 && <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => entry.remove(i)}><Trash2 className="h-4 w-4" /></Button>}
-                {entry.incomplete === i && <p role="alert" className="w-full text-xs text-danger">Choose an item and a quantity, then press Enter.</p>}
+                ))}
               </div>
-            ))}
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button variant="outline" size="sm" onClick={entry.addRow}><Plus className="h-4 w-4" /> Add line</Button>
               <span className="text-xs text-ink-muted">Press Enter on a completed line to save it and start the next one.</span>

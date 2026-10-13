@@ -76,6 +76,14 @@ export function FieldEditor({ value, onChange, index, count, onMove, onRemove }:
         </div>
       </div>
       <FieldRestrictions value={value} onChange={onChange} />
+      <div role="radiogroup" aria-label="Is this question mandatory" className="inline-flex rounded-lg border border-border p-0.5 text-sm">
+        {([true, false] as const).map((req) => (
+          <button key={String(req)} type="button" role="radio" aria-checked={value.required === req} onClick={() => onChange({ ...value, required: req })}
+            className={value.required === req ? 'rounded-md bg-brand px-3 py-1 font-medium text-brand-ink' : 'rounded-md px-3 py-1 text-ink-muted hover:text-ink'}>
+            {req ? 'Mandatory' : 'Optional'}
+          </button>
+        ))}
+      </div>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.reference} onChange={(e) => onChange({ ...value, reference: e.target.checked })} /> Also ask for a batch or lot reference with this field</label>
     </div>
   )

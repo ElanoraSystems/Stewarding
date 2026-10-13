@@ -1,4 +1,4 @@
-export type FieldType = 'number' | 'yes_no' | 'text' | 'choice' | 'date' | 'time'
+export type FieldType = 'number' | 'yes_no' | 'text' | 'choice' | 'date' | 'time' | 'signature' | 'image'
 
 export interface FieldSpec {
   title: string
@@ -10,6 +10,7 @@ export interface FieldSpec {
   fail: string[]
   maxLength: string
   reference: boolean
+  required: boolean
 }
 
 export const FIELD_TYPES: { value: FieldType; label: string; hint: string }[] = [
@@ -18,10 +19,12 @@ export const FIELD_TYPES: { value: FieldType; label: string; hint: string }[] = 
   { value: 'text', label: 'Short text', hint: 'Something written, such as a product name or batch. It is recorded, never failed.' },
   { value: 'date', label: 'Date picker', hint: 'The person picks a date from a calendar. It is recorded, never failed.' },
   { value: 'time', label: 'Time picker', hint: 'The person picks a time of day. It is recorded, never failed.' },
+  { value: 'signature', label: 'Signature box', hint: 'The person draws their signature with a finger, a stylus or the mouse.' },
+  { value: 'image', label: 'Image upload', hint: 'The person takes or chooses a photo to attach.' },
   { value: 'choice', label: 'Dropdown (choose one)', hint: 'The person picks one answer from your list. You decide which answers fail.' },
 ]
 
-export const blankField = (): FieldSpec => ({ title: '', type: 'number', unit: '', min: '', max: '', options: '', fail: [], maxLength: '200', reference: false })
+export const blankField = (): FieldSpec => ({ title: '', type: 'number', unit: '', min: '', max: '', options: '', fail: [], maxLength: '200', reference: false, required: true })
 
 export const optionList = (text: string): string[] => [...new Set(text.split('\n').map((o) => o.trim().replace(/\s+/g, ' ')).filter(Boolean))]
 
@@ -44,7 +47,7 @@ export function fieldProblem(f: FieldSpec): string | null {
 export function fieldPayload(f: FieldSpec) {
   const options = optionList(f.options)
   return {
-    title: f.title.trim(), value_type: f.type, require_reference: f.reference,
+    title: f.title.trim(), value_type: f.type, require_reference: f.reference, required: f.required,
     unit: f.type === 'number' ? f.unit.trim() || null : null,
     min_value: f.type === 'number' && f.min !== '' ? Number(f.min) : null,
     max_value: f.type === 'number' && f.max !== '' ? Number(f.max) : null,

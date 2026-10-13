@@ -28,7 +28,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     time_of_day: schedule?.time_of_day?.slice(0, 5) ?? '', interval_minutes: schedule?.interval_minutes ? String(schedule.interval_minutes) : '',
     weekdays: schedule?.weekdays ?? [], day_of_month: schedule?.day_of_month ? String(schedule.day_of_month) : '',
     min_value: schedule?.min_value != null ? String(Number(schedule.min_value)) : '', max_value: schedule?.max_value != null ? String(Number(schedule.max_value)) : '',
-    require_reference: schedule?.require_reference ?? false, reference_label: schedule?.reference_label ?? '', phase: schedule?.phase ?? '',
+    require_reference: schedule?.require_reference ?? false, required: schedule?.required ?? true, reference_label: schedule?.reference_label ?? '', phase: schedule?.phase ?? '',
   })
   const [extra, setExtra] = useState({ options: (schedule?.options ?? []).join('\n'), fail: schedule?.fail_options ?? [], maxLength: String(schedule?.max_length ?? 200) })
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
@@ -45,7 +45,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     event.preventDefault()
     const body = {
       stage: form.stage, parameter: form.parameter, unit: isNumber ? form.unit || null : null, value_type: form.value_type,
-      require_reference: form.require_reference, reference_label: form.require_reference ? form.reference_label.trim() || null : null,
+      require_reference: form.require_reference, required: form.required, reference_label: form.require_reference ? form.reference_label.trim() || null : null,
       phase: form.phase || null, source: form.source, timing: form.timing,
       time_of_day: form.time_of_day && !manual ? `${form.time_of_day}:00` : null,
       interval_minutes: form.timing === 'interval' ? Number(form.interval_minutes) : null,
@@ -78,6 +78,8 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
               <option value="choice">Dropdown (choose one)</option>
               <option value="date">Date picker</option>
               <option value="time">Time picker</option>
+              <option value="signature">Signature box</option>
+              <option value="image">Image upload</option>
             </Select>
           </Field>
           <Field label="What is checked">
@@ -128,6 +130,10 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
             <option value="finish">Time out (closes an entry)</option>
           </Select>
         </Field>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={form.required} onChange={(e) => set('required', e.target.checked)} />
+          This question is mandatory (an optional question can be left blank)
+        </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.require_reference} onChange={(e) => set('require_reference', e.target.checked)} />
           Ask for a batch, lot or product reference (traceability)

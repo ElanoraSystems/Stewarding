@@ -21,7 +21,7 @@ def evaluate(value: Decimal, minimum: Decimal | None, maximum: Decimal | None) -
 
 def describe(reading) -> str:
     """A reading as people say it: the written or chosen answer, 'Yes' or 'No', or the number with its unit."""
-    if reading.value_type in ("text", "choice", "date", "time"):
+    if reading.value_type in ("text", "choice", "date", "time", "signature", "image"):
         return reading.answer or ""
     if reading.value_type == "yes_no":
         return "Yes" if reading.value == 1 else "No"
@@ -114,7 +114,8 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
     schedules: dict[int, list[EquipmentSchedule]] = defaultdict(list)
     for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id.in_([eq.id for eq in active]),
                                                             EquipmentSchedule.active.is_(True),
-                                                            EquipmentSchedule.phase.is_distinct_from("finish")).order_by(EquipmentSchedule.id)):
+                                                            EquipmentSchedule.phase.is_distinct_from("finish"),
+                                                            EquipmentSchedule.required.is_(True)).order_by(EquipmentSchedule.id)):
         schedules[sched.equipment_id].append(sched)
     starts = {}
     for eq in active:

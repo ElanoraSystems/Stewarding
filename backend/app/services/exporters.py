@@ -1,11 +1,13 @@
 import csv
 import io
+import re
 from datetime import datetime
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Flowable, Image, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -222,6 +224,14 @@ def _mark(key: str, value, style) -> object:
             who = "/".join(part for part in (value.get("by"), value.get("ver")) if part)
             return [Mark(state), Paragraph(_esc(who), center.clone("tiny", fontSize=4.5, leading=5))]
         return Paragraph(f'<font color="#6b7280">{SYMBOLS[state]}</font>', center)
+    if key == "value" and isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}\.(png|jpg|webp)", value):
+        from ..api.uploads import upload_path
+
+        path = upload_path(value)
+        try:
+            return Image(str(path), width=28 * mm, height=14 * mm, kind="proportional") if path.is_file() else Paragraph("Image not found", style)
+        except OSError:
+            return Paragraph("Image could not be read", style)
     text = _esc(value)
     return Paragraph(f'<font color="#b91c1c"><b>{text}</b></font>' if key == "result" and value == "FAIL" else text, style)
 

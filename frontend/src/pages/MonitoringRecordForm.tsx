@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { SignaturePad } from '@/components/SignaturePad'
 import { Select } from '@/components/ui/select'
 import { api, uploadFile } from '@/lib/api'
 import { label } from '@/lib/format'
@@ -15,11 +16,12 @@ export interface Schedule {
   stage: string
   parameter: string
   unit: string | null
-  value_type: 'number' | 'yes_no' | 'text' | 'choice' | 'date' | 'time'
+  value_type: 'number' | 'yes_no' | 'text' | 'choice' | 'date' | 'time' | 'signature' | 'image'
   options: string[] | null
   fail_options: string[] | null
   max_length: number | null
   require_reference: boolean
+  required: boolean
   reference_label: string | null
   phase: 'start' | 'finish' | null
   source: string
@@ -74,7 +76,7 @@ function answerOf(s: Schedule | undefined, raw: string | undefined) {
 function verdict(value: string, schedule?: Schedule): 'pass' | 'fail' | null {
   if (value === '' || !schedule) return null
   if (schedule.value_type === 'yes_no') return value === '1' ? 'pass' : 'fail'
-  if (schedule.value_type === 'text' || schedule.value_type === 'date' || schedule.value_type === 'time') return 'pass'
+  if (['text', 'date', 'time', 'signature', 'image'].includes(schedule.value_type)) return 'pass'
   if (schedule.value_type === 'choice') return schedule.fail_options?.includes(value) ? 'fail' : 'pass'
   const amount = Number(value)
   const low = num(schedule.min_value)
@@ -98,6 +100,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const [action, setAction] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
+  const [blobs, setBlobs] = useState<Record<number, Blob>>({})
 
   useEffect(() => {
     if (!prefill) return
@@ -113,7 +116,12 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const cycles = firstOfEachCycle(schedules)
   const results = cycle.map((s) => verdict(values[s.id] ?? '', s))
   const anyFail = results.includes('fail')
-  const complete = cycle.length > 0 && cycle.every((s) => (values[s.id] ?? '') !== '')
+  const complete = cycle.length > 0 && cycle.every((s) => !s.required || (values[s.id] ?? '') !== '')
+  const title = (s: Schedule) => `${cycle.length > 1 && label(s.stage) !== s.parameter ? `${label(s.stage)}: ${s.parameter}` : s.parameter}${s.required ? '' : ' (optional)'}`
+  const setBlob = (s: Schedule, blob: Blob | null) => {
+    setBlobs((b) => ({ ...b, ...(blob ? { [s.id]: blob } : {}) }))
+    setValues((v) => ({ ...v, [s.id]: blob ? 'file' : '' }))
+  }
   const needsReference = cycle.some((s) => s.require_reference)
   const alreadyDone = !prefill?.retestOf && cycle.length > 0 && cycle.every((s) => doneSchedules?.has(s.id))
 
@@ -135,7 +143,12 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       if (prefill?.retestOf) {
         await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), ...answerOf(schedule, values[Number(scheduleId)]), retest_of_id: prefill.retestOf, ...common } })
       } else {
-        await api('/monitoring/readings/batch', { body: { ...body, readings: cycle.map((s) => ({ schedule_id: s.id, ...answerOf(s, values[s.id]), ...common })) } })
+        const readings = []
+        for (const s of cycle.filter((c) => (values[c.id] ?? '') !== '')) {
+          const answer = s.value_type === 'signature' || s.value_type === 'image' ? { answer: await uploadFile(blobs[s.id] instanceof File ? (blobs[s.id] as File) : new File([blobs[s.id]], 'signature.png', { type: 'image/png' })) } : answerOf(s, values[s.id])
+          readings.push({ schedule_id: s.id, ...answer, ...common })
+        }
+        await api('/monitoring/readings/batch', { body: { ...body, readings } })
       }
     }, anyFail ? 'Failed check recorded - supervisor notified' : cycle.length > 1 ? 'Checks recorded' : 'Check recorded')
     setBusy(false)
@@ -181,40 +194,46 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       </div>
       {prefill?.startReadingId && <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">Time out for <span className="font-medium">{prefill.item ?? 'this entry'}</span>. The time out is stamped when you save.</p>}
       {alreadyDone && <p role="alert" className="rounded-md bg-ok-soft px-3 py-2 text-sm text-ok">This check is already recorded for this time. It is due again at the next scheduled time.</p>}
-      {cycle.length > 1 && <p className="text-sm text-ink-muted">These checks are due together, so enter all of them now: {cycle.map((s) => label(s.stage)).join(', ')}.</p>}
+      {cycle.length > 1 && <p className="text-sm text-ink-muted">These checks are recorded together: {cycle.map((s) => label(s.stage)).join(', ')}. Questions marked optional can be left blank.</p>}
       <div className="space-y-3">
         {cycle.map((s, i) => (
           <div key={s.id} className="flex flex-wrap items-end gap-3">
             {s.value_type === 'yes_no' ? (
-              <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter}>
-                <Select required className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}>
+              <Field label={title(s)}>
+                <Select required={s.required} className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}>
                   <option value="">Select</option>
                   <option value="1">Yes</option>
                   <option value="0">No</option>
                 </Select>
               </Field>
             ) : s.value_type === 'choice' ? (
-              <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter}>
-                <Select required className="w-52" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}>
+              <Field label={title(s)}>
+                <Select required={s.required} className="w-52" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}>
                   <option value="">Select</option>
                   {s.options?.map((o) => <option key={o} value={o}>{o}</option>)}
                 </Select>
               </Field>
+            ) : s.value_type === 'signature' ? (
+              <Field label={title(s)}><SignaturePad onChange={(png) => setBlob(s, png)} /></Field>
+            ) : s.value_type === 'image' ? (
+              <Field label={title(s)} hint={blobs[s.id] && values[s.id] ? 'Photo selected' : 'Take a photo or choose one'}>
+                <Input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => setBlob(s, e.target.files?.[0] ?? null)} />
+              </Field>
             ) : s.value_type === 'date' || s.value_type === 'time' ? (
-              <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter}>
-                <Input required type={s.value_type} className="w-44" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
+              <Field label={title(s)}>
+                <Input required={s.required} type={s.value_type} className="w-44" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             ) : s.value_type === 'text' ? (
-              <Field label={cycle.length > 1 ? `${label(s.stage)}: ${s.parameter}` : s.parameter} hint={`Up to ${s.max_length ?? 200} characters`}>
-                <Input required maxLength={s.max_length ?? 200} className="w-72" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
+              <Field label={title(s)} hint={`Up to ${s.max_length ?? 200} characters`}>
+                <Input required={s.required} maxLength={s.max_length ?? 200} className="w-72" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             ) : (
               <Field label={`${cycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}`}
                 hint={`Acceptable ${s.min_value ?? 'no minimum'} to ${s.max_value ?? 'no maximum'} ${s.unit ?? ''}`}>
-                <Input required type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
+                <Input required={s.required} type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             )}
-            {results[i] && !['text', 'date', 'time'].includes(s.value_type) && <Badge tone={results[i] === 'pass' ? 'ok' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
+            {results[i] && !['text', 'date', 'time', 'signature', 'image'].includes(s.value_type) && <Badge tone={results[i] === 'pass' ? 'ok' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
           </div>
         ))}
         {needsReference && (

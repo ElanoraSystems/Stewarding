@@ -39,8 +39,8 @@ def _local(dt: datetime | None, tz: str) -> str:
 def _limits(reading: TemperatureReading) -> str:
     if reading.value_type == "yes_no":
         return "Must be Yes"
-    if reading.value_type in ("text", "choice", "date", "time"):
-        return {"choice": "Choice", "date": "Date", "time": "Time"}.get(reading.value_type, "Written answer")
+    if reading.value_type in ("text", "choice", "date", "time", "signature", "image"):
+        return {"choice": "Choice", "date": "Date", "time": "Time", "signature": "Signature", "image": "Image"}.get(reading.value_type, "Written answer")
     low = "-" if reading.min_limit is None else f"{reading.min_limit.normalize():f}"
     high = "-" if reading.max_limit is None else f"{reading.max_limit.normalize():f}"
     return f"{low} to {high} {reading.unit or ''}".strip()

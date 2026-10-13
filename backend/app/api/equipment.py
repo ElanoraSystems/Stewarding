@@ -23,7 +23,7 @@ EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer",
                     "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
                    "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "options",
-                   "fail_options", "max_length", "reference_label", "phase", "active")
+                   "fail_options", "max_length", "required", "reference_label", "phase", "active")
 
 
 class EquipmentIn(BaseModel):
@@ -56,7 +56,8 @@ class ScheduleIn(BaseModel):
     stage: str = Field(min_length=2, max_length=60)
     parameter: str = Field(default="Temperature", min_length=2, max_length=60)
     unit: str | None = Field(default="°C", max_length=20)
-    value_type: str = Field(default="number", pattern="^(number|yes_no|text|choice|date|time)$")
+    value_type: str = Field(default="number", pattern="^(number|yes_no|text|choice|date|time|signature|image)$")
+    required: bool = True
     options: list[str] | None = None
     fail_options: list[str] | None = None
     max_length: int | None = Field(default=None, ge=1, le=500)
@@ -262,7 +263,8 @@ def create_from_template(body: FromTemplateIn, user: User = Depends(require("equ
 
 class FieldIn(BaseModel):
     title: str = Field(min_length=2, max_length=60)
-    value_type: str = Field(pattern="^(number|yes_no|text|choice|date|time)$")
+    value_type: str = Field(pattern="^(number|yes_no|text|choice|date|time|signature|image)$")
+    required: bool = True
     unit: str | None = Field(default=None, max_length=20)
     min_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
     max_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
@@ -330,7 +332,7 @@ def _schedules_for(form: FormIn) -> list[dict]:
             check = ScheduleIn(stage=title, parameter=title, unit=f.unit, value_type=f.value_type, require_reference=f.require_reference,
                                source="machine_display", weekdays=freq.weekdays if freq.mode == "weekly" else None,
                                day_of_month=freq.day_of_month if freq.mode == "monthly" else None, min_value=f.min_value,
-                               max_value=f.max_value, options=f.options, fail_options=f.fail_options, max_length=f.max_length, **slot)
+                               max_value=f.max_value, options=f.options, fail_options=f.fail_options, max_length=f.max_length, required=f.required, **slot)
             out.append(_schedule_values(check))
     return out
 

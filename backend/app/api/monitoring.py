@@ -161,6 +161,8 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     sched = db.get(EquipmentSchedule, body.schedule_id)
     if not sched or sched.equipment_id != eq.id or not sched.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown check for this monitoring point")
+    if sched.value_type in ("signature", "image") and not is_valid_evidence(body.answer):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{sched.stage}: add the {sched.value_type}")
     if body.retest_of_id is None and already_recorded(db, eq, sched, timeutil.utc_now()):
         raise HTTPException(status.HTTP_409_CONFLICT, f"{sched.stage} is already recorded for this time")
     if sched.value_type == "number" and sched.min_value is None and sched.max_value is None:
@@ -213,11 +215,27 @@ def record_reading(body: ReadingIn, user: User = Depends(require("temp.record"))
     return _serialize_reading(db, reading, _names(db, {reading.recorded_by}))
 
 
+def _require_whole_cycle(db: Session, user: User, body: "BatchIn") -> None:
+    """Every required question of the form being filled in must be answered; optional ones may be left out."""
+    eq = _equipment_for(db, user, body.equipment_id)
+    sent = {r.schedule_id for r in body.readings}
+    active = list(db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id, EquipmentSchedule.active.is_(True))))
+
+    def when(s: EquipmentSchedule) -> tuple:
+        return (s.timing, s.time_of_day, s.interval_minutes, s.weekdays, s.day_of_month, s.phase)
+
+    groups = {when(s) for s in active if s.id in sent}
+    missing = [s.stage for s in active if when(s) in groups and s.required and s.id not in sent]
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Answer the required questions: {', '.join(missing)}")
+
+
 @router.post("/readings/batch", status_code=201)
 def record_readings(body: BatchIn, user: User = Depends(require("temp.record")), db: Session = Depends(get_db)):
     """Saves every measurement of one cycle (for example wash and rinse) together, or none of them."""
     if len({r.schedule_id for r in body.readings}) != len(body.readings):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A check appears twice")
+    _require_whole_cycle(db, user, body)
     readings = [_record(db, user, ReadingIn(equipment_id=body.equipment_id, start_reading_id=body.start_reading_id, **r.model_dump())) for r in body.readings]
     db.commit()
     names = _names(db, {user.id})

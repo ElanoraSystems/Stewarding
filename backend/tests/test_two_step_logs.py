@@ -1,4 +1,8 @@
+import base64
+
 from .helpers import MGR, STEWARD, loc_id
+
+ONE_PIXEL = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 
 
 def make(client, h, db, template, loc="MK"):
@@ -134,3 +138,38 @@ def test_a_reviewer_rejects_readings_and_the_check_can_be_recorded_again(client,
     assert client.post("/api/monitoring/readings", json=body, headers=steward).status_code == 201
     note = client.get("/api/notifications", headers=steward).json()["items"]
     assert any(n["title"] == "Record again: Morning temperature" for n in note)
+
+
+def form_body(**over):
+    return {"name": "Handover", "kind": "Other", "location_ids": [1], "frequency": {"mode": "on_demand"}, "fields": [
+        {"title": "Handover notes", "value_type": "text", "required": True},
+        {"title": "Extra comment", "value_type": "text", "required": False},
+        {"title": "Supervisor signature", "value_type": "signature", "required": True},
+        {"title": "Photo of the area", "value_type": "image", "required": False}], **over}
+
+
+def upload_png(client, h):
+    png = ONE_PIXEL
+    return client.post("/api/uploads", files={"file": ("sig.png", png, "image/png")}, headers=h).json()["name"]
+
+
+def test_signature_and_image_answers_and_optional_questions(client, login, db, clock):
+    m = login(MGR)
+    point = client.post("/api/equipment/forms", json=form_body(), headers=m).json()["points"][0]
+    notes, extra, sign, photo = point["schedules"]
+    assert [c["required"] for c in point["schedules"]] == [True, False, True, False]
+    assert [c["value_type"] for c in point["schedules"]][2:] == ["signature", "image"]
+    # optional questions never become due or overdue
+    assert [d for d in client.get("/api/monitoring/due", headers=m).json() if d["equipment_id"] == point["id"]] == []
+    send = lambda items: client.post("/api/monitoring/readings/batch", headers=m, json={"equipment_id": point["id"], "readings": items})
+    name = upload_png(client, m)
+    assert send([{"schedule_id": notes["id"], "answer": "All clear"}]).status_code == 400            # signature missing
+    assert send([{"schedule_id": notes["id"], "answer": "All clear"}, {"schedule_id": sign["id"], "answer": "nope.png"}]).status_code == 400
+    ok = send([{"schedule_id": notes["id"], "answer": "All clear"}, {"schedule_id": sign["id"], "answer": name}])
+    assert ok.status_code == 201 and [r["value_type"] for r in ok.json()] == ["text", "signature"]
+    assert ok.json()[1]["display"] == name
+    pdf = client.get("/api/reports/records/monitoring/export?fmt=pdf&date_from=2026-03-02&date_to=2026-03-02", headers=m)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+    both = send([{"schedule_id": notes["id"], "answer": "Again"}, {"schedule_id": sign["id"], "answer": name}, {"schedule_id": photo["id"], "answer": upload_png(client, m)}])
+    assert both.status_code == 201 and len(both.json()) == 3
+    assert client.post("/api/equipment/forms", json=form_body(fields=[{"title": "Only optional", "value_type": "text", "required": False}]), headers=m).status_code == 201

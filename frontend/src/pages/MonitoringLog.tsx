@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AuthImage } from '@/components/AuthImage'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
@@ -22,6 +23,7 @@ interface Reading {
   stage: string
   source: string
   display: string
+  value_type: string
   parameter: string
   reference: string | null
   min_limit: number | null
@@ -124,9 +126,9 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
               <Td>{fmtDateTime(r.recorded_at, timezone)}</Td>
               <Td className="font-medium">{names.get(r.equipment_id)}</Td>
               <Td>{label(r.stage)}{r.retest_of_id && <Badge className="ml-1">Retest</Badge>}</Td>
-              <Td>{r.display}</Td>
+              <Td>{r.value_type === 'signature' || r.value_type === 'image' ? <AuthImage name={r.display} alt={r.value_type === 'signature' ? 'Signature' : 'Image'} /> : r.display}</Td>
               <Td>{r.reference ?? '-'}</Td>
-              <Td>{r.display === 'Yes' || r.display === 'No' ? 'Must be Yes' : `${r.min_limit ?? '-'} to ${r.max_limit ?? '-'}`}</Td>
+              <Td>{r.value_type === 'yes_no' ? 'Must be Yes' : r.value_type === 'number' ? `${r.min_limit ?? '-'} to ${r.max_limit ?? '-'}` : '-'}</Td>
               <Td>
                 <Badge tone={r.passed ? 'ok' : 'critical'}>{r.passed ? 'Pass' : 'Fail'}</Badge>
                 {r.corrective_action && <span className="ml-1"><StatusBadge status={r.corrective_action.status} /></span>}
