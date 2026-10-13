@@ -3,7 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -65,8 +65,17 @@ def list_shifts(user: User = Depends(require("roster.view")), db: Session = Depe
     return [row(s, *SHIFT_FIELDS) for s in db.scalars(select(Shift).order_by(Shift.kind, Shift.start_time))]
 
 
+def _ensure_unique_shift(db: Session, name: str, own_id: int | None = None) -> None:
+    clash = select(Shift.id).where(func.lower(Shift.name) == " ".join(name.split()).lower())
+    if own_id is not None:
+        clash = clash.where(Shift.id != own_id)
+    if db.scalar(clash):
+        raise HTTPException(status.HTTP_409_CONFLICT, "A shift with this name already exists")
+
+
 @router.post("/shifts", status_code=201)
 def create_shift(body: ShiftIn, user: User = Depends(require("roster.manage")), db: Session = Depends(get_db)):
+    _ensure_unique_shift(db, body.name)
     shift = Shift(**_shift_values(body))
     db.add(shift)
     db.flush()
@@ -81,6 +90,7 @@ def update_shift(shift_id: int, body: ShiftIn, user: User = Depends(require("ros
     shift = db.get(Shift, shift_id)
     if not shift:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Shift not found")
+    _ensure_unique_shift(db, body.name, shift.id)
     before = row(shift, *SHIFT_FIELDS)
     if body.kind != shift.kind and db.scalar(select(ShiftAssignment.id).where(ShiftAssignment.shift_id == shift.id)):
         raise HTTPException(status.HTTP_409_CONFLICT, "A shift that is already assigned cannot change between working shift and week off")

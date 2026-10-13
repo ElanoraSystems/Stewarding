@@ -398,7 +398,7 @@ def post_transaction(body: TxnIn, user: User = Depends(require("stock.transfer")
 @router.get("/transactions")
 def list_transactions(item_id: int | None = None, location_id: int | None = None, txn_type: str | None = None,
                       date_from: date | None = None, date_to: date | None = None, page: int = 1, size: int = 25,
-                      user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
+                      user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
     stmt = select(StockTransaction)
     scope = _scope(db, user, location_id)
     if scope is not None:

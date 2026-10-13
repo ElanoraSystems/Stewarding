@@ -12,6 +12,7 @@ from ..services.inventory import norm
 
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
 
+EMAIL = r"^$|^[^@\s]+@[^@\s]+\.[^@\s]+$"
 FIELDS = ("id", "name", "contact", "phone", "email", "active")
 
 
@@ -19,14 +20,14 @@ class SupplierIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     contact: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=40)
-    email: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=200, pattern=EMAIL)
 
 
 class SupplierUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     contact: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=40)
-    email: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=200, pattern=EMAIL)
     active: bool | None = None
 
 

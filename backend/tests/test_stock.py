@@ -131,7 +131,7 @@ def test_reconciliation_validation_and_scope(client, login, db):
     base = f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}"
     assert client.get(base + "&month=2026-13", headers=login(MGR)).status_code == 400
     assert client.get(base + "&month=2026-03", headers=login(SUP_RB)).status_code == 403
-    assert client.get(base + "&month=2026-03", headers=login(STEWARD)).status_code == 200
+    assert client.get(base + "&month=2026-03", headers=login(STEWARD)).status_code == 403
 
 
 def test_a_count_cannot_exceed_what_was_received_into_the_location(client, login, db):

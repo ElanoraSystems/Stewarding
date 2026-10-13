@@ -116,7 +116,7 @@ def request_transfer(body: TransferIn, user: User = Depends(require("stock.trans
 
 
 @router.get("/transfers")
-def list_transfers(transfer_status: str | None = None, user: User = Depends(require("inventory.view")),
+def list_transfers(transfer_status: str | None = None, user: User = Depends(require("inventory.module")),
                    db: Session = Depends(get_db)):
     stmt = select(InventoryTransfer)
     scope = scoped_locations(user, db)
@@ -230,7 +230,7 @@ def post_count(count_id: int, user: User = Depends(require("inventory.count")), 
 
 @router.get("/insights")
 def insights(location_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
-             user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
+             user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
     """Stock in and out, breakage and transfers for charts; the last 30 days unless dates are given."""
     now = timeutil.utc_now()
     if location_id is not None:
@@ -250,7 +250,7 @@ def insights(location_id: int | None = None, date_from: date | None = None, date
 
 @router.get("/reconciliation")
 def reconciliation(location_id: int, month: str,
-                   user: User = Depends(require("inventory.view")), db: Session = Depends(get_db)):
+                   user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
     if not MONTH_RE.match(month):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "month must be YYYY-MM")
     check_location(user, db, location_id)

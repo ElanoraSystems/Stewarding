@@ -2,8 +2,8 @@ from datetime import date, time
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
-from sqlalchemy import and_, or_, select
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
@@ -11,7 +11,7 @@ from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, Employee, EmployeeLocation, Location,
-                      TaskAssignment, TaskCompletion, User)
+                      Shift, TaskAssignment, TaskCompletion, User)
 from ..pagination import paginate, row
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services import checklists as engine
@@ -62,6 +62,14 @@ class TaskIn(BaseModel):
     active_from: date | None = None
     active_to: date | None = None
     active: bool = True
+
+    @model_validator(mode="after")
+    def _times_and_dates(self):
+        if self.active_from and self.active_to and self.active_to < self.active_from:
+            raise ValueError("The task cannot end before it starts")
+        if self.shift_id is None and self.scheduled_time and self.deadline_time and self.deadline_time <= self.scheduled_time:
+            raise ValueError("The deadline must be later than the scheduled time")
+        return self
 
 
 class CompleteIn(BaseModel):
@@ -116,6 +124,7 @@ def list_templates(location_id: int | None = None, user: User = Depends(require(
 def create_template(body: TemplateIn, user: User = Depends(require("checklist.configure")),
                     db: Session = Depends(get_db)):
     check_location(user, db, body.location_id)
+    _ensure_unique_name(db, body.location_id, body.name)
     template = ChecklistTemplate(**body.model_dump())
     db.add(template)
     db.flush()
@@ -129,6 +138,8 @@ def update_template(template_id: int, body: TemplateUpdate, user: User = Depends
                     db: Session = Depends(get_db)):
     template = _template_or_404(db, template_id)
     data = body.model_dump(exclude_unset=True)
+    if data.get("name"):
+        _ensure_unique_name(db, template.location_id, data["name"], template.id)
     before = {k: getattr(template, k) for k in data}
     for key, value in data.items():
         setattr(template, key, value)
@@ -137,10 +148,27 @@ def update_template(template_id: int, body: TemplateUpdate, user: User = Depends
     return row(template, "id", "name", "category", "location_id", "frequency", "active")
 
 
+def _ensure_unique_name(db: Session, location_id: int, name: str, own_id: int | None = None) -> None:
+    clash = select(ChecklistTemplate.id).where(ChecklistTemplate.location_id == location_id,
+                                               func.lower(ChecklistTemplate.name) == " ".join(name.split()).lower())
+    if own_id is not None:
+        clash = clash.where(ChecklistTemplate.id != own_id)
+    if db.scalar(clash):
+        raise HTTPException(status.HTTP_409_CONFLICT, "A checklist with this name already exists at this location")
+
+
+def _check_task_refs(db: Session, body: "TaskIn") -> None:
+    if body.shift_id is not None and not db.get(Shift, body.shift_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown shift")
+    if body.assigned_employee_id is not None and not db.get(Employee, body.assigned_employee_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown employee")
+
+
 @router.post("/templates/{template_id}/tasks", status_code=201)
 def create_task(template_id: int, body: TaskIn, user: User = Depends(require("checklist.configure")),
                 db: Session = Depends(get_db)):
     template = _template_or_404(db, template_id)
+    _check_task_refs(db, body)
     task = ChecklistTask(template_id=template.id, **body.model_dump())
     db.add(task)
     db.flush()
@@ -155,6 +183,7 @@ def update_task(task_id: int, body: TaskIn, user: User = Depends(require("checkl
     task = db.get(ChecklistTask, task_id)
     if not task:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
+    _check_task_refs(db, body)
     before = row(task, *TASK_FIELDS)
     for key, value in body.model_dump().items():
         setattr(task, key, value)

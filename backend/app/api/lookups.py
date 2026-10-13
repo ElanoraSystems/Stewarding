@@ -1,7 +1,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,14 @@ KINDS = ("job_title", "checklist_category", "breakage_reason", "corrective_actio
 class LookupIn(BaseModel):
     kind: Kind
     value: str = Field(min_length=2, max_length=120)
+
+    @field_validator("value")
+    @classmethod
+    def _not_blank(cls, value):
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Enter at least two characters")
+        return value
 
 
 class LookupUpdate(BaseModel):
