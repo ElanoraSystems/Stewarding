@@ -130,3 +130,10 @@ def test_a_transfer_between_locations_is_not_counted_as_stock_in_or_out_across_a
     both = client.get("/api/stock/insights?date_from=2026-03-01&date_to=2026-03-02", headers=m).json()
     single = client.get(f"/api/stock/insights?location_id={loc_id(db, 'MK')}&date_from=2026-03-01&date_to=2026-03-02", headers=m).json()
     assert both["totals"]["out"] == 0 and single["totals"]["out"] == 7
+
+
+def test_the_listed_stock_value_follows_the_chosen_location(client, login, db, clock):
+    m = login(MGR)
+    whole = client.get("/api/inventory/items", headers=m).json()["total_value"]
+    kitchen = client.get(f"/api/inventory/items?location_id={loc_id(db, 'MK')}", headers=m).json()["total_value"]
+    assert 0 < kitchen < whole

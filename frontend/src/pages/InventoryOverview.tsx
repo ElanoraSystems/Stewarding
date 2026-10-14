@@ -8,8 +8,6 @@ import { useAllItems, type Item } from '@/lib/useItems'
 
 interface Props {
   locationId: number | null
-  totalItems: number
-  totalValue?: number
 }
 
 interface Insights {
@@ -25,12 +23,18 @@ const SERIES = [
   { key: 'out', label: 'Stock out', className: 'bg-warn' },
 ]
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+const DAYS = 14
+const sinceDate = () => { const d = new Date(); d.setDate(d.getDate() - (DAYS - 1)); return d.toLocaleDateString('en-CA') }
+
 const when = (iso: string) => new Date(iso.endsWith('Z') ? iso : `${iso}Z`).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-export function InventoryOverview({ locationId, totalItems, totalValue }: Props) {
+export function InventoryOverview({ locationId }: Props) {
   const { byId } = useAllItems()
-  const insights = useApi<Insights>(`/stock/insights${qs({ location_id: locationId })}`)
+  const insights = useApi<Insights>(`/stock/insights${qs({ location_id: locationId, date_from: sinceDate() })}`)
   const recent = useApi<{ items: Txn[] }>(`/inventory/transactions${qs({ location_id: locationId, size: 5 })}`)
+  const all = useApi<{ total: number; total_value?: number }>(`/inventory/items${qs({ location_id: locationId, size: 1 })}`)
   const low = useApi<{ total: number; items: Item[] }>(`/inventory/items${qs({ location_id: locationId, low_only: true, size: 100 })}`)
   const empty = low.data?.items.filter((i) => i.qty <= 0).length ?? 0
   const totals = insights.data?.totals
@@ -38,8 +42,8 @@ export function InventoryOverview({ locationId, totalItems, totalValue }: Props)
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Total items" value={totalItems} icon={Boxes} />
-        {totalValue !== undefined && <KpiCard label="Stock value" value={totalValue.toFixed(2)} hint="At weighted average cost" icon={Wallet} />}
+        <KpiCard label="Total items" value={all.data?.total ?? '-'} icon={Boxes} />
+        {all.data?.total_value !== undefined && <KpiCard label="Stock value" value={all.data.total_value.toFixed(2)} hint="At weighted average cost" icon={Wallet} />}
         <KpiCard label="Low stock items" value={low.data?.total ?? '-'} tone={low.data?.total ? 'warn' : 'ok'} icon={TrendingDown} />
         <KpiCard label="Out of stock" value={low.data ? empty : '-'} tone={empty ? 'critical' : 'ok'} icon={PackageMinus} />
       </div>
@@ -48,7 +52,7 @@ export function InventoryOverview({ locationId, totalItems, totalValue }: Props)
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Inventory statistics</CardTitle>
-            {totals && <p className="text-xs text-ink-muted">Last 30 days: {totals.in} in, {totals.out} out</p>}
+            {totals && <p className="text-xs text-ink-muted">Last 14 days: {totals.in} in, {totals.out} out</p>}
           </CardHeader>
           <CardContent>
             {insights.data ? <ColumnChart data={insights.data.movement} labelKey="date" series={SERIES} /> : <div className="h-40 animate-pulse rounded-lg bg-surface-muted" />}
@@ -58,10 +62,10 @@ export function InventoryOverview({ locationId, totalItems, totalValue }: Props)
         <Card>
           <CardHeader><CardTitle>Alerts</CardTitle></CardHeader>
           <CardContent className="space-y-2">
-            <AlertRow icon={AlertTriangle} tone="text-danger" text={`${empty} items out of stock`} />
-            <AlertRow icon={TrendingDown} tone="text-warn" text={`${low.data?.total ?? 0} items at or below minimum`} />
-            <AlertRow icon={ArrowLeftRight} tone="text-brand" text={`${insights.data?.transfers.requested ?? 0} transfers requested`} to="/stock-movements" />
-            <AlertRow icon={PackageMinus} tone="text-warn" text={`${totals?.breakage_units ?? 0} units broken or damaged`} to="/breakage" />
+            <AlertRow icon={AlertTriangle} tone="text-danger" text={`${plural(empty, 'item', 'items')} out of stock`} />
+            <AlertRow icon={TrendingDown} tone="text-warn" text={`${plural(low.data?.total ?? 0, 'item', 'items')} below minimum`} />
+            <AlertRow icon={ArrowLeftRight} tone="text-brand" text={`${plural(insights.data?.transfers.requested ?? 0, 'transfer', 'transfers')} requested`} to="/stock-movements" />
+            <AlertRow icon={PackageMinus} tone="text-warn" text={`${plural(totals?.breakage_units ?? 0, 'unit', 'units')} broken or damaged`} to="/breakage" />
           </CardContent>
         </Card>
       </div>

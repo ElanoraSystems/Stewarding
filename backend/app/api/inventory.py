@@ -265,9 +265,11 @@ def list_items(search: str | None = None, category_id: int | None = None, locati
     items = [r[0] for r in rows]
     result = {"total": total, "items": _serialize_items(db, user, items, scope)}
     if _can_see_cost(user):
-        value = db.scalar(select(func.coalesce(func.sum(InventoryBalance.qty * func.coalesce(InventoryBalance.avg_cost, InventoryItem.unit_cost, 0)), 0))
-                          .select_from(InventoryBalance).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id))
-        result["total_value"] = float(value)
+        worth = (select(func.coalesce(func.sum(InventoryBalance.qty * func.coalesce(InventoryBalance.avg_cost, InventoryItem.unit_cost, 0)), 0))
+                 .select_from(InventoryBalance).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id))
+        if scope is not None:
+            worth = worth.where(InventoryBalance.location_id.in_(scope))
+        result["total_value"] = float(db.scalar(worth))
     return result
 
 

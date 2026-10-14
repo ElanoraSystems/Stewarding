@@ -48,7 +48,7 @@ export function InventoryPage() {
         {can('inventory.manage') && <Button onClick={() => { setFormItem(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Add item</Button>}
       </div>
 
-      <InventoryOverview locationId={locationId} totalItems={data?.total ?? 0} totalValue={data?.total_value} />
+      <InventoryOverview locationId={locationId} />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-52 flex-1">
