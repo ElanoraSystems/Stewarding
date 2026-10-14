@@ -39,9 +39,11 @@ BUILTIN_LABELS = {MANAGER: "Back of House Manager", SUPERVISOR: "Stewarding Supe
 def sync_roles(db: Session) -> dict[str, Role]:
     roles = {}
     for name, perms in ROLE_PERMISSIONS.items():
-        role = db.scalar(select(Role).where(Role.name == name)) or Role(name=name)
+        existing = db.scalar(select(Role).where(Role.name == name))
+        role = existing or Role(name=name)
         role.tier, role.builtin, role.label = name, True, role.label or BUILTIN_LABELS[name]
-        role.permissions = [RolePermission(permission=p) for p in perms]
+        if existing is None or name == MANAGER:  # edits to the supervisor and steward roles are kept; the manager always holds everything
+            role.permissions = [RolePermission(permission=p) for p in perms]
         db.add(role)
         roles[name] = role
     db.flush()

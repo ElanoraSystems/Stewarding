@@ -116,9 +116,11 @@ def update_role(role_id: int, body: RoleUpdate, user: User = Depends(_manager_on
     role = db.get(Role, role_id)
     if not role:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Role not found")
-    if role.builtin:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The built-in roles cannot be changed; make a custom role instead")
+    if role.name == MANAGER:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The manager role always has full access and cannot be changed")
     data = body.model_dump(exclude_unset=True)
+    if role.builtin and data.get("tier", role.tier) != role.tier:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A built-in role keeps its behaviour; make a custom role to choose another")
     if "label" in data:
         data["label"] = " ".join(data["label"].split())
         if _label_taken(db, data["label"], role.id):

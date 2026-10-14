@@ -1,6 +1,8 @@
 from sqlalchemy import select
 
 from app.models import AuditLog, Role, User
+from app.permissions import ALL_PERMISSIONS
+from app.seed import sync_roles
 from app.services.notify import recipients
 
 from .helpers import MGR, STEWARD, SUP, loc_id
@@ -54,11 +56,25 @@ def test_a_role_is_checked_before_it_is_saved(client, login, db, clock):
     assert make_role(client, m, label="Supervisor").status_code == 409
 
 
-def test_built_in_roles_are_fixed_and_a_role_in_use_cannot_be_deleted(client, login, db, clock):
+def test_the_supervisor_and_steward_roles_can_be_edited_and_keep_the_edit_but_not_the_manager(client, login, db, clock):
     m = login(MGR)
-    builtin = db.scalar(select(Role).where(Role.name == "supervisor"))
-    assert client.put(f"/api/roles/{builtin.id}", headers=m, json={"label": "Boss"}).status_code == 400
-    assert client.delete(f"/api/roles/{builtin.id}", headers=m).status_code == 400
+    manager = db.scalar(select(Role).where(Role.name == "manager"))
+    supervisor = db.scalar(select(Role).where(Role.name == "supervisor"))
+    assert client.put(f"/api/roles/{manager.id}", headers=m, json={"label": "Boss"}).status_code == 400
+    assert client.put(f"/api/roles/{supervisor.id}", headers=m, json={"tier": "steward"}).status_code == 400
+    edited = client.put(f"/api/roles/{supervisor.id}", headers=m, json={"label": "Shift Lead", "permissions": ["dashboard.view", "breakage.view"]})
+    assert edited.status_code == 200 and edited.json()["permissions"] == ["breakage.view", "dashboard.view"] and edited.json()["builtin"]
+    sync_roles(db)                                                       # what every start-up runs
+    db.commit()
+    db.expire_all()
+    kept = db.scalar(select(Role).where(Role.name == "supervisor"))
+    assert kept.label == "Shift Lead" and sorted(p.permission for p in kept.permissions) == ["breakage.view", "dashboard.view"]
+    assert len(db.scalar(select(Role).where(Role.name == "manager")).permissions) == len(ALL_PERMISSIONS)
+    assert client.delete(f"/api/roles/{supervisor.id}", headers=m).status_code == 400
+
+
+def test_a_role_in_use_cannot_be_deleted(client, login, db, clock):
+    m = login(MGR)
     role = make_role(client, m).json()
     hire(client, db, m, role["name"], "chef@example.com")
     assert client.delete(f"/api/roles/{role['id']}", headers=m).status_code == 409
