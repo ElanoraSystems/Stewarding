@@ -78,8 +78,8 @@ def test_supervisor_sees_transfers_touching_their_locations_only(client, login, 
     assert len(client.get("/api/stock/transfers", headers=login(SUP)).json()) == 1  # BQ is theirs
 
 
-def count(client, h, db, counted, code="PL-001", loc="MK"):
-    body = {"location_id": loc_id(db, loc), "lines": [{"item_id": item_id(db, code), "counted_qty": counted}]}
+def count(client, h, db, counted, code="PL-001", loc="MK", reason=None):
+    body = {"location_id": loc_id(db, loc), "lines": [{"item_id": item_id(db, code), "counted_qty": counted, **({"reason": reason} if reason else {})}]}
     return client.post("/api/stock/counts", json=body, headers=h)
 
 
@@ -156,7 +156,8 @@ def test_the_count_limit_follows_receipts_and_transfers_in(client, login, db):
     assert count(client, h, db, 205).status_code == 201  # 200 opening + 10 received
     client.post("/api/inventory/transactions", headers=h, json={"item_id": item_id(db, "PL-001"), "location_id": loc_id(db, "MK"),
                                                                 "txn_type": "issue", "qty": 50})
-    assert count(client, h, db, 210).status_code == 201  # issuing stock does not lower what was received
+    assert count(client, h, db, 210).status_code == 400  # above the 160 the system holds: needs a reason
+    assert count(client, h, db, 210, reason="An issue was posted twice").status_code == 201  # issuing stock does not lower what was received
     assert count(client, h, db, 211).status_code == 400
     transfer(client, m, db, qty=20, src="MK", dst="BQ")  # BQ received 150 + 20
     assert count(client, h, db, 170, loc="BQ").status_code == 201

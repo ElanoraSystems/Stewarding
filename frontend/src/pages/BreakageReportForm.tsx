@@ -3,20 +3,22 @@ import { LocationSelect } from '@/components/LocationSelect'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Plus, Trash2 } from 'lucide-react'
 import { Select } from '@/components/ui/select'
 import { api, uploadFile } from '@/lib/api'
 import { useRun } from '@/lib/toast'
 import { useAllItems } from '@/lib/useItems'
+import { qs, useApi } from '@/lib/useApi'
 import { useLookup } from '@/lib/useLookups'
 
 const OTHER = '__other__'
+const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
   const run = useRun()
   const { items } = useAllItems()
   const [locationId, setLocationId] = useState<number | null>(null)
-  const [itemId, setItemId] = useState('')
-  const [qty, setQty] = useState('1')
+  const [lines, setLines] = useState([{ item: '', qty: '1' }])
   const [type, setType] = useState('breakage')
   const reasons = useLookup('breakage_reason')
   const [reasonChoice, setReasonChoice] = useState('')
@@ -24,18 +26,26 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
   const [description, setDescription] = useState('')
   const [file, setFile] = useState<File | null>(null)
 
+  // prices come from the average cost at the location; people who may not see costs get no prices
+  const stock = useApi<{ item_id: number; avg_cost: number | null }[]>(locationId ? `/stock/location-stock${qs({ location_id: locationId })}` : null)
+  const cost = new Map((stock.data ?? []).map((s) => [s.item_id, s.avg_cost]))
+  const priced = stock.data !== undefined
+  const worth = (l: { item: string; qty: string }) => (l.item && Number(l.qty) > 0 && cost.get(Number(l.item)) != null ? Number(l.qty) * cost.get(Number(l.item))! : null)
+  const total = lines.reduce((sum, l) => sum + (worth(l) ?? 0), 0)
+  const patch = (index: number, change: Partial<{ item: string; qty: string }>) => setLines((all) => all.map((l, n) => (n === index ? { ...l, ...change } : l)))
+  const complete = lines.every((l) => l.item && Number(l.qty) >= 1) && new Set(lines.map((l) => l.item)).size === lines.length
+
   async function submit(event: FormEvent) {
     event.preventDefault()
     const ok = await run(async () => {
       const photo = file ? await uploadFile(file) : null
-      await api('/breakage', { body: {
-        location_id: locationId, item_id: Number(itemId), qty: Number(qty), incident_type: type,
-        reason: reason || null, description: description || null, photo_path: photo,
+      await api('/breakage/batch', { body: {
+        location_id: locationId, incident_type: type, reason: reason || null, description: description || null, photo_path: photo,
+        lines: lines.map((l) => ({ item_id: Number(l.item), qty: Number(l.qty) })),
       } })
-    }, 'Incident reported - your supervisor has been notified')
+    }, lines.length > 1 ? 'Incidents reported - your supervisor has been notified' : 'Incident reported - your supervisor has been notified')
     if (ok) {
-      setItemId('')
-      setQty('1')
+      setLines([{ item: '', qty: '1' }])
       setReasonChoice('')
       setReason('')
       setDescription('')
@@ -56,13 +66,28 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
             <option value="written_off">Written off</option>
           </Select>
         </Field>
-        <Field label="Item">
-          <Select required value={itemId} onChange={(e) => setItemId(e.target.value)}>
-            <option value="">Select item</option>
-            {items.map((i) => <option key={i.id} value={i.id}>{i.code} - {i.name}</option>)}
-          </Select>
-        </Field>
-        <Field label="Quantity"><Input required type="number" min={1} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
+      </div>
+      <div className="space-y-2">
+        <div aria-hidden className="grid grid-cols-[minmax(12rem,1fr)_5rem_5.5rem_6rem_2.5rem] gap-2 text-sm font-medium">
+          <span>Item</span><span>Quantity</span><span className="text-right">{priced ? 'Unit cost' : ''}</span><span className="text-right">{priced ? 'Value' : ''}</span><span />
+        </div>
+        {lines.map((l, i) => (
+          <div key={i} className="grid grid-cols-[minmax(12rem,1fr)_5rem_5.5rem_6rem_2.5rem] items-center gap-2">
+            <Select aria-label="Item" required value={l.item} onChange={(e) => patch(i, { item: e.target.value })}>
+              <option value="">Select item</option>
+              {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
+            </Select>
+            <Input aria-label="Quantity" required type="number" min={1} inputMode="numeric" value={l.qty} onChange={(e) => patch(i, { qty: e.target.value })} />
+            <output aria-label="Unit cost" className="text-right text-sm tabular-nums">{priced && l.item && cost.get(Number(l.item)) != null ? money(cost.get(Number(l.item))!) : ''}</output>
+            <output aria-label="Line value" className="text-right text-sm font-medium tabular-nums">{priced && worth(l) != null ? money(worth(l)!) : ''}</output>
+            {lines.length > 1 ? <Button type="button" variant="ghost" size="icon" aria-label="Remove item" onClick={() => setLines((all) => all.filter((_, n) => n !== i))}><Trash2 className="h-4 w-4" /></Button> : <span />}
+          </div>
+        ))}
+        {new Set(lines.map((l) => l.item).filter(Boolean)).size < lines.filter((l) => l.item).length && <p role="alert" className="text-xs text-danger">An item appears twice; add the quantities together.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button type="button" variant="outline" size="sm" onClick={() => setLines((all) => [...all, { item: '', qty: '1' }])}><Plus className="h-4 w-4" /> Add another item</Button>
+          {priced && <p className="text-sm">Total breakage value <span className="ml-2 text-base font-semibold tabular-nums">{money(total)}</span></p>}
+        </div>
       </div>
       <Field label="What happened?">
         <Select value={reasonChoice} onChange={(e) => { setReasonChoice(e.target.value); if (e.target.value !== OTHER) setReason(e.target.value) }}>
@@ -74,7 +99,7 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
       {reasonChoice === OTHER && <Field label="Describe the cause"><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>}
       <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       <Field label="Photo (optional)"><Input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
-      <Button type="submit" className="w-full sm:w-auto" disabled={!locationId || !itemId || Number(qty) < 1}>Report incident</Button>
+      <Button type="submit" className="w-full sm:w-auto" disabled={!locationId || !complete}>Report {lines.length > 1 ? `${lines.length} items` : 'incident'}</Button>
     </form>
   )
 }

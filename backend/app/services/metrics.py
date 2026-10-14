@@ -286,7 +286,8 @@ def stock_snapshot(db: Session, scope: set[int] | None, location_id: int | None 
     low = []
     for balance, item in db.execute(stmt).all():
         total["qty"] += balance.qty
-        total["value"] += float(balance.qty * item.unit_cost) if item.unit_cost is not None else 0.0
+        unit = balance.avg_cost if balance.avg_cost is not None else item.unit_cost
+        total["value"] += float(balance.qty * unit) if unit is not None else 0.0
         if item.active and balance.qty < item.min_level:
             low.append({"item_id": item.id, "code": item.code, "name": item.name,
                         "location_id": balance.location_id, "qty": balance.qty, "min_level": item.min_level,
@@ -360,9 +361,11 @@ def stock_insights(db: Session, wins: list[Win], d_from: date, d_to: date) -> di
     for move in movements(db, wins):
         if move.txn_type == "opening":
             continue
+        by_type[move.txn_type] += abs(move.qty_delta)
+        if len(wins) > 1 and move.txn_type in ("transfer_in", "transfer_out"):
+            continue  # across several locations a transfer is one move out and one in, not stock arriving or leaving
         slot = moves[key(move.day)]
         slot["in" if move.qty_delta > 0 else "out"] += abs(move.qty_delta)
-        by_type[move.txn_type] += abs(move.qty_delta)
     breakage = {p: {"period": p, "incidents": 0, "qty": 0, "est_cost": 0.0} for p in periods}
     reasons: Counter = Counter()
     top_items: Counter = Counter()

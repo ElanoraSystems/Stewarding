@@ -6,7 +6,10 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from ..models import InventoryBalance, InventoryItem, StockTransaction
+from ..models import InventoryBalance, InventoryCategory, InventoryItem, StockTransaction
+
+MEASURES = ("opening_value", "purchases", "returns", "transfers_in", "transfers_out", "closing_value", "cost_consumed", "issued",
+            "breakage_damage", "count_adjustments")
 
 
 def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -> dict:
@@ -33,24 +36,38 @@ def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -
             qty_before[item_id] += qty
             value_before[item_id] += value
     ids = set(qty_before) | set(flow)
-    names = {i.id: (i.code, i.name) for i in db.scalars(select(InventoryItem).where(InventoryItem.id.in_(ids)))} if ids else {}
+    found = list(db.scalars(select(InventoryItem).where(InventoryItem.id.in_(ids)))) if ids else []
+    names = {i.id: (i.code, i.name) for i in found}
+    categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
+    category_of = {i.id: categories.get(i.category_id, "Uncategorised") for i in found}
     averages = dict(db.execute(select(InventoryBalance.item_id, InventoryBalance.avg_cost).where(InventoryBalance.location_id == location_id)).all())
     rows, totals = [], defaultdict(Decimal)
+    by_category: dict[str, dict] = defaultdict(lambda: defaultdict(Decimal))
     for item_id in sorted(ids, key=lambda i: names[i][0]):
         f = flow[item_id]
         opening = value_before[item_id] + f["opening"]
         closing = value_before[item_id] + sum(f.values())
         consumed = opening + f["receipt"] + f["return"] + f["transfer_in"] + f["transfer_out"] - closing
-        row = {"item_id": item_id, "code": names[item_id][0], "name": names[item_id][1],
+        row = {"item_id": item_id, "code": names[item_id][0], "name": names[item_id][1], "category": category_of[item_id],
                "opening_qty": qty_before[item_id] + loaded[item_id], "closing_qty": qty_before[item_id] + qty_flow[item_id],
                "average_cost": float(averages[item_id]) if averages.get(item_id) is not None else None,
                "opening_value": opening, "purchases": f["receipt"], "returns": f["return"], "transfers_in": f["transfer_in"],
                "transfers_out": -f["transfer_out"], "closing_value": closing, "cost_consumed": consumed,
                "issued": -f["issue"], "breakage_damage": -(f["breakage"] + f["damage"]), "count_adjustments": f["adjustment"]}
-        for key in ("opening_value", "purchases", "returns", "transfers_in", "transfers_out", "closing_value", "cost_consumed", "issued",
-                    "breakage_damage", "count_adjustments"):
+        for key in MEASURES:
             totals[key] += row[key]
+            by_category[row["category"]][key] += row[key]
             row[key] = round(float(row[key]), 2)
+        by_category[row["category"]]["items"] += 1
         rows.append(row)
-    return {"rows": rows, "totals": {k: round(float(v), 2) for k, v in totals.items()}}
+    return {"rows": rows, "totals": {k: round(float(v), 2) for k, v in totals.items()}, "by_category": category_rows(by_category, totals["cost_consumed"])}
+
+
+def category_rows(by_category: dict[str, dict], consumed_total: Decimal) -> list[dict]:
+    """One line per category with its share of the cost consumed, largest first."""
+    out = []
+    for name, sums in sorted(by_category.items(), key=lambda kv: -kv[1]["cost_consumed"]):
+        out.append({"category": name, "items": int(sums["items"]), **{k: round(float(sums[k]), 2) for k in MEASURES},
+                    "share": round(float(sums["cost_consumed"] / consumed_total * 100), 1) if consumed_total else 0.0})
+    return out
 

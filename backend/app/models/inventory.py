@@ -125,6 +125,7 @@ class InventoryCountLine(Base):
     system_qty: Mapped[int] = mapped_column(Integer)
     counted_qty: Mapped[int] = mapped_column(Integer)
     adjustment_txn_id: Mapped[int | None] = mapped_column(ForeignKey("stock_transaction.id"))
+    reason: Mapped[str | None] = mapped_column(Text)  # why a count is higher than the system quantity
 
 
 class InventoryTransfer(Base):

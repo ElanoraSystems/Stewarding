@@ -11,7 +11,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
-import { useApi } from '@/lib/useApi'
+import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { useLineEntry } from '@/lib/useLineEntry'
 
@@ -23,8 +23,11 @@ interface Transfer {
   requested_by: number
   requested_at: string
   note: string | null
-  lines: { item_id: number; qty: number }[]
+  lines: { item_id: number; qty: number; unit_cost: number | null; value: number | null }[]
+  total_value: number
 }
+
+const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export function TransfersTab() {
   const { me } = useAuth()
@@ -39,6 +42,14 @@ export function TransfersTab() {
   const entry = useLineEntry({ item: '', qty: '' }, (l) => l.item !== '' && Number(l.qty) > 0)
   const { attachList } = entry
   const places = new Map(destinations.data?.map((l) => [l.id, l.name]))
+  const stock = useApi<{ item_id: number; qty: number; avg_cost: number | null }[]>(from ? `/stock/location-stock${qs({ location_id: from })}` : null)
+  const held = new Map((stock.data ?? []).map((s) => [s.item_id, s]))
+  const asked = new Map<number, number>()
+  for (const l of entry.rows) if (l.item && Number(l.qty) > 0) asked.set(Number(l.item), (asked.get(Number(l.item)) ?? 0) + Number(l.qty))
+  const available = (id: number) => held.get(id)?.qty ?? 0
+  const over = [...asked].some(([id, qty]) => qty > available(id))
+  const lineValue = (l: { item: string; qty: string }) => (l.item && Number(l.qty) > 0 && held.get(Number(l.item))?.avg_cost != null ? Number(l.qty) * held.get(Number(l.item))!.avg_cost! : null)
+  const total = entry.rows.reduce((sum, l) => sum + (lineValue(l) ?? 0), 0)
 
   async function request() {
     const ok = await run(() => api('/stock/transfers', { body: {
@@ -80,9 +91,17 @@ export function TransfersTab() {
                   </Select>
                 </Field>
                 <Field label={i === 0 ? 'Qty' : ''}><Input aria-label="Quantity" type="number" min={1} className="w-24" value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} /></Field>
+                <Field label={i === 0 ? 'Available' : ''}><output aria-label="Available" className="flex h-10 w-20 items-center justify-end text-sm tabular-nums">{line.item ? available(Number(line.item)) : '-'}</output></Field>
+                <Field label={i === 0 ? 'Unit cost' : ''}><output aria-label="Unit cost" className="flex h-10 w-20 items-center justify-end text-sm tabular-nums">{line.item && held.get(Number(line.item))?.avg_cost != null ? money(held.get(Number(line.item))!.avg_cost!) : '-'}</output></Field>
+                <Field label={i === 0 ? 'Value' : ''}><output aria-label="Line value" className="flex h-10 w-24 items-center justify-end text-sm font-medium tabular-nums">{lineValue(line) != null ? money(lineValue(line)!) : '-'}</output></Field>
                 <span className="flex h-10 w-5 items-center text-ok" aria-label={line.committed ? 'Line saved' : undefined}>{line.committed && <Check className="h-4 w-4" aria-hidden />}</span>
                 {entry.rows.length > 1 && <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => entry.remove(i)}><Trash2 className="h-4 w-4" /></Button>}
                 {entry.incomplete === i && <p role="alert" className="w-full text-xs text-danger">Choose an item and a quantity, then press Enter.</p>}
+                {line.item && (asked.get(Number(line.item)) ?? 0) > available(Number(line.item)) && (
+                  <p role="alert" className="w-full text-xs font-medium text-danger">
+                    Only {available(Number(line.item))} in stock here but {asked.get(Number(line.item))} asked for. Something is wrong: check the quantity. It cannot be transferred.
+                  </p>
+                )}
               </div>
             ))}
             <div className="flex flex-wrap items-center gap-3">
@@ -90,8 +109,9 @@ export function TransfersTab() {
               <span className="text-xs text-ink-muted">Press Enter on a completed line to save it and start the next one.</span>
             </div>
           </div>
+          <p className="text-right text-sm">Total value <span className="ml-2 text-base font-semibold tabular-nums">{money(total)}</span></p>
           <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-          <Button disabled={!to || !entry.rows.some((l) => l.item && l.qty)} onClick={request}>{canApprove ? 'Transfer now' : 'Request transfer'}</Button>
+          <Button disabled={!to || over || !entry.rows.some((l) => l.item && l.qty)} onClick={request}>{canApprove ? 'Transfer now' : 'Request transfer'}</Button>
         </CardContent>
       </Card>
 
@@ -104,7 +124,10 @@ export function TransfersTab() {
               <span className="font-medium">#{t.id}: {places.get(t.from_location_id) ?? t.from_location_id} to {places.get(t.to_location_id) ?? t.to_location_id}</span>
               <StatusBadge status={t.status} />
             </div>
-            <p className="text-ink-muted">{t.lines.map((l) => `${l.qty} x ${byId.get(l.item_id)?.name ?? l.item_id}`).join(', ')} - {fmtDateTime(t.requested_at)}</p>
+            <ul className="mt-1 text-ink-muted">
+              {t.lines.map((l) => <li key={l.item_id}>{l.qty} x {byId.get(l.item_id)?.name ?? l.item_id}{l.value != null && <span> - {money(l.value)}</span>}</li>)}
+            </ul>
+            <p className="text-ink-muted">{fmtDateTime(t.requested_at)}{t.total_value > 0 && <span> - total {money(t.total_value)}</span>}</p>
             {t.status === 'requested' && canApprove && t.requested_by !== me?.id && (
               <div className="mt-2 flex gap-2">
                 <Button size="sm" onClick={() => decide(t.id, true)}>Approve</Button>

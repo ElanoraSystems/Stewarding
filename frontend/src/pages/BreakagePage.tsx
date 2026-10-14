@@ -50,7 +50,7 @@ export function BreakagePage() {
   const { byId } = useAllItems()
   const places = new Map(me?.locations.map((l) => [l.id, l.name]))
 
-  const list = useApi<{ total: number; items: Incident[] }>(canList
+  const list = useApi<{ total: number; items: Incident[]; totals: { cost: number; units: number } }>(canList
     ? `/breakage${qs({ location_id: locationId, incident_status: status, incident_type: type, page, size: SIZE })}` : null)
   const mine = useApi<Incident[]>(canList ? null : '/breakage/mine')
   const rows = canList ? list.data?.items : mine.data
@@ -95,15 +95,16 @@ export function BreakagePage() {
         </div>
       )}
       <Table>
-        <thead><tr><Th>Incident</Th><Th>When</Th><Th>Location</Th><Th>Item</Th><Th className="text-right">Qty</Th><Th>Type</Th><Th>Status</Th>{canList && <Th />}</tr></thead>
+        <thead><tr><Th>Incident</Th><Th>When</Th><Th>Location</Th><Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Value</Th><Th>Type</Th><Th>Status</Th>{canList && <Th />}</tr></thead>
         <tbody>
-          {!rows ? <SkeletonRows cols={8} /> : rows.map((i) => (
+          {!rows ? <SkeletonRows cols={9} /> : rows.map((i) => (
             <tr key={i.id}>
               <Td className="font-medium">{i.code}</Td>
               <Td>{fmtDateTime(i.occurred_at)}</Td>
               <Td>{places.get(i.location_id)}</Td>
               <Td>{byId.get(i.item_id)?.name ?? i.item_id}</Td>
               <Td className="text-right tabular-nums">{i.qty}</Td>
+              <Td className="text-right tabular-nums">{i.est_cost != null ? i.est_cost.toFixed(2) : '-'}</Td>
               <Td>{label(i.incident_type)}</Td>
               <Td><StatusBadge status={i.status} /></Td>
               {canList && (
@@ -127,6 +128,12 @@ export function BreakagePage() {
         </tbody>
       </Table>
       {rows?.length === 0 && <EmptyState title="No incidents" />}
+      {canList && list.data && list.data.total > 0 && (
+        <p role="status" className="text-right text-sm">
+          Total breakage value for this selection <span className="ml-2 text-base font-semibold tabular-nums">{list.data.totals.cost.toFixed(2)}</span>
+          <span className="ml-2 text-ink-muted">({list.data.totals.units} units, rejected excluded)</span>
+        </p>
+      )}
       {canList && list.data && <Pagination page={page} size={SIZE} total={list.data.total} onPage={setPage} />}
 
       <Modal open={dialog !== null} title={dialog ? `${label(dialog.kind)} ${dialog.incident.code}` : ''} onClose={() => setDialog(null)}>

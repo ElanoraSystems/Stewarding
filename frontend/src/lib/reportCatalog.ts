@@ -26,6 +26,8 @@ export const REPORTS: ReportDef[] = [
     blurb: 'Every stock movement: receipts, issues, returns, transfers, breakage and adjustments, with who and why.' },
   { key: 'stock_cost', title: 'Stock cost report', section: 'Stock', filters: [],
     blurb: 'Opening value, purchases, closing value and the cost consumed for each item, at weighted average cost, with issues, breakage and count losses shown separately.' },
+  { key: 'stock_cost_category', title: 'Stock cost by category', section: 'Stock', filters: [],
+    blurb: 'The stock cost report one line per category, per location and for all locations together, with each category\'s share of the cost.' },
   { key: 'summary', title: 'Operations summary', section: 'Overview', filters: [], summary: true,
     blurb: 'Daily, weekly or monthly scorecard across attendance, checklists, monitoring, breakage and stock.' },
 ]

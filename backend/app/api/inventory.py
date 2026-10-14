@@ -15,7 +15,7 @@ from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryUnit, StockTransaction,
                       Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
-from ..services.inventory import StockError, norm, post_txn
+from ..services.inventory import StockError, counts_as_received, norm, post_txn
 from ..services.similarity import SCAN_LIMIT, compact, find_similar, token_key, tokens
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
@@ -86,7 +86,7 @@ class ItemUpdate(BaseModel):
 class TxnIn(BaseModel):
     item_id: int
     location_id: int
-    txn_type: Literal["receipt", "issue", "return", "damage", "adjustment"]
+    txn_type: Literal["receipt", "issue", "return", "damage", "adjustment", "opening"]
     qty: int = Field(ge=-MAX_LEVEL, le=MAX_LEVEL)
     reason: str | None = Field(default=None, max_length=500)
 
@@ -209,10 +209,12 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
     if stmt is not None and scope is not None:
         stmt = stmt.where(InventoryBalance.location_id.in_(scope))
     by_item: dict[int, dict[int, int]] = {}
+    balances: dict[int, list[InventoryBalance]] = {}
     for bal in (db.scalars(stmt) if stmt is not None else []):
         by_item.setdefault(bal.item_id, {})[bal.location_id] = bal.qty
+        balances.setdefault(bal.item_id, []).append(bal)
     received = select(StockTransaction.item_id, StockTransaction.location_id, func.sum(StockTransaction.qty_delta)).where(
-        StockTransaction.qty_delta > 0, StockTransaction.item_id.in_(ids)).group_by(
+        counts_as_received(), StockTransaction.item_id.in_(ids)).group_by(
         StockTransaction.item_id, StockTransaction.location_id)
     if scope is not None:
         received = received.where(StockTransaction.location_id.in_(scope))
@@ -234,7 +236,8 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
                  "low": qty < item.min_level}
         if show_cost:
             entry["unit_cost"] = float(item.unit_cost) if item.unit_cost is not None else None
-            entry["value"] = float(qty * item.unit_cost) if item.unit_cost is not None else None
+            held = [(b.qty, b.avg_cost if b.avg_cost is not None else item.unit_cost) for b in balances.get(item.id, [])]
+            entry["value"] = round(sum(float(q * c) for q, c in held if c is not None), 2) if any(c is not None for _, c in held) else None
         out.append(entry)
     return out
 
@@ -262,8 +265,8 @@ def list_items(search: str | None = None, category_id: int | None = None, locati
     items = [r[0] for r in rows]
     result = {"total": total, "items": _serialize_items(db, user, items, scope)}
     if _can_see_cost(user):
-        value = db.scalar(select(func.coalesce(func.sum(stock.c.qty * InventoryItem.unit_cost), 0)).select_from(
-            InventoryItem).outerjoin(stock, stock.c.item_id == InventoryItem.id))
+        value = db.scalar(select(func.coalesce(func.sum(InventoryBalance.qty * func.coalesce(InventoryBalance.avg_cost, InventoryItem.unit_cost, 0)), 0))
+                          .select_from(InventoryBalance).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id))
         result["total_value"] = float(value)
     return result
 
@@ -374,22 +377,22 @@ def post_transaction(body: TxnIn, user: User = Depends(require("stock.transfer")
     item = get_item_or_404(db, body.item_id)
     if not item.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{item.name} is retired; restore it before moving stock")
-    if body.txn_type == "adjustment":
+    if body.txn_type in ("adjustment", "opening"):
         if "stock.approve" not in permissions_of(user):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a manager can post stock adjustments")
-        if body.qty == 0:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Adjustment must not be zero")
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a manager can post stock adjustments or opening stock")
+        if body.qty == 0 or (body.txn_type == "opening" and body.qty < 0):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quantity must be positive" if body.txn_type == "opening" else "Adjustment must not be zero")
     elif body.qty <= 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quantity must be positive")
-    if body.txn_type in ("adjustment", "damage") and not (body.reason and len(body.reason.strip()) >= 5):
+    if body.txn_type in ("adjustment", "damage", "opening") and not (body.reason and len(body.reason.strip()) >= 5):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A reason is required")
     try:
         txn = post_txn(db, user, item, body.location_id, body.txn_type, body.qty, body.reason)
     except StockError as exc:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
-    if body.txn_type == "adjustment":
-        audit(db, user, "inventory.adjustment", "stock_transaction", txn.id, None,
+    if body.txn_type in ("adjustment", "opening"):
+        audit(db, user, f"inventory.{body.txn_type}", "stock_transaction", txn.id, None,
               {"item_id": item.id, "delta": txn.qty_delta, "reason": body.reason})
     db.commit()
     return row(txn, "id", "item_id", "location_id", "txn_type", "qty_delta", "occurred_at", "user_id", "reason")

@@ -17,7 +17,16 @@ interface Count {
   location_id: number
   counted_at: string
   status: string
-  lines: { item_id: number; system_qty: number; counted_qty: number; variance: number }[]
+  lines: { item_id: number; system_qty: number; counted_qty: number; variance: number; reason?: string | null }[]
+}
+
+interface Limit {
+  item_id: number
+  received: number
+  system_qty: number
+  invoices: number
+  opening: number
+  transfers_in: number
 }
 
 export function CountsTab() {
@@ -26,17 +35,25 @@ export function CountsTab() {
   const canApprove = me?.permissions.includes('stock.approve') ?? false
   const [locationId, setLocationId] = useState<number | null>(null)
   const [entered, setEntered] = useState<Record<number, string>>({})
+  const [reasons, setReasons] = useState<Record<number, string>>({})
   const { items, byId } = useAllItems()
   const counts = useApi<Count[]>(locationId ? `/stock/counts${qs({ location_id: locationId })}` : null)
-  const receivedAt = (id: number) => (locationId ? (byId.get(id)?.received_by_location[String(locationId)] ?? 0) : 0)
-  const overLimit = Object.entries(entered).some(([id, v]) => v !== '' && Number(v) > receivedAt(Number(id)))
+  const limits = useApi<Limit[]>(locationId ? `/stock/count-limits${qs({ location_id: locationId })}` : null)
+  const limitOf = new Map((limits.data ?? []).map((l) => [l.item_id, l]))
+  const receivedAt = (id: number) => limitOf.get(id)?.received ?? 0
+  const systemAt = (id: number) => limitOf.get(id)?.system_qty ?? 0
+  const filled = Object.entries(entered).filter(([, v]) => v !== '')
+  const overLimit = filled.some(([id, v]) => Number(v) > receivedAt(Number(id)))
+  const needsReason = filled.some(([id, v]) => Number(v) > systemAt(Number(id)) && Number(v) <= receivedAt(Number(id)) && (reasons[Number(id)] ?? '').trim().length < 5)
 
   async function submit() {
-    const lines = Object.entries(entered).filter(([, v]) => v !== '').map(([id, v]) => ({ item_id: Number(id), counted_qty: Number(v) }))
+    const lines = filled.map(([id, v]) => ({ item_id: Number(id), counted_qty: Number(v), reason: Number(v) > systemAt(Number(id)) ? reasons[Number(id)]?.trim() : undefined }))
     const ok = await run(() => api('/stock/counts', { body: { location_id: locationId, lines } }), 'Count saved - post it to apply variances')
     if (ok) {
       setEntered({})
+      setReasons({})
       counts.reload()
+      limits.reload()
     }
   }
 
@@ -52,24 +69,34 @@ export function CountsTab() {
       <Card>
         <CardHeader><CardTitle>Physical count</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-ink-muted">Enter what you counted. Items left blank are not part of this count. A count cannot be higher than the quantity received into the location.</p>
+          <p className="text-sm text-ink-muted">Enter what you counted. Items left blank are not part of this count. A count can never be higher than what was received into the location (invoices, opening stock and approved transfers in); if it is, it is refused and the manager is alerted. A count higher than the system quantity needs a reason and a manager decides whether to post it.</p>
           <Table>
             <thead><tr><Th>Item</Th><Th className="text-right">System</Th><Th className="text-right">Received to date</Th><Th>Counted</Th></tr></thead>
             <tbody>
               {items.map((i) => (
                 <tr key={i.id}>
                   <Td>{i.code} - {i.name}</Td>
-                  <Td className="text-right tabular-nums">{locationId ? (i.by_location[String(locationId)] ?? 0) : '-'}</Td>
-                  <Td className="text-right tabular-nums">{locationId ? receivedAt(i.id) : '-'}</Td>
+                  <Td className="text-right tabular-nums">{locationId ? systemAt(i.id) : '-'}</Td>
+                  <Td className="text-right tabular-nums" title={limitOf.get(i.id) ? `Invoices ${limitOf.get(i.id)!.invoices}, opening stock ${limitOf.get(i.id)!.opening}, transfers in ${limitOf.get(i.id)!.transfers_in}` : undefined}>{locationId ? receivedAt(i.id) : '-'}</Td>
                   <Td>
                     <Input aria-label={`Counted ${i.name}`} type="number" min={0} max={receivedAt(i.id)} className="w-28" value={entered[i.id] ?? ''} onChange={(e) => setEntered((v) => ({ ...v, [i.id]: e.target.value }))} />
-                    {Number(entered[i.id] ?? 0) > receivedAt(i.id) && <p role="alert" className="mt-1 text-xs text-danger">More than the {receivedAt(i.id)} received here</p>}
+                    {Number(entered[i.id] ?? 0) > receivedAt(i.id) && (
+                      <p role="alert" className="mt-1 max-w-64 text-xs font-medium text-danger">
+                        More than the {receivedAt(i.id)} received here (invoices {limitOf.get(i.id)?.invoices ?? 0}, opening stock {limitOf.get(i.id)?.opening ?? 0}, transfers in {limitOf.get(i.id)?.transfers_in ?? 0}). Something is wrong: check the count and the receipts. It cannot be saved.
+                      </p>
+                    )}
+                    {Number(entered[i.id] ?? 0) > systemAt(i.id) && Number(entered[i.id] ?? 0) <= receivedAt(i.id) && (
+                      <div className="mt-1 space-y-1">
+                        <p className="max-w-64 text-xs text-warn">Higher than the {systemAt(i.id)} the system holds. Say why:</p>
+                        <Input aria-label={`Reason for ${i.name}`} className="w-64" value={reasons[i.id] ?? ''} maxLength={500} onChange={(e) => setReasons((v) => ({ ...v, [i.id]: e.target.value }))} />
+                      </div>
+                    )}
                   </Td>
                 </tr>
               ))}
             </tbody>
           </Table>
-          <Button disabled={!locationId || overLimit || !Object.values(entered).some((v) => v !== '')} onClick={submit}>Save count</Button>
+          <Button disabled={!locationId || overLimit || needsReason || filled.length === 0} onClick={submit}>Save count</Button>
         </CardContent>
       </Card>
 
@@ -86,7 +113,7 @@ export function CountsTab() {
               </div>
               <ul className="text-ink-muted">
                 {c.lines.map((l) => (
-                  <li key={l.item_id}>{byId.get(l.item_id)?.name}: system {l.system_qty}, counted {l.counted_qty}{l.variance !== 0 && <strong className="text-danger"> (variance {l.variance})</strong>}</li>
+                  <li key={l.item_id}>{byId.get(l.item_id)?.name}: system {l.system_qty}, counted {l.counted_qty}{l.variance !== 0 && <strong className="text-danger"> (variance {l.variance})</strong>}{l.reason && <span> - {l.reason}</span>}</li>
                 ))}
               </ul>
               {c.status === 'draft' && (variances.length === 0 || canApprove

@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date, datetime, time
 from decimal import Decimal
 
-from sqlalchemy import case, event, func, select
+from sqlalchemy import case, event, func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
@@ -94,14 +94,28 @@ def _month_bounds(tz: str, month: str) -> tuple[datetime, datetime]:
     return timeutil.local_to_utc(first, time(0), tz), timeutil.local_to_utc(following, time(0), tz)
 
 
-def received_to_date(db: Session, location_id: int, item_ids: list[int]) -> dict[int, int]:
-    """Everything that ever came into a location for each item: opening stock, receipts, returns, transfers in, increases."""
+def counts_as_received():
+    """Invoices (with their voids and credit notes), opening stock and approved transfers in; manual increases and returns do not count."""
+    return or_(StockTransaction.txn_type.in_(("opening", "transfer_in")), StockTransaction.ref_type.in_(("receipt", "receipt_void")))
+
+
+def received_breakdown(db: Session, location_id: int, item_ids: list[int]) -> dict[int, dict[str, int]]:
+    """What came into a location for each item, split into invoices, opening stock and transfers in."""
     if not item_ids:
         return {}
-    rows = db.execute(select(StockTransaction.item_id, func.sum(StockTransaction.qty_delta)).where(
-        StockTransaction.location_id == location_id, StockTransaction.qty_delta > 0,
-        StockTransaction.item_id.in_(item_ids)).group_by(StockTransaction.item_id)).all()
-    return {item_id: int(total) for item_id, total in rows}
+    rows = db.execute(select(StockTransaction.item_id, StockTransaction.txn_type, StockTransaction.ref_type, func.sum(StockTransaction.qty_delta)).where(
+        StockTransaction.location_id == location_id, counts_as_received(), StockTransaction.item_id.in_(item_ids))
+        .group_by(StockTransaction.item_id, StockTransaction.txn_type, StockTransaction.ref_type)).all()
+    out: dict[int, dict[str, int]] = defaultdict(lambda: {"invoices": 0, "opening": 0, "transfers_in": 0})
+    for item_id, txn_type, ref_type, total in rows:
+        key = "invoices" if ref_type in ("receipt", "receipt_void") else "opening" if txn_type == "opening" else "transfers_in"
+        out[item_id][key] += int(total)
+    return out
+
+
+def received_to_date(db: Session, location_id: int, item_ids: list[int]) -> dict[int, int]:
+    """The most a count of each item can honestly be: invoices, opening stock and transfers in, less credit notes and voids."""
+    return {item_id: max(sum(parts.values()), 0) for item_id, parts in received_breakdown(db, location_id, item_ids).items()}
 
 
 def reconcile(db: Session, location: Location, month: str) -> list[dict]:
@@ -145,6 +159,9 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
                InventoryCount.counted_at >= start, InventoryCount.counted_at < end)
         .order_by(InventoryCount.counted_at)).all()
     last_count = {line.item_id: line for line, _ in counts}
+    # a count's value is what its adjustment was posted at, so a later price change cannot move it
+    adjusted = dict(db.execute(select(StockTransaction.id, StockTransaction.unit_cost).where(
+        StockTransaction.id.in_([ln.adjustment_txn_id for ln in last_count.values() if ln.adjustment_txn_id]))).all()) if last_count else {}
     rows = []
     for item in items:
         if item.id not in moved and item.id not in last_count:
@@ -166,14 +183,15 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
         closing_value = before_value[item.id] + sum(worth_mine.values())
         line = last_count.get(item.id)
         variance = line.counted_qty - line.system_qty if line else None
-        cost = float(item.unit_cost) if item.unit_cost is not None else None
+        posted_at = adjusted.get(line.adjustment_txn_id) if line else None
+        cost = float(posted_at) if posted_at is not None else None
         rows.append({
             "item_id": item.id, "code": item.code, "name": item.name, "opening": before[item.id], **movements,
             "closing": closing, "counted_qty": line.counted_qty if line else None,
             "count_variance": variance, "variance_value": round(variance * cost, 2) if variance and cost is not None else None,
             "opening_value": round(float(before_value[item.id]), 2), "closing_value": round(float(closing_value), 2),
             **{k: round(float(v), 2) for k, v in values.items()},
-            "value": round(float(closing_value), 2) if cost is not None or closing_value else None,
+            "value": round(float(closing_value), 2) if closing_value or closing else None,
         })
     return rows
 

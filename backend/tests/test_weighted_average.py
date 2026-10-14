@@ -109,3 +109,53 @@ def test_the_cost_report_is_in_the_records_and_needs_the_inventory_module(client
         assert client.get(f"/api/reports/records/stock_cost/export?fmt={fmt}&date_from=2026-03-01&date_to=2026-03-31", headers=login(MGR)).status_code == 200
     assert client.get(f"{URL}?location_id=1&date_from=2026-03-01&date_to=2026-03-31", headers=login("steward.mk@example.test")).status_code == 403
     assert client.get(f"{URL}?location_id=1&date_from=2026-03-31&date_to=2026-03-01", headers=login(MGR)).status_code == 400
+
+
+def test_the_cost_report_is_broken_down_by_category_and_adds_up(client, login, db, clock):
+    m = login(MGR)
+    cats = client.get("/api/inventory/categories", headers=m).json()
+    unit = client.get("/api/inventory/units", headers=m).json()[0]["id"]
+    sup = client.post("/api/suppliers", headers=m, json={"name": "Category Supplier"}).json()
+    made = {}
+    for name, cat in (("Cat Plate", cats[0]["id"]), ("Cat Bowl", cats[1]["id"]), ("Cat Cup", cats[1]["id"])):
+        made[name] = client.post("/api/inventory/items", headers=m, json={"name": name, "category_id": cat, "unit_id": unit, "min_level": 1}).json()
+    for n, (name, qty, cost) in enumerate((("Cat Plate", 10, 2.00), ("Cat Bowl", 10, 3.00), ("Cat Cup", 10, 1.00))):
+        receive(client, login, db, made[name], sup, qty, cost, f"CAT-{n}")
+    client.post("/api/inventory/transactions", headers=login(SUP), json={"item_id": made["Cat Bowl"]["id"], "location_id": loc_id(db, "MK"), "txn_type": "issue", "qty": 4})
+    report = client.get(f"{URL}?location_id={loc_id(db, 'MK')}&date_from=2026-03-01&date_to=2026-03-31", headers=m).json()
+    by = {c["category"]: c for c in report["by_category"]}
+    second = next(c["name"] for c in cats if c["id"] == cats[1]["id"])
+    assert by[second]["purchases"] >= 40.0 and by[second]["cost_consumed"] >= 12.0       # the bowls issued: 4 x 3.00
+    assert round(sum(c["cost_consumed"] for c in report["by_category"]), 2) == report["totals"]["cost_consumed"]
+    assert round(sum(c["share"] for c in report["by_category"]), 0) in (100.0, 99.0, 101.0)
+    doc = client.get("/api/reports/records/stock_cost_category?date_from=2026-03-01&date_to=2026-03-31", headers=m).json()
+    assert any(g["title"].startswith("All locations") for g in doc["groups"]) or len(doc["groups"]) <= 1
+    for fmt in ("pdf", "xlsx", "csv"):
+        assert client.get(f"/api/reports/records/stock_cost_category/export?fmt={fmt}&date_from=2026-03-01&date_to=2026-03-31", headers=m).status_code == 200
+
+
+def test_completed_prices_are_frozen_when_the_item_price_changes_later(client, login, db, clock):
+    m = login(MGR)
+    item, sup = item_and_supplier(client, login, db, cost=4.00)
+    receipt = receive(client, login, db, item, sup, 10, 3.00, "F-1").json()
+    client.post("/api/inventory/transactions", headers=login(SUP), json={"item_id": item["id"], "location_id": loc_id(db, "MK"), "txn_type": "issue", "qty": 4})
+    incident = client.post("/api/breakage", headers=m, json={"location_id": loc_id(db, "MK"), "item_id": item["id"], "qty": 1, "incident_type": "breakage", "reason": "dropped"}).json()
+    count = client.post("/api/stock/counts", headers=login(SUP), json={"location_id": loc_id(db, "MK"), "lines": [{"item_id": item["id"], "counted_qty": 4}]}).json()
+    client.post(f"/api/stock/counts/{count['id']}/post", headers=m, json={})
+    month = "2026-03"
+    before = client.get(f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}&month={month}", headers=m).json()["rows"]
+    row = next(r for r in before if r["item_id"] == item["id"])
+    assert row["variance_value"] == -6.0 and row["issues_value"] == -12.0 and row["receipts_value"] == 30.0     # 2 short, 4 issued, 10 received, all at 3.00
+    shown = client.get(f"/api/receipts/{receipt['id']}", headers=m).json()
+    # the item's price is changed afterwards
+    assert client.put(f"/api/inventory/items/{item['id']}", headers=m, json={"unit_cost": 9.00}).status_code == 200
+    after = client.get(f"/api/stock/reconciliation?location_id={loc_id(db, 'MK')}&month={month}", headers=m).json()["rows"]
+    assert next(r for r in after if r["item_id"] == item["id"]) == row
+    assert client.get(f"/api/receipts/{receipt['id']}", headers=m).json() == shown
+    cost = client.get(f"{URL}?location_id={loc_id(db, 'MK')}&date_from=2026-03-01&date_to=2026-03-31", headers=m).json()
+    assert next(r for r in cost["rows"] if r["item_id"] == item["id"])["issued"] == 12.0
+    stored = db.scalars(select(StockTransaction).where(StockTransaction.item_id == item["id"])).all()
+    assert {t.unit_cost for t in stored} == {Decimal("3.0000")}
+    assert next(i for i in client.get("/api/breakage", headers=m).json()["items"] if i["id"] == incident["id"])["est_cost"] == 3.0
+    listed = next(i for i in client.get("/api/inventory/items?search=Costing", headers=m).json()["items"] if i["id"] == item["id"])
+    assert listed["unit_cost"] == 9.0 and listed["value"] == 12.0      # today's value uses the average (4 held x 3.00), not the new reference price
