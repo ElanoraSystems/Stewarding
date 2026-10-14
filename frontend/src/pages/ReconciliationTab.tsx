@@ -23,6 +23,7 @@ interface Row {
   count_variance: number | null
   variance_value: number | null
   value: number | null
+  closing_value: number
 }
 
 interface Variance {
@@ -48,7 +49,7 @@ export function ReconciliationTab() {
         <LocationSelect value={locationId} onChange={setLocationId} />
         <Input aria-label="Month" type="month" className="w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />
       </div>
-      <p className="text-sm text-ink-muted">Opening + movements = closing. Every figure is summed from the immutable stock ledger. A variance is the difference between what was counted and what the system expected.</p>
+      <p className="text-sm text-ink-muted">Opening + movements = closing. Every figure is summed from the immutable stock ledger, and values use the weighted average cost at the time of each movement. A variance is the difference between what was counted and what the system expected.</p>
       {data && data.variance.counted_items > 0 && (
         <div role="status" className={`flex flex-wrap items-center gap-3 rounded-md border px-3 py-2 text-sm ${data.variance.shortage_items + data.variance.surplus_items ? 'border-warn/50 bg-warn-soft' : 'border-ok/40 bg-ok-soft'}`}>
           <span className="font-medium">{data.variance.counted_items} item(s) counted</span>
@@ -67,7 +68,7 @@ export function ReconciliationTab() {
           <tr>
             <Th>Item</Th><Th className="text-right">Opening</Th><Th className="text-right">Opening stock</Th><Th className="text-right">Receipts</Th>
             <Th className="text-right">Issues</Th><Th className="text-right">Breakage</Th><Th className="text-right">Transfers</Th>
-            <Th className="text-right">Adjust.</Th><Th className="text-right">Closing</Th><Th className="text-right">Counted</Th><Th>Variance</Th>
+            <Th className="text-right">Adjust.</Th><Th className="text-right">Closing</Th><Th className="text-right">Closing value</Th><Th className="text-right">Counted</Th><Th>Variance</Th>
           </tr>
         </thead>
         <tbody>
@@ -82,6 +83,7 @@ export function ReconciliationTab() {
               <Td className="text-right tabular-nums">{r.transfers_in + r.transfers_out}</Td>
               <Td className="text-right tabular-nums">{r.adjustments}</Td>
               <Td className="text-right font-medium tabular-nums">{r.closing}</Td>
+              <Td className="text-right tabular-nums">{r.closing_value.toFixed(2)}</Td>
               <Td className="text-right tabular-nums">{r.counted_qty ?? '-'}</Td>
               <Td>
                 {r.count_variance ? <Badge tone={r.count_variance < 0 ? 'critical' : 'warn'}>{r.count_variance < 0 ? 'Short' : 'Over'} {Math.abs(r.count_variance)}{r.variance_value != null && ` (${r.variance_value.toFixed(2)})`}</Badge>

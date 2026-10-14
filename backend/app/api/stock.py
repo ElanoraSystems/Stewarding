@@ -1,5 +1,5 @@
 import re
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -15,6 +15,7 @@ from ..models import (ApprovalRecord, InventoryBalance, InventoryCount, Inventor
 from ..pagination import row
 from ..permissions import MANAGER
 from ..services import metrics
+from ..services.costing import cost_report
 from ..services.inventory import StockError, post_txn, received_to_date, reconcile, variance_summary
 from ..services.notify import notify, recipients
 from .inventory import get_item_or_404
@@ -61,10 +62,10 @@ def _transfer_dict(db: Session, transfer: InventoryTransfer) -> dict:
 def _execute_transfer(db: Session, user: User, transfer: InventoryTransfer) -> None:
     for line in db.scalars(select(InventoryTransferLine).where(InventoryTransferLine.transfer_id == transfer.id)):
         item = db.get(InventoryItem, line.item_id)
-        post_txn(db, user, item, transfer.from_location_id, "transfer_out", line.qty, transfer.note,
-                 "transfer", transfer.id)
+        sent = post_txn(db, user, item, transfer.from_location_id, "transfer_out", line.qty, transfer.note,
+                        "transfer", transfer.id)
         post_txn(db, user, item, transfer.to_location_id, "transfer_in", line.qty, transfer.note,
-                 "transfer", transfer.id)
+                 "transfer", transfer.id, unit_cost=sent.unit_cost)
     transfer.status = "completed"
     transfer.decided_by, transfer.decided_at = user.id, timeutil.utc_now()
 
@@ -246,6 +247,19 @@ def insights(location_id: int | None = None, date_from: date | None = None, date
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     return metrics.stock_insights(db, wins, day_from, day_to)
+
+
+@router.get("/cost-report")
+def stock_cost(location_id: int, date_from: date, date_to: date,
+               user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
+    """Opening value, purchases, closing value and cost consumed for a period, at weighted average cost."""
+    if date_to < date_from or (date_to - date_from).days >= 731:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a period of at most two years that ends after it starts")
+    check_location(user, db, location_id)
+    location = db.get(Location, location_id)
+    start = timeutil.local_to_utc(date_from, time(0), location.timezone)
+    end = timeutil.local_to_utc(date_to + timedelta(days=1), time(0), location.timezone)
+    return {"location_id": location_id, "from": date_from.isoformat(), "to": date_to.isoformat(), **cost_report(db, location_id, start, end)}
 
 
 @router.get("/reconciliation")

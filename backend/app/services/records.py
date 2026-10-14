@@ -10,11 +10,13 @@ from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, Corre
                       EquipmentSchedule, InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction, Supplier,
                       TemperatureReading)
 from . import metrics
+from .costing import cost_report
 from .monitoring import describe
 from .reference import user_names
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
-         "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements"}
+         "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements",
+         "stock_cost": "Stock Cost Report"}
 MAX_DAYS = 731
 CHART_DAYS = 31
 MOVEMENTS = {"receipts": ("receipt",), "issues": ("issue",), "returns": ("return",), "transfers": ("transfer_in", "transfer_out"),
@@ -111,6 +113,33 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                 "totals": [("Checks recorded", len(readings)), ("Passed", len(readings) - failed), ("Failed", failed),
                            ("Awaiting approval", sum(1 for r in readings if not r.reviewed_at and not r.rejected_at))]
                 + ([("Waiting for time out", sum(1 for r in readings if r.schedule_id == lead and r.id not in time_out))] if lead else [])})
+    return groups
+
+
+def _stock_cost_groups(db: Session, locations: list[Location], day_from: date, day_to: date) -> list[dict]:
+    """Per location and item: opening value, purchases, closing value and the cost consumed, at weighted average cost."""
+    groups = []
+    for loc in locations:
+        start, end = _bounds(day_from, day_to, loc.timezone)
+        report = cost_report(db, loc.id, start, end)
+        if not report["rows"]:
+            continue
+        rows = [{"item": f"{r['code']} - {r['name']}", "average_cost": "" if r["average_cost"] is None else f"{r['average_cost']:.4f}",
+                 "opening_value": f"{r['opening_value']:.2f}", "purchases": f"{r['purchases']:.2f}",
+                 "net_transfers_returns": f"{r['returns'] + r['transfers_in'] - r['transfers_out']:.2f}",
+                 "closing_value": f"{r['closing_value']:.2f}", "cost_consumed": f"{r['cost_consumed']:.2f}", "issued": f"{r['issued']:.2f}",
+                 "breakage_damage": f"{r['breakage_damage']:.2f}", "count_adjustments": f"{r['count_adjustments']:.2f}"} for r in report["rows"]]
+        t = report["totals"]
+        groups.append({
+            "title": f"{loc.name} - Stock cost", "meta": [("Location", loc.name), ("Costing method", "Weighted average cost")],
+            "columns": [("item", "Item"), ("average_cost", "Average cost"), ("opening_value", "Opening value"), ("purchases", "Purchases"),
+                        ("net_transfers_returns", "Returns and transfers (net)"), ("closing_value", "Closing value"),
+                        ("cost_consumed", "Cost consumed"), ("issued", "of which issued"), ("breakage_damage", "of which breakage and damage"),
+                        ("count_adjustments", "Count gain (+) or loss (-)")],
+            "rows": rows,
+            "totals": [("Opening value", f"{t['opening_value']:.2f}"), ("Purchases", f"{t['purchases']:.2f}"), ("Closing value", f"{t['closing_value']:.2f}"),
+                       ("Cost consumed", f"{t['cost_consumed']:.2f}"), ("Issued", f"{t['issued']:.2f}"), ("Breakage and damage", f"{t['breakage_damage']:.2f}"),
+                       ("Count gain (+) or loss (-)", f"{t['count_adjustments']:.2f}")]})
     return groups
 
 
@@ -393,6 +422,8 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
         groups = _attendance_groups(db, now, scope, f, day_from, day_to)
     elif kind == "attendance_sheet":
         groups = _attendance_sheet_groups(db, now, scope, f, day_from, day_to)
+    elif kind == "stock_cost":
+        groups = _stock_cost_groups(db, locations, day_from, day_to)
     elif kind == "receipts":
         groups = _receipt_groups(db, locations, f, day_from, day_to)
     else:

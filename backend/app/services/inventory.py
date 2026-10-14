@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import date, datetime, time
+from decimal import Decimal
 
 from sqlalchemy import case, event, func, select
 from sqlalchemy.orm import Session
@@ -33,10 +34,34 @@ def norm(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+FOUR = Decimal("0.0001")
+
+
+def _costed(item: InventoryItem, balance: InventoryBalance, delta: int, unit_cost: Decimal | None,
+            reverse_cost: Decimal | None) -> Decimal | None:
+    """The cost a movement is valued at, and the new weighted average held on the balance.
+
+    Stock coming in at a price blends into the average; stock going out, and stock coming in without a price, leave it as it is.
+    A reversal of a priced receipt takes that price back out of the average.
+    """
+    before = max(balance.qty, 0)
+    base = balance.avg_cost if balance.avg_cost is not None else item.unit_cost
+    if delta > 0:
+        cost = unit_cost if unit_cost is not None else base
+        if cost is not None:
+            balance.avg_cost = cost if before == 0 or base is None else ((before * base + delta * cost) / (before + delta)).quantize(FOUR)
+        return cost
+    if reverse_cost is not None and base is not None and before + delta > 0:
+        balance.avg_cost = ((before * base - (-delta) * reverse_cost) / (before + delta)).quantize(FOUR)
+        return reverse_cost
+    return base
+
+
 def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn_type: str, qty: int,
              reason: str | None = None, ref_type: str | None = None, ref_id: int | None = None,
-             allow_negative: bool = False) -> StockTransaction:
-    """Appends one immutable ledger row and moves the balance in the caller's transaction."""
+             allow_negative: bool = False, unit_cost: Decimal | None = None,
+             reverse_cost: Decimal | None = None) -> StockTransaction:
+    """Appends one immutable ledger row, valued at the weighted average cost, and moves the balance in the caller's transaction."""
     delta = qty if txn_type == "adjustment" else SIGN[txn_type] * abs(qty)
     if delta == 0:
         raise StockError("Quantity must not be zero")
@@ -47,10 +72,11 @@ def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn
         db.flush()
     if balance.qty + delta < 0 and not allow_negative:
         raise StockError(f"Insufficient stock of {item.name}: {balance.qty} available")
+    cost = _costed(item, balance, delta, unit_cost, reverse_cost)
     balance.qty += delta
     txn = StockTransaction(item_id=item.id, location_id=location_id, txn_type=txn_type, qty_delta=delta,
                            occurred_at=timeutil.utc_now(), user_id=user.id, reason=reason, ref_type=ref_type,
-                           ref_id=ref_id)
+                           ref_id=ref_id, unit_cost=cost)
     db.add(txn)
     db.flush()
     if delta < 0 and balance.qty < item.min_level:
@@ -88,23 +114,30 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
     items = db.scalars(select(InventoryItem).order_by(InventoryItem.code)).all()
     in_month = case((StockTransaction.occurred_at >= start, 1), else_=0)
     # Start from the latest stored month-end balance when there is one, so only the movements since then are summed.
-    base_month = db.scalar(select(func.max(StockSnapshot.month)).where(StockSnapshot.location_id == location.id, StockSnapshot.month < month))
+    base_month = db.scalar(select(func.max(StockSnapshot.month)).where(
+        StockSnapshot.location_id == location.id, StockSnapshot.month < month, StockSnapshot.value.is_not(None)))
     before: dict[int, int] = defaultdict(int)
+    before_value: dict[int, Decimal] = defaultdict(Decimal)
     window = [StockTransaction.location_id == location.id, StockTransaction.occurred_at < end]
     if base_month:
-        before.update(dict(db.execute(select(StockSnapshot.item_id, StockSnapshot.qty).where(
-            StockSnapshot.location_id == location.id, StockSnapshot.month == base_month)).all()))
+        for item_id, qty, value in db.execute(select(StockSnapshot.item_id, StockSnapshot.qty, StockSnapshot.value).where(
+                StockSnapshot.location_id == location.id, StockSnapshot.month == base_month)):
+            before[item_id], before_value[item_id] = qty, value
         window.append(StockTransaction.occurred_at >= _month_bounds(location.timezone, base_month)[1])
     seen_before_start = set(before)
+    worth = func.sum(StockTransaction.qty_delta * func.coalesce(StockTransaction.unit_cost, 0))
     sums = db.execute(
-        select(StockTransaction.item_id, StockTransaction.txn_type, in_month.label("in_month"), func.sum(StockTransaction.qty_delta))
+        select(StockTransaction.item_id, StockTransaction.txn_type, in_month.label("in_month"), func.sum(StockTransaction.qty_delta), worth)
         .where(*window).group_by(StockTransaction.item_id, StockTransaction.txn_type, in_month)).all()
     during: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for item_id, txn_type, inside, total in sums:
+    during_value: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    for item_id, txn_type, inside, total, total_value in sums:
         if inside:
             during[item_id][txn_type] += total
+            during_value[item_id][txn_type] += Decimal(str(total_value or 0))
         else:
             before[item_id] += total
+            before_value[item_id] += Decimal(str(total_value or 0))
     moved = seen_before_start | set(before) | set(during)
     counts = db.execute(
         select(InventoryCountLine, InventoryCount).join(InventoryCount, InventoryCount.id == InventoryCountLine.count_id)
@@ -124,6 +157,13 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
             "adjustments": mine["adjustment"],
         }
         closing = before[item.id] + sum(movements.values())
+        worth_mine = during_value[item.id]
+        values = {
+            "receipts_value": worth_mine["receipt"], "returns_value": worth_mine["return"], "issues_value": worth_mine["issue"],
+            "breakage_damage_value": worth_mine["breakage"] + worth_mine["damage"], "transfers_in_value": worth_mine["transfer_in"],
+            "transfers_out_value": worth_mine["transfer_out"], "adjustments_value": worth_mine["adjustment"],
+            "opening_stock_value": worth_mine["opening"]}
+        closing_value = before_value[item.id] + sum(worth_mine.values())
         line = last_count.get(item.id)
         variance = line.counted_qty - line.system_qty if line else None
         cost = float(item.unit_cost) if item.unit_cost is not None else None
@@ -131,7 +171,9 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
             "item_id": item.id, "code": item.code, "name": item.name, "opening": before[item.id], **movements,
             "closing": closing, "counted_qty": line.counted_qty if line else None,
             "count_variance": variance, "variance_value": round(variance * cost, 2) if variance and cost is not None else None,
-            "value": float(closing * item.unit_cost) if item.unit_cost is not None else None,
+            "opening_value": round(float(before_value[item.id]), 2), "closing_value": round(float(closing_value), 2),
+            **{k: round(float(v), 2) for k, v in values.items()},
+            "value": round(float(closing_value), 2) if cost is not None or closing_value else None,
         })
     return rows
 

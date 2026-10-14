@@ -65,6 +65,7 @@ class InventoryBalance(Base):
     item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), primary_key=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), primary_key=True)
     qty: Mapped[int] = mapped_column(Integer, default=0)
+    avg_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))  # weighted average cost per unit at this location
 
 
 class StockTransaction(Base):
@@ -82,6 +83,7 @@ class StockTransaction(Base):
     reason: Mapped[str | None] = mapped_column(Text)
     ref_type: Mapped[str | None] = mapped_column(String(30))
     ref_id: Mapped[int | None] = mapped_column(Integer)
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))  # cost per unit this movement was valued at (weighted average)
 
 
 @event.listens_for(StockTransaction, "before_update")
@@ -100,6 +102,7 @@ class StockSnapshot(Base):
     item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"))
     month: Mapped[str] = mapped_column(String(7))  # YYYY-MM in the location's time zone
     qty: Mapped[int] = mapped_column(Integer)
+    value: Mapped[Decimal | None] = mapped_column(Numeric(16, 4))  # stock value at the month end
     built_at: Mapped[datetime] = ts()
 
 

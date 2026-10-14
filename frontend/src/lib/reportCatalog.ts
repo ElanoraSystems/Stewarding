@@ -24,6 +24,8 @@ export const REPORTS: ReportDef[] = [
     blurb: 'Deliveries and returns by invoice with unit cost, discounts and totals.' },
   { key: 'movements', title: 'Stock issues and movements', section: 'Stock', filters: ['movement', 'item'],
     blurb: 'Every stock movement: receipts, issues, returns, transfers, breakage and adjustments, with who and why.' },
+  { key: 'stock_cost', title: 'Stock cost report', section: 'Stock', filters: [],
+    blurb: 'Opening value, purchases, closing value and the cost consumed for each item, at weighted average cost, with issues, breakage and count losses shown separately.' },
   { key: 'summary', title: 'Operations summary', section: 'Overview', filters: [], summary: true,
     blurb: 'Daily, weekly or monthly scorecard across attendance, checklists, monitoring, breakage and stock.' },
 ]

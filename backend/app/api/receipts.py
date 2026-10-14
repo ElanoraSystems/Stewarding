@@ -77,6 +77,11 @@ def _serialize(db: Session, receipt: Receipt, lines: bool = False) -> dict:
     return out
 
 
+def _per_unit(total: Decimal | None, qty: int) -> Decimal | None:
+    """What one unit really cost after discounts, to four places so a small price difference is not rounded away."""
+    return (total / qty).quantize(Decimal("0.0001")) if total is not None else None
+
+
 def _money(value: Decimal) -> Decimal:
     return value.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
 
@@ -160,17 +165,20 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f"Invoice {invoice} from {supplier.name} was already posted") from None
 
+    # an invoice-level discount is spread over the lines in proportion to what they cost, so it lowers the cost of the stock
+    keep = 1 - doc_discount / (subtotal - line_discounts) if costed and subtotal - line_discounts > 0 else Decimal(1)
     txn_type = "receipt" if body.doc_type == "receipt" else "issue"
     reason = f"{LABEL[body.doc_type]} #{receipt.id}, invoice {invoice} ({supplier.name})"
     cost_changes = {}
     try:
         for ln, (gross, cut, net) in zip(body.lines, priced):
             item = items[ln.item_id]
-            txn = post_txn(db, user, item, body.location_id, txn_type, ln.qty, reason, "receipt", receipt.id)
+            net_unit = _money(net / ln.qty) if net is not None else None
+            txn = post_txn(db, user, item, body.location_id, txn_type, ln.qty, reason, "receipt", receipt.id,
+                           unit_cost=_per_unit(net * keep if net is not None else None, ln.qty) if body.doc_type == "receipt" else None)
             db.add(ReceiptLine(receipt_id=receipt.id, item_id=item.id, qty=ln.qty, unit_cost=ln.unit_cost,
                                discount_type=ln.discount_type if ln.discount else None, discount_value=ln.discount or None,
                                discount_amount=cut if gross is not None else None, line_total=net, transaction_id=txn.id))
-            net_unit = _money(net / ln.qty) if net is not None else None
             if body.update_costs and body.doc_type == "receipt" and net_unit is not None and item.unit_cost != net_unit:
                 cost_changes[item.code] = {"from": f"{item.unit_cost:.2f}" if item.unit_cost is not None else None,
                                            "to": f"{net_unit:.2f}"}
@@ -226,8 +234,9 @@ def void_receipt(receipt_id: int, body: VoidIn, user: User = Depends(require("st
     sign = -1 if receipt.doc_type == "receipt" else 1
     reason = f"Void of {LABEL[receipt.doc_type].lower()} #{receipt.id}: {body.reason}"
     for ln in db.scalars(select(ReceiptLine).where(ReceiptLine.receipt_id == receipt.id)):
+        paid = _per_unit(ln.line_total, ln.qty) if receipt.doc_type == "receipt" else None
         post_txn(db, user, db.get(InventoryItem, ln.item_id), receipt.location_id, "adjustment", sign * ln.qty, reason,
-                 "receipt_void", receipt.id, allow_negative=True)
+                 "receipt_void", receipt.id, allow_negative=True, reverse_cost=paid)
     receipt.status, receipt.voided_by, receipt.voided_at, receipt.void_reason = "void", user.id, timeutil.utc_now(), body.reason
     audit(db, user, "receipt.void", "receipt", receipt.id, {"status": "posted"}, {"status": "void", "reason": body.reason})
     db.commit()

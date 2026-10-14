@@ -4,6 +4,7 @@ The ledger stays the single source of truth. A snapshot is checked against it, a
 (with every later one) so reconciliation falls back to the full sum until the next run rebuilds it.
 """
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
@@ -41,21 +42,28 @@ def ledger_closing(db: Session, location: Location, month: str) -> dict[int, int
 
 
 def build(db: Session, location: Location, month: str) -> int:
-    """Stores the closing balances for the month, starting from the previous snapshot when there is one."""
+    """Stores the closing balances and values for the month, starting from the previous snapshot when there is one."""
     _, end = _month_bounds(location.timezone, month)
     base_month = previous_snapshot_month(db, location.id, month)
-    totals = snapshot_quantities(db, location.id, base_month) if base_month else {}
-    stmt = select(StockTransaction.item_id, func.sum(StockTransaction.qty_delta)).where(
+    totals: dict[int, int] = {}
+    worth: dict[int, Decimal] = {}
+    if base_month:
+        for item_id, qty, value in db.execute(select(StockSnapshot.item_id, StockSnapshot.qty, StockSnapshot.value).where(
+                StockSnapshot.location_id == location.id, StockSnapshot.month == base_month)):
+            totals[item_id], worth[item_id] = qty, Decimal(str(value))
+    stmt = select(StockTransaction.item_id, func.sum(StockTransaction.qty_delta),
+                  func.sum(StockTransaction.qty_delta * func.coalesce(StockTransaction.unit_cost, 0))).where(
         StockTransaction.location_id == location.id, StockTransaction.occurred_at < end)
     if base_month:
         stmt = stmt.where(StockTransaction.occurred_at >= _month_bounds(location.timezone, base_month)[1])
-    for item_id, total in db.execute(stmt.group_by(StockTransaction.item_id)):
+    for item_id, total, value in db.execute(stmt.group_by(StockTransaction.item_id)):
         totals[item_id] = totals.get(item_id, 0) + total
+        worth[item_id] = worth.get(item_id, Decimal(0)) + Decimal(str(value or 0))
     db.execute(delete(StockSnapshot).where(StockSnapshot.location_id == location.id, StockSnapshot.month == month))
     if totals:  # one batched insert, not a statement per row
         built_at = timeutil.utc_now()
-        db.execute(insert(StockSnapshot), [{"location_id": location.id, "item_id": item_id, "month": month, "qty": int(qty), "built_at": built_at}
-                                           for item_id, qty in totals.items()])
+        db.execute(insert(StockSnapshot), [{"location_id": location.id, "item_id": item_id, "month": month, "qty": int(qty),
+                                            "value": worth.get(item_id, Decimal(0)), "built_at": built_at} for item_id, qty in totals.items()])
     return len(totals)
 
 
