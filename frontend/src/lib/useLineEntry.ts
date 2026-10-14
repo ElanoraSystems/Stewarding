@@ -3,8 +3,8 @@ import { useState, type KeyboardEvent } from 'react'
 export type EntryRow<T> = T & { committed?: boolean }
 
 /** Keyboard entry for repeating line rows: Enter on a complete row commits it and moves to the first field of the next row. */
-export function useLineEntry<T extends object>(blank: T, isComplete: (row: T) => boolean) {
-  const [rows, setRows] = useState<EntryRow<T>[]>([{ ...blank }])
+export function useLineEntry<T extends object>(blank: T, isComplete: (row: T) => boolean, first?: T) {
+  const [rows, setRows] = useState<EntryRow<T>[]>([{ ...(first ?? blank) }])
   const [incomplete, setIncomplete] = useState<number | null>(null)
   const [list, setList] = useState<HTMLDivElement | null>(null)
 

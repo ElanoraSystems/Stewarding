@@ -2,12 +2,12 @@ from collections import defaultdict
 from datetime import date, datetime, time
 from decimal import Decimal
 
-from sqlalchemy import case, event, func, or_, select
+from sqlalchemy import and_, case, event, func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import (InventoryBalance, InventoryCount, InventoryCountLine, InventoryItem, Location, StockSnapshot, StockTransaction,
-                      User)
+from ..models import (InventoryBalance, InventoryCount, InventoryCountLine, InventoryItem, InventoryLevel, Location, StockSnapshot,
+                      StockTransaction, User)
 from ..permissions import MANAGER, SUPERVISOR
 from .notify import notify, recipients
 from .similarity import compact, token_key
@@ -20,6 +20,22 @@ OUTFLOW_TYPES = ("issue", "damage", "breakage")
 
 class StockError(Exception):
     pass
+
+
+def level_map(db: Session) -> dict[tuple[int, int], int]:
+    """Location minimums that override the item's own, keyed by (item id, location id)."""
+    return {(i, loc): m for i, loc, m in db.execute(select(InventoryLevel.item_id, InventoryLevel.location_id, InventoryLevel.min_level))}
+
+
+def below_minimum(locations: set[int] | None = None):
+    """Rows of (balance, item, minimum) for every active item held below its minimum at a location."""
+    minimum = func.coalesce(InventoryLevel.min_level, InventoryItem.min_level)
+    stmt = (select(InventoryBalance, InventoryItem, minimum.label("minimum"))
+            .join(InventoryItem, InventoryItem.id == InventoryBalance.item_id)
+            .outerjoin(InventoryLevel, and_(InventoryLevel.item_id == InventoryBalance.item_id,
+                                            InventoryLevel.location_id == InventoryBalance.location_id))
+            .where(InventoryItem.active.is_(True), InventoryBalance.qty < minimum))
+    return stmt if locations is None else stmt.where(InventoryBalance.location_id.in_(locations))
 
 
 @event.listens_for(InventoryItem, "before_insert")
@@ -79,9 +95,11 @@ def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn
                            ref_id=ref_id, unit_cost=cost)
     db.add(txn)
     db.flush()
-    if delta < 0 and balance.qty < item.min_level:
+    level = db.get(InventoryLevel, (item.id, location_id))
+    minimum = level.min_level if level else item.min_level
+    if delta < 0 and balance.qty < minimum:
         notify(db, recipients(db, location_id, SUPERVISOR, MANAGER), "low_stock",
-               f"Low stock: {item.name} ({balance.qty} left, minimum {item.min_level})",
+               f"Low stock: {item.name} ({balance.qty} left, minimum {minimum})",
                key=f"low:{item.id}:{location_id}:{timeutil.utc_now().date().isoformat()}", priority="high",
                location_id=location_id, link="/inventory")
     return txn

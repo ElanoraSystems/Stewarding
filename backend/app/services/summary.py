@@ -4,8 +4,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee,
-                      Equipment, InventoryBalance, InventoryItem, InventoryTransfer, Location, TemperatureReading)
+                      Equipment, InventoryTransfer, Location, TemperatureReading)
 from .checklists import OPEN
+from .inventory import below_minimum
 from .settings import get_setting
 from .monitoring import CLOSED_ACTIONS, describe, due_checks
 from .reference import employee_names, user_names
@@ -88,12 +89,9 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
             add("attendance", rec.location_id, "high", names.get(rec.employee_id, "Employee"), "Missed check-out",
                 rec.check_in_at, "/attendance")
 
-    for balance, item in db.execute(
-            select(InventoryBalance, InventoryItem).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id)
-            .where(InventoryBalance.location_id.in_(locations), InventoryItem.active.is_(True),
-                   InventoryBalance.qty < InventoryItem.min_level)).all():
+    for balance, item, minimum in db.execute(below_minimum(set(locations))).all():
         add("low_stock", balance.location_id, "normal", "Supervisor",
-            f"Low stock: {item.name} ({balance.qty} of minimum {item.min_level})", None, "/inventory")
+            f"Low stock: {item.name} ({balance.qty} of minimum {minimum})", None, "/inventory")
 
     return sorted(items, key=lambda i: (URGENCY_RANK[i["urgency"]], i["location"], -i["overdue_minutes"]))
 

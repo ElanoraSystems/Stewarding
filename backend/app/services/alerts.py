@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee, Equipment,
-                      InventoryBalance, InventoryItem, Location, Shift, ShiftAssignment, TemperatureReading)
+                      Location, Shift, ShiftAssignment, TemperatureReading)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
 from .checklists import OPEN
+from .inventory import below_minimum
 from .notify import notify, recipients
 from .settings import get_setting
 from .monitoring import describe, due_checks, pending_entries
@@ -169,11 +170,9 @@ def pending_time_outs(db: Session, now: datetime) -> int:
 
 def low_stock(db: Session, now: datetime) -> int:
     created = 0
-    rows = db.execute(select(InventoryBalance, InventoryItem).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id)
-                      .where(InventoryItem.active.is_(True), InventoryBalance.qty < InventoryItem.min_level)).all()
-    for balance, item in rows:
+    for balance, item, minimum in db.execute(below_minimum()).all():
         created += notify(db, recipients(db, balance.location_id, SUPERVISOR, MANAGER), "low_stock",
-                          f"Low stock: {item.name} ({balance.qty} left, minimum {item.min_level})",
+                          f"Low stock: {item.name} ({balance.qty} left, minimum {minimum})",
                           key=f"low:{item.id}:{balance.location_id}:{now.date().isoformat()}", priority="high",
                           location_id=balance.location_id, link="/inventory")
     return created

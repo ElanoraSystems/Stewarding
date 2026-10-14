@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,7 +75,9 @@ function Transactions() {
 }
 
 export function StockMovementsPage() {
-  const [tab, setTab] = useState<(typeof TABS)[number][0]>('insights')
+  const [params] = useSearchParams()
+  const asked = TABS.find(([key]) => key === params.get('tab'))
+  const [tab, setTab] = useState<(typeof TABS)[number][0]>(asked ? asked[0] : 'insights')
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Stock Movements &amp; Transfers</h1>

@@ -1,5 +1,6 @@
 import { Check, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
@@ -36,10 +37,12 @@ export function TransfersTab() {
   const { data, reload } = useApi<Transfer[]>('/stock/transfers')
   const destinations = useApi<{ id: number; name: string }[]>('/stock/locations')
   const { items, byId } = useAllItems()
-  const [from, setFrom] = useState(String(me?.locations[0]?.id ?? ''))
-  const [to, setTo] = useState('')
+  const [params] = useSearchParams()
+  const [from, setFrom] = useState(params.get('from') ?? String(me?.locations[0]?.id ?? ''))
+  const [to, setTo] = useState(params.get('to') ?? '')
   const [note, setNote] = useState('')
-  const entry = useLineEntry({ item: '', qty: '' }, (l) => l.item !== '' && Number(l.qty) > 0)
+  const suggested = params.get('item') ? { item: params.get('item') ?? '', qty: params.get('qty') ?? '' } : undefined
+  const entry = useLineEntry({ item: '', qty: '' }, (l) => l.item !== '' && Number(l.qty) > 0, suggested)
   const { attachList } = entry
   const places = new Map(destinations.data?.map((l) => [l.id, l.name]))
   const stock = useApi<{ item_id: number; qty: number; avg_cost: number | null }[]>(from ? `/stock/location-stock${qs({ location_id: from })}` : null)

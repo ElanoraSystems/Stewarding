@@ -5,17 +5,17 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
-from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryUnit, StockTransaction,
-                      Supplier, TrackedAsset, User)
+from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryLevel, InventoryUnit, Location,
+                      StockTransaction, Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
-from ..services.inventory import StockError, counts_as_received, norm, post_txn
+from ..services.inventory import StockError, below_minimum, counts_as_received, level_map, norm, post_txn
 from ..services.similarity import SCAN_LIMIT, compact, find_similar, token_key, tokens
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
@@ -224,16 +224,22 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
     categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
     units = {u.id: u.name for u in db.scalars(select(InventoryUnit))}
     suppliers = {s.id: s.name for s in db.scalars(select(Supplier))}
+    levels = level_map(db)
     show_cost = _can_see_cost(user)
     out = []
     for item in items:
         per_location = by_item.get(item.id, {})
         qty = sum(per_location.values())
+        short_at = [{"location_id": loc, "qty": have, "minimum": levels.get((item.id, loc), item.min_level)}
+                    for loc, have in per_location.items() if have < levels.get((item.id, loc), item.min_level)]
+        single = next(iter(scope)) if scope is not None and len(scope) == 1 else None
+        own = {loc: m for (i, loc), m in levels.items() if i == item.id and (scope is None or loc in scope)}
         entry = {**row(item, *ITEM_FIELDS), "category": categories.get(item.category_id), "unit": units.get(item.unit_id),
                  "supplier": suppliers.get(item.supplier_id) if show_cost else None,
                  "qty": qty, "received": sum(received_by_item.get(item.id, {}).values()),
                  "received_by_location": received_by_item.get(item.id, {}), "by_location": per_location,
-                 "low": qty < item.min_level}
+                 "low": bool(short_at), "short_at": short_at, "location_minimums": own,
+                 "minimum": levels.get((item.id, single), item.min_level) if single is not None else item.min_level}
         if show_cost:
             entry["unit_cost"] = float(item.unit_cost) if item.unit_cost is not None else None
             held = [(b.qty, b.avg_cost if b.avg_cost is not None else item.unit_cost) for b in balances.get(item.id, [])]
@@ -260,7 +266,14 @@ def list_items(search: str | None = None, category_id: int | None = None, locati
         like = f"%{search.strip()}%"
         stmt = stmt.where(or_(InventoryItem.name.ilike(like), InventoryItem.code.ilike(like)))
     if low_only:
-        stmt = stmt.where(func.coalesce(stock.c.qty, 0) < InventoryItem.min_level)
+        short = (select(InventoryBalance.item_id)
+                 .outerjoin(InventoryLevel, and_(InventoryLevel.item_id == InventoryBalance.item_id,
+                                                 InventoryLevel.location_id == InventoryBalance.location_id))
+                 .where(InventoryBalance.item_id == InventoryItem.id,
+                        InventoryBalance.qty < func.coalesce(InventoryLevel.min_level, InventoryItem.min_level)))
+        if scope is not None:
+            short = short.where(InventoryBalance.location_id.in_(scope))
+        stmt = stmt.where(short.exists())
     total, rows = paginate(db, stmt.order_by(InventoryItem.code), page, size)
     items = [r[0] for r in rows]
     result = {"total": total, "items": _serialize_items(db, user, items, scope)}
@@ -364,6 +377,67 @@ def update_item(item_id: int, body: ItemUpdate, user: User = Depends(require("in
           {k: str(v) for k, v in data.items()})
     db.commit()
     return _serialize_items(db, user, [item], None)[0]
+
+
+class LevelIn(BaseModel):
+    min_level: int | None = Field(ge=0, le=MAX_LEVEL)
+
+
+@router.put("/items/{item_id}/levels/{location_id}")
+def set_location_minimum(item_id: int, location_id: int, body: LevelIn, user: User = Depends(require("inventory.count")),
+                         db: Session = Depends(get_db)):
+    """Sets the minimum for one item at one location; null goes back to the item's own minimum."""
+    item = db.get(InventoryItem, item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    check_location(user, db, location_id)
+    if body.min_level is not None and item.target_level is not None and body.min_level > item.target_level:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The minimum cannot be above the item's target level")
+    level = db.get(InventoryLevel, (item_id, location_id))
+    before = level.min_level if level else None
+    if body.min_level is None:
+        if level:
+            db.delete(level)
+    elif level:
+        level.min_level = body.min_level
+    else:
+        db.add(InventoryLevel(item_id=item_id, location_id=location_id, min_level=body.min_level))
+        if db.get(InventoryBalance, (item_id, location_id)) is None:
+            db.add(InventoryBalance(item_id=item_id, location_id=location_id, qty=0))  # an empty place can then show as short
+    audit(db, user, "inventory.level_update", "inventory_item", item_id, {"location_id": location_id, "min_level": before},
+          {"location_id": location_id, "min_level": body.min_level})
+    db.commit()
+    return {"item_id": item_id, "location_id": location_id, "override": body.min_level is not None,
+            "minimum": body.min_level if body.min_level is not None else item.min_level}
+
+
+@router.get("/shortages")
+def shortages(location_id: int | None = None, user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
+    """Every item below its minimum at a location, with the other locations that hold more than they need."""
+    scope = _scope(db, user, location_id)
+    short = db.execute(below_minimum(scope).order_by(InventoryItem.code, InventoryBalance.location_id)).all()
+    places = {loc.id: loc.name for loc in db.scalars(select(Location))}
+    levels = level_map(db)
+    ids = {item.id for _, item, _ in short}
+    spare: dict[int, list[dict]] = {}
+    if ids:
+        held = select(InventoryBalance).where(InventoryBalance.item_id.in_(ids))
+        visible = scoped_locations(user, db)
+        if visible is not None:
+            held = held.where(InventoryBalance.location_id.in_(visible))
+        items = {item.id: item for _, item, _ in short}
+        for bal in db.scalars(held):
+            extra = bal.qty - levels.get((bal.item_id, bal.location_id), items[bal.item_id].min_level)
+            if extra > 0:
+                spare.setdefault(bal.item_id, []).append({"location_id": bal.location_id, "location": places[bal.location_id], "spare": extra})
+    rows = []
+    for bal, item, minimum in short:
+        donors = sorted((d for d in spare.get(item.id, []) if d["location_id"] != bal.location_id), key=lambda d: -d["spare"])
+        need = (item.target_level or minimum) - bal.qty
+        rows.append({"item_id": item.id, "code": item.code, "name": item.name, "location_id": bal.location_id,
+                     "location": places[bal.location_id], "qty": bal.qty, "minimum": minimum, "donors": donors,
+                     "suggested_qty": min(need, donors[0]["spare"]) if donors else 0})
+    return {"total": len(rows), "empty": sum(1 for r in rows if r["qty"] <= 0), "items": rows}
 
 
 def get_item_or_404(db: Session, item_id: int) -> InventoryItem:

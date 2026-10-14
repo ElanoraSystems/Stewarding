@@ -21,6 +21,9 @@ export interface Item {
   received_by_location: Record<string, number>
   by_location: Record<string, number>
   low: boolean
+  short_at: { location_id: number; qty: number; minimum: number }[]
+  location_minimums: Record<string, number>
+  minimum: number
   unit_cost?: number | null
   value?: number | null
 }

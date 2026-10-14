@@ -11,6 +11,7 @@ from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, ChecklistTemplate,
                       CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryItem,
                       InventoryTransfer, InventoryTransferLine, Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
+from .inventory import level_map
 from .settings import get_setting
 from .monitoring import CLOSED_ACTIONS, expected_slots, has_reading
 from .reference import employee_names, locations_by_id, shifts_by_id
@@ -284,13 +285,15 @@ def stock_snapshot(db: Session, scope: set[int] | None, location_id: int | None 
         stmt = stmt.where(InventoryBalance.location_id.in_(ids))
     total = {"qty": 0, "value": 0.0}
     low = []
+    levels = level_map(db)
     for balance, item in db.execute(stmt).all():
         total["qty"] += balance.qty
         unit = balance.avg_cost if balance.avg_cost is not None else item.unit_cost
         total["value"] += float(balance.qty * unit) if unit is not None else 0.0
-        if item.active and balance.qty < item.min_level:
+        minimum = levels.get((item.id, balance.location_id), item.min_level)
+        if item.active and balance.qty < minimum:
             low.append({"item_id": item.id, "code": item.code, "name": item.name,
-                        "location_id": balance.location_id, "qty": balance.qty, "min_level": item.min_level,
+                        "location_id": balance.location_id, "qty": balance.qty, "min_level": minimum,
                         "target_level": item.target_level})
     return {"total": total, "low": low}
 

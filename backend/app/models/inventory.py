@@ -68,6 +68,15 @@ class InventoryBalance(Base):
     avg_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))  # weighted average cost per unit at this location
 
 
+class InventoryLevel(Base):
+    """A minimum for one item at one location; where there is no row the item's own minimum applies."""
+
+    __tablename__ = "inventory_level"
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), primary_key=True)
+    min_level: Mapped[int] = mapped_column(Integer)
+
+
 class StockTransaction(Base):
     __tablename__ = "stock_transaction"
     # location and time range reads (reconciliation, movement reports, dashboard charts) use this one index

@@ -91,10 +91,15 @@ def destinations(user: User = Depends(require("stock.transfer")), db: Session = 
 
 @router.get("/location-stock")
 def location_stock(location_id: int, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
-    """What each item has at a location and its average cost, so a transfer or issue can show what is available and what it is worth."""
+    """Every active item with what the location holds and its cost: the average there, else the item's own cost."""
     check_location(user, db, location_id)
-    return [{"item_id": b.item_id, "qty": b.qty, "avg_cost": float(b.avg_cost) if b.avg_cost is not None else None}
-            for b in db.scalars(select(InventoryBalance).where(InventoryBalance.location_id == location_id))]
+    held = {b.item_id: b for b in db.scalars(select(InventoryBalance).where(InventoryBalance.location_id == location_id))}
+    out = []
+    for item in db.scalars(select(InventoryItem).where(InventoryItem.active.is_(True))):
+        balance = held.get(item.id)
+        cost = balance.avg_cost if balance is not None and balance.avg_cost is not None else item.unit_cost
+        out.append({"item_id": item.id, "qty": balance.qty if balance else 0, "avg_cost": float(cost) if cost is not None else None})
+    return out
 
 
 @router.post("/transfers", status_code=201)

@@ -13,6 +13,7 @@ import type { Item } from '@/lib/useItems'
 import { AssetsPanel } from '@/pages/AssetsPanel'
 import { InventoryOverview } from '@/pages/InventoryOverview'
 import { ItemForm } from '@/pages/ItemForm'
+import { MinimumCell } from '@/pages/MinimumCell'
 import { StockPostModal } from '@/pages/StockPostModal'
 
 interface Listing {
@@ -34,12 +35,14 @@ export function InventoryPage() {
   const [formItem, setFormItem] = useState<Item | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [posting, setPosting] = useState<Item | null>(null)
+  const [version, setVersion] = useState(0)
   const categories = useApi<{ id: number; name: string }[]>('/inventory/categories')
 
   const { data, loading, reload } = useApi<Listing>(
     `/inventory/items${qs({ search, category_id: categoryId, location_id: locationId, low_only: lowOnly, page, size: SIZE })}`,
   )
   const showCost = data?.items.some((i) => i.unit_cost !== undefined)
+  const refresh = () => { reload(); setVersion((v) => v + 1) }
 
   return (
     <div className="space-y-4">
@@ -48,7 +51,7 @@ export function InventoryPage() {
         {can('inventory.manage') && <Button onClick={() => { setFormItem(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Add item</Button>}
       </div>
 
-      <InventoryOverview locationId={locationId} />
+      <InventoryOverview key={version} locationId={locationId} />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-52 flex-1">
@@ -78,7 +81,7 @@ export function InventoryPage() {
               <Td>{i.category}</Td>
               <Td>{i.unit}</Td>
               <Td className="text-right tabular-nums">{i.qty}</Td>
-              <Td className="text-right tabular-nums">{i.min_level}</Td>
+              <Td><MinimumCell item={i} locationId={locationId} canEdit={can('inventory.count')} onSaved={refresh} /></Td>
               {showCost && <Td className="text-right tabular-nums">{i.value != null ? i.value.toFixed(2) : '-'}</Td>}
               <Td>{i.low ? <Badge tone="critical">Low stock</Badge> : <Badge tone="ok">OK</Badge>}</Td>
               <Td className="space-x-2 text-right">
@@ -95,8 +98,8 @@ export function InventoryPage() {
       <h2 className="pt-2 text-lg font-semibold">Tracked assets</h2>
       <AssetsPanel locationId={locationId} items={data?.items ?? []} />
 
-      {formOpen && <ItemForm item={formItem} open onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />}
-      <StockPostModal item={posting} defaultLocation={locationId} onClose={() => setPosting(null)} onPosted={() => { setPosting(null); reload() }} />
+      {formOpen && <ItemForm item={formItem} open onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); refresh() }} />}
+      <StockPostModal item={posting} defaultLocation={locationId} onClose={() => setPosting(null)} onPosted={() => { setPosting(null); refresh() }} />
     </div>
   )
 }
