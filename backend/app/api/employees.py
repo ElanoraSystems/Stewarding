@@ -12,14 +12,14 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..audit import audit
 from ..db import get_db
-from ..deps import check_location, require, scoped_locations
+from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (AttendanceRecord, ChecklistInstance, Employee, EmployeeLocation, Location, Role, User)
 from ..pagination import iso, paginate, row
 from ..security import check_password_rules, hash_password, temporary_password
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
-RoleName = Literal["manager", "supervisor", "steward"]
+RoleName = str  # any role in the role table; checked against it when saved
 SORTABLE = {"full_name", "employee_code", "job_title", "status", "date_joined"}
 PRIVATE = ("phone", "email", "emergency_contact", "date_joined", "weekly_schedule", "photo_path")
 
@@ -113,6 +113,8 @@ def serialize(emp: Employee, full: bool) -> dict:
     out["face_enrolled"] = emp.face_descriptor is not None
     out["location_ids"] = _location_ids(emp)
     out["role"] = emp.user.role.name if emp.user else None
+    out["role_label"] = (emp.user.role.label or emp.user.role.name) if emp.user else None
+    out["role_tier"] = emp.user.role.tier if emp.user else None
     if full:
         out.update(row(emp, *PRIVATE))
         out["account"] = ({"change_required": emp.user.must_change_password, "last_login_at": iso(emp.user.last_login_at)}
@@ -169,8 +171,18 @@ def list_employees(
     column = getattr(Employee, sort if sort in SORTABLE else "full_name")
     stmt = stmt.order_by(asc(column) if direction == "asc" else desc(column), Employee.id)
     total, rows = paginate(db, stmt, page, size)
-    full = user.role.name == "manager"
+    full = user.role.tier == "manager"
     return {"total": total, "page": page, "items": [serialize(r[0], full) for r in rows]}
+
+
+def _assignable_role(db: Session, actor: User, name: str) -> Role:
+    """The named role, unless it does not exist or would give more than the person assigning it holds."""
+    role = db.scalar(select(Role).where(Role.name == name))
+    if role is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown role")
+    if actor.role.tier != "manager" and (role.tier == "manager" or not {p.permission for p in role.permissions} <= permissions_of(actor)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot assign a role with more access than your own")
+    return role
 
 
 def _next_code(db: Session) -> str:
@@ -182,7 +194,7 @@ def _next_code(db: Session) -> str:
 @router.post("", status_code=201)
 def create_employee(body: EmployeeIn, user: User = Depends(require("employee.manage")), db: Session = Depends(get_db)):
     _validate_refs(db, body.location_ids, body.supervisor_id)
-    role = db.scalar(select(Role).where(Role.name == body.role))
+    role = _assignable_role(db, user, body.role)
     try:
         account = User(email=str(body.email).lower(), password_hash=hash_password(body.password), role_id=role.id,
                        must_change_password=True)
@@ -207,7 +219,7 @@ def create_employee(body: EmployeeIn, user: User = Depends(require("employee.man
 @router.get("/{employee_id}")
 def get_employee(employee_id: int, user: User = Depends(require("employee.view")), db: Session = Depends(get_db)):
     emp = _get_visible(db, user, employee_id)
-    return serialize(emp, user.role.name == "manager")
+    return serialize(emp, user.role.tier == "manager")
 
 
 @router.put("/{employee_id}")
@@ -224,7 +236,7 @@ def update_employee(employee_id: int, body: EmployeeUpdate, user: User = Depends
         emp.locations = [el for el in emp.locations if el.location_id in wanted] + [
             EmployeeLocation(employee_id=emp.id, location_id=i) for i in wanted - set(_location_ids(emp))]
     if "role" in data:
-        new_role = db.scalar(select(Role).where(Role.name == data.pop("role")))
+        new_role = _assignable_role(db, user, data.pop("role"))
         if emp.user and emp.user.role_id != new_role.id:
             if emp.user_id == user.id:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot change your own role")

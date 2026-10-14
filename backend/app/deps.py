@@ -33,6 +33,11 @@ def permissions_of(user: User) -> set[str]:
     return {p.permission for p in user.role.permissions}
 
 
+def role_names(user: User) -> set[str]:
+    """The names tasks may be assigned to for this user: their own role and the tier it behaves like."""
+    return {user.role.name, user.role.tier}
+
+
 def require(permission: str):
     """Dependency factory: 403 unless the user's role grants `permission`."""
 
@@ -46,7 +51,7 @@ def require(permission: str):
 
 def scoped_locations(user: User, db: Session) -> set[int] | None:
     """Location ids the user may touch; None means every location (manager)."""
-    if user.role.name == MANAGER:
+    if user.role.tier == MANAGER:
         return None
     if not user.employee:
         return set()

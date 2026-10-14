@@ -1,6 +1,6 @@
 from datetime import date, datetime, time, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint, text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -19,6 +19,9 @@ class Role(Base):
     __tablename__ = "role"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(40), unique=True)
+    label: Mapped[str | None] = mapped_column(String(80))  # what people see; the name is the stable key
+    tier: Mapped[str] = mapped_column(String(20), default="steward", server_default="steward")  # manager | supervisor | steward behaviour
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     permissions: Mapped[list["RolePermission"]] = relationship(cascade="all, delete-orphan", lazy="selectin")
 
 

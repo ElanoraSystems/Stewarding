@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..audit import audit
 from ..db import get_db
-from ..deps import check_location, permissions_of, require, scoped_locations
+from ..deps import check_location, permissions_of, require, role_names, scoped_locations
 from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, Employee, EmployeeLocation, Location,
                       Shift, TaskAssignment, TaskCompletion, User)
 from ..pagination import paginate, row
@@ -243,7 +243,7 @@ def _base_stmt():
 def _steward_filter(user: User):
     emp_id = user.employee.id if user.employee else -1
     return and_(or_(ChecklistInstance.assigned_employee_id == emp_id, ChecklistInstance.assigned_employee_id.is_(None)),
-                or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role == STEWARD))
+                or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role.in_(role_names(user))))
 
 
 @router.get("/instances")
@@ -274,7 +274,7 @@ def list_instances(location_id: int | None = None, day: date | None = None, date
         stmt = stmt.where(ChecklistInstance.status == status_, ~is_late)
     elif status_:
         stmt = stmt.where(ChecklistInstance.status == status_)
-    if user.role.name == STEWARD:
+    if user.role.tier == STEWARD:
         stmt = stmt.where(_steward_filter(user))
     if mine and user.employee:
         stmt = stmt.where(ChecklistInstance.assigned_employee_id == user.employee.id)
@@ -289,9 +289,9 @@ def _load(db: Session, user: User, instance_id: int):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     inst, task, template = found
     check_location(user, db, inst.location_id)
-    if user.role.name == STEWARD:
+    if user.role.tier == STEWARD:
         mine = inst.assigned_employee_id in (None, user.employee.id if user.employee else -1)
-        if not (mine and task.assigned_role in (None, STEWARD)):
+        if not (mine and (task.assigned_role is None or task.assigned_role in role_names(user))):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "This task is assigned to someone else")
     return inst, task, template
 

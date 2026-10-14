@@ -4,6 +4,7 @@ import { SettingsGeneral } from '@/pages/settings/SettingsGeneral'
 import { SettingsInventoryLists } from '@/pages/settings/SettingsInventoryLists'
 import { SettingsItems } from '@/pages/settings/SettingsItems'
 import { SettingsOrganization } from '@/pages/settings/SettingsOrganization'
+import { SettingsRoles } from '@/pages/settings/SettingsRoles'
 import { SettingsLocations } from '@/pages/settings/SettingsLocations'
 import { SettingsLookups } from '@/pages/settings/SettingsLookups'
 import { SettingsMonitoring } from '@/pages/settings/SettingsMonitoring'
@@ -20,6 +21,7 @@ const TABS = [
   ['inventory', 'Categories & units'],
   ['suppliers', 'Suppliers'],
   ['lists', 'Dropdown lists'],
+  ['roles', 'Roles'],
 ] as const
 
 type Tab = (typeof TABS)[number][0]
@@ -49,6 +51,7 @@ export function SettingsPage() {
       {tab === 'inventory' && <SettingsInventoryLists />}
       {tab === 'suppliers' && <SettingsSuppliers />}
       {tab === 'lists' && <SettingsLookups />}
+      {tab === 'roles' && <SettingsRoles />}
     </div>
   )
 }

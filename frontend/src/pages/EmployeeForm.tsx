@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useRun } from '@/lib/toast'
+import { useApi } from '@/lib/useApi'
 import { useLookup } from '@/lib/useLookups'
 
 export interface EmployeeRow {
@@ -20,6 +21,7 @@ export interface EmployeeRow {
   supervisor_id: number | null
   location_ids: number[]
   role: string | null
+  role_tier?: string | null
   phone?: string | null
   email?: string | null
   emergency_contact?: string | null
@@ -39,6 +41,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
   const { me } = useAuth()
   const run = useRun()
   const titles = useLookup('job_title')
+  const roles = useApi<{ name: string; label: string }[]>('/roles/options')
   const editing = employee !== null
   const [form, setForm] = useState({
     employee_code: employee?.employee_code ?? '',
@@ -115,9 +118,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
           </Field>
           <Field label="Role">
             <Select value={form.role} onChange={(e) => set('role', e.target.value)}>
-              <option value="steward">Steward</option>
-              <option value="supervisor">Stewarding Supervisor</option>
-              <option value="manager">Back of House Manager</option>
+              {roles.data?.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
             </Select>
           </Field>
         </div>

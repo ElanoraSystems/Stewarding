@@ -40,8 +40,6 @@ const GROUPS: { title: string; keys: string[] }[] = [
   { title: 'Insights and admin', keys: ['reports', 'settings', 'audit'] },
 ]
 
-const ROLE_LABEL = { manager: 'Back of House Manager', supervisor: 'Stewarding Supervisor', steward: 'Steward' }
-
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')
 
 export function AppLayout() {
@@ -116,7 +114,7 @@ export function AppLayout() {
             <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold">{initials(name)}</span>
             <span className="min-w-0 leading-tight">
               <span className="block truncate text-sm font-medium">{name}</span>
-              <span className="block truncate text-xs text-white/60">{ROLE_LABEL[me.role]}</span>
+              <span className="block truncate text-xs text-white/60">{me.role_label}</span>
             </span>
           </Link>
           <Button variant="ghost" size="icon" className="text-white hover:bg-white/10" aria-label="Sign out" onClick={logout}>

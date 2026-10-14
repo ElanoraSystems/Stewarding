@@ -87,7 +87,7 @@ export function ManagerDashboard() {
   )
   const people = useApi<{ items: { id: number; full_name: string }[] }>('/employees?size=200&status=active')
   const equipment = useApi<{ id: number; name: string }[]>(me?.permissions.includes('equipment.view') ? '/equipment' : null)
-  const isManager = me?.role === 'manager'
+  const isManager = me?.tier === 'manager'
 
   const k = data?.kpis
   const urgent = k && (k.failed_checks > 0 || k.overdue_tasks > 0 || k.equipment_attention > 0)

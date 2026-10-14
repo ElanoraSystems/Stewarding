@@ -5,5 +5,5 @@ import { StewardDashboard } from '@/pages/StewardDashboard'
 export function DashboardPage() {
   const { me } = useAuth()
   if (!me) return null
-  return me.role === 'steward' ? <StewardDashboard /> : <ManagerDashboard />
+  return me.tier === 'steward' ? <StewardDashboard /> : <ManagerDashboard />
 }

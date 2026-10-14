@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..audit import audit
 from ..db import get_db
-from ..deps import check_location, require, scoped_locations
+from ..deps import check_location, require, role_names, scoped_locations
 from ..models import (AbsenceRecord, AttendanceCorrection, AttendanceRecord, ChecklistInstance, ChecklistTask, Employee,
                       EmployeeLocation, Location, Shift, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
@@ -155,7 +155,7 @@ def incomplete_tasks(db: Session, user: User, record: AttendanceRecord) -> list[
     emp = user.employee
     unassigned = and_(ChecklistInstance.assigned_employee_id.is_(None),
                       ChecklistInstance.shift_key.in_((0, record.shift_id or 0)),
-                      or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role == user.role.name))
+                      or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role.in_(role_names(user))))
     return db.scalars(
         select(ChecklistInstance).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
         .where(ChecklistInstance.location_id == record.location_id, ChecklistInstance.local_date == record.local_date,

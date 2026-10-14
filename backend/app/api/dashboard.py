@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..db import get_db
-from ..deps import check_location, require, scoped_locations
+from ..deps import check_location, require, role_names, scoped_locations
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Equipment,
                       InventoryTransfer, Location, TemperatureReading, User)
 from ..permissions import STEWARD
@@ -207,7 +207,7 @@ def _steward_view(db: Session, user: User, now: datetime) -> dict:
                           .where(ChecklistInstance.location_id == loc.id, ChecklistInstance.local_date == day,
                                  or_(ChecklistInstance.assigned_employee_id == (emp.id if emp else -1),
                                      and_(ChecklistInstance.assigned_employee_id.is_(None),
-                                          or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role == STEWARD))))
+                                          or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role.in_(role_names(user))))))
                           .order_by(ChecklistInstance.due_at)).all()
         for inst, task in rows:
             state = effective_status(inst, now)
@@ -240,12 +240,12 @@ def dashboard(location_id: int | None = None, date_from: date | None = None, dat
     now = timeutil.utc_now()
     if location_id is not None:
         check_location(user, db, location_id)
-    if user.role.name == STEWARD:
+    if user.role.tier == STEWARD:
         return _steward_view(db, user, now)
     try:
         view = _manager_view(db, user, now, location_id, date_from, date_to, employee_id, equipment_id, task_status)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
-    if user.role.name != "manager":
+    if user.role.tier != "manager":
         view["supervisor"] = _supervisor_extras(db, user, now, location_id)
     return view

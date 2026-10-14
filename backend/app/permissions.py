@@ -40,6 +40,31 @@ ROLE_PERMISSIONS = {
     STEWARD: STEWARD_PERMISSIONS,
 }
 
+# Tiers a custom role can behave like; the manager tier stays with the built-in manager role.
+CUSTOM_TIERS = (SUPERVISOR, STEWARD)
+
+# Shown when choosing what a role may do: group, then (permission, label).
+PERMISSION_CATALOG = [
+    ("Dashboard", [("dashboard.view", "See the dashboard")]),
+    ("People", [("employee.view", "View employees"), ("employee.manage", "Add and edit employees"),
+                ("attendance.self", "Check in and out"), ("attendance.view", "View attendance"),
+                ("attendance.correct", "Correct attendance"), ("attendance.absence", "Record absences"),
+                ("roster.view", "View the roster"), ("roster.manage", "Edit the roster")]),
+    ("Checklists", [("checklist.view", "View checklists"), ("checklist.complete", "Complete tasks"),
+                    ("checklist.verify", "Verify tasks"), ("checklist.configure", "Configure checklists"),
+                    ("task.assign", "Assign tasks")]),
+    ("Monitoring", [("temp.view", "View monitoring"), ("temp.record", "Record readings"), ("temp.review", "Review readings"),
+                    ("equipment.view", "View monitoring setup"), ("equipment.manage", "Edit monitoring setup")]),
+    ("Inventory", [("inventory.module", "Open inventory"), ("inventory.view", "View items"),
+                   ("inventory.count", "Count stock and set location minimums"), ("inventory.manage", "Add and edit items"),
+                   ("stock.transfer", "Post stock and request transfers"), ("stock.approve", "Approve transfers")]),
+    ("Breakage", [("breakage.view", "View breakage"), ("breakage.report", "Report breakage"),
+                  ("breakage.review", "Review breakage"), ("breakage.approve", "Approve high-value breakage")]),
+    ("Reports and admin", [("notification.view", "See tasks and notifications"), ("report.view", "View reports"),
+                           ("report.export", "Export reports"), ("settings.manage", "Manage settings and roles"),
+                           ("audit.view", "View audit logs")]),
+]
+
 # key, label, permission that grants sight of the module
 MODULES = [
     ("dashboard", "Dashboard", "dashboard.view"),

@@ -6,20 +6,20 @@ from ..permissions import MANAGER
 
 
 def recipients(db: Session, location_id: int | None, *roles: str) -> list[int]:
-    """Active users holding one of `roles` at the location; managers are always included when asked for."""
+    """Active users whose role behaves like one of `roles` (a tier) at the location; managers are included when asked for."""
     base = (
         select(User.id)
         .join(Role, User.role_id == Role.id)
         .join(Employee, Employee.user_id == User.id)
-        .where(User.active.is_(True), Employee.status == "active", Role.name.in_(roles))
+        .where(User.active.is_(True), Employee.status == "active", Role.tier.in_(roles))
     )
     non_manager = [r for r in roles if r != MANAGER]
     ids: set[int] = set()
     if MANAGER in roles:
-        ids |= set(db.scalars(base.where(Role.name == MANAGER)))
+        ids |= set(db.scalars(base.where(Role.tier == MANAGER)))
     if non_manager and location_id is not None:
         q = base.join(EmployeeLocation, EmployeeLocation.employee_id == Employee.id).where(
-            EmployeeLocation.location_id == location_id, Role.name.in_(non_manager)
+            EmployeeLocation.location_id == location_id, Role.tier.in_(non_manager)
         )
         ids |= set(db.scalars(q))
     return sorted(ids)

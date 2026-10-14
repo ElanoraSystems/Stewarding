@@ -165,7 +165,7 @@ export function EmployeesPage() {
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
 
       {formOpen && (
-        <EmployeeForm open employee={editing} supervisors={(all?.items ?? []).filter((x) => x.role !== 'steward')}
+        <EmployeeForm open employee={editing} supervisors={(all?.items ?? []).filter((x) => x.role_tier !== 'steward')}
           onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />
       )}
       <Modal open={enrolling !== null} title={`Enroll face - ${enrolling?.full_name ?? ''}`} onClose={() => setEnrolling(null)}>

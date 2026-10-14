@@ -94,6 +94,8 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         "email": user.email,
         "change_required": user.must_change_password,
         "role": user.role.name,
+        "role_label": user.role.label or user.role.name,
+        "tier": user.role.tier,
         "employee": {"id": user.employee.id, "name": user.employee.full_name, "code": user.employee.employee_code}
         if user.employee
         else None,

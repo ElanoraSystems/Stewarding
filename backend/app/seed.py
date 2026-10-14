@@ -33,10 +33,14 @@ PEOPLE = [
 PLACEHOLDER_NOTE = "PLACEHOLDER limits - set from the manufacturer's instructions and the approved food-safety procedure."
 
 
+BUILTIN_LABELS = {MANAGER: "Back of House Manager", SUPERVISOR: "Stewarding Supervisor", STEWARD: "Steward"}
+
+
 def sync_roles(db: Session) -> dict[str, Role]:
     roles = {}
     for name, perms in ROLE_PERMISSIONS.items():
         role = db.scalar(select(Role).where(Role.name == name)) or Role(name=name)
+        role.tier, role.builtin, role.label = name, True, role.label or BUILTIN_LABELS[name]
         role.permissions = [RolePermission(permission=p) for p in perms]
         db.add(role)
         roles[name] = role
