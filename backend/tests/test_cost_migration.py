@@ -54,3 +54,17 @@ def test_replaying_the_old_ledger_gives_every_movement_a_cost_and_each_balance_a
     assert costs[:4] == [Decimal("5.0000"), Decimal("4.0000"), Decimal("4.5000"), Decimal("4.5000")]
     assert costs[4] == Decimal("5.0000")
     assert averages == {1: Decimal("4.5000"), 2: Decimal("5.0000")}
+
+
+def test_the_migration_runs_on_a_database_with_no_stock_at_all(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path}/empty.db")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        for table, column in (("stock_transaction", "unit_cost"), ("inventory_balance", "avg_cost"), ("stock_snapshot", "value")):
+            conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
+        spec = importlib.util.spec_from_file_location("cost_migration_empty", PATH)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with Operations.context(MigrationContext.configure(conn)):
+            module.upgrade()
+        assert conn.execute(text("SELECT count(*) FROM stock_transaction")).scalar() == 0

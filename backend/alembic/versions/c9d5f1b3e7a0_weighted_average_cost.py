@@ -55,8 +55,9 @@ def upgrade() -> None:
             updates = []
     if updates:
         bind.execute(sa.text("UPDATE stock_transaction SET unit_cost = :c WHERE id = :i"), updates)
-    bind.execute(sa.text("UPDATE inventory_balance SET avg_cost = :c WHERE item_id = :i AND location_id = :l"),
-                 [{"c": float(avg), "i": item, "l": loc} for (item, loc), avg in avg_now.items()])
+    if avg_now:
+        bind.execute(sa.text("UPDATE inventory_balance SET avg_cost = :c WHERE item_id = :i AND location_id = :l"),
+                     [{"c": float(avg), "i": item, "l": loc} for (item, loc), avg in avg_now.items()])
 
 
 def downgrade() -> None:
