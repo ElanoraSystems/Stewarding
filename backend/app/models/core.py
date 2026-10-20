@@ -134,10 +134,25 @@ class AttendanceRecord(Base):
     check_out_geo: Mapped[dict | None] = mapped_column(JSON)
     check_in_face: Mapped[float | None] = mapped_column(Float)  # distance from the enrolled face at check-in
     check_out_face: Mapped[float | None] = mapped_column(Float)
+    check_in_snapshot: Mapped[str | None] = mapped_column(String(60))  # file name in the faces folder, taken at the live check
+    check_out_snapshot: Mapped[str | None] = mapped_column(String(60))
 
     @property
     def geo_flags(self) -> list[str]:
         return [f for geo in (self.check_in_geo, self.check_out_geo) if geo for f in geo["flags"]]
+
+
+class FaceChallenge(Base):
+    """A one-use sequence of head turns the camera screen must show before a face check is accepted."""
+
+    __tablename__ = "face_challenge"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employee.id"), index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True)
+    action: Mapped[str] = mapped_column(String(3))  # in | out
+    steps: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = ts(index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class AttendanceCorrection(Base):

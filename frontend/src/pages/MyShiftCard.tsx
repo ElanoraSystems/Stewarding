@@ -1,7 +1,7 @@
 import { LogIn, LogOut } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
-import { FaceCapture, type FaceResult } from '@/components/FaceCapture'
+import { FaceCapture, type FaceEvidence, type FaceResult } from '@/components/FaceCapture'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,6 +11,7 @@ import { Modal } from '@/components/ui/modal'
 import { Skeleton } from '@/components/ui/table'
 import { api, ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import type { Step } from '@/lib/face'
 import { fmtTime } from '@/lib/format'
 import { currentPosition } from '@/lib/geo'
 import { useRun, useToast } from '@/lib/toast'
@@ -29,6 +30,11 @@ interface ShiftStatus {
   face_enrolled: boolean
 }
 
+interface Challenge {
+  token: string
+  steps: Step[]
+}
+
 export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const run = useRun()
   const toast = useToast()
@@ -38,38 +44,54 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [faceFor, setFaceFor] = useState<'in' | 'out' | null>(null)
-  const face = useRef<number[] | null>(null)
+  const [challenge, setChallenge] = useState<Challenge | null>(null)
+  const proof = useRef<Record<string, unknown> | null>(null)
 
   const refresh = () => {
     reload()
     onChange?.()
   }
 
-  function needFace(direction: 'in' | 'out') {
-    if (!data?.face_enrolled) toast('error', 'Your face is not enrolled yet. Ask your manager to enroll it')
-    else setFaceFor(direction)
+  async function newChallenge(direction: 'in' | 'out') {
+    const made = await api<{ required: boolean; token?: string; steps?: Step[] }>('/attendance/face-challenge', { body: { action: direction } })
+    setChallenge(made.required && made.token && made.steps ? { token: made.token, steps: made.steps } : null)
   }
 
-  async function verifyFace(template: number[]): Promise<FaceResult> {
+  async function needFace(direction: 'in' | 'out') {
+    if (!data?.face_enrolled) {
+      toast('error', 'Your face is not enrolled yet. Ask your manager to enroll it')
+      return
+    }
+    try {
+      await newChallenge(direction)
+      setFaceFor(direction)
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not start the camera check')
+    }
+  }
+
+  async function verifyFace(template: number[], evidence: FaceEvidence): Promise<FaceResult> {
+    const faceBody = { face: template, ...(challenge ? { challenge: challenge.token, liveness: evidence.liveness, snapshot: evidence.snapshot } : {}) }
     try {
       if (faceFor === 'in') {
         const fenced = me?.locations.find((l) => l.id === locationId)?.geofence
-        await api('/attendance/check-in', { body: { location_id: locationId, face: template, ...(fenced ? await currentPosition() : {}) } })
+        await api('/attendance/check-in', { body: { location_id: locationId, ...faceBody, ...(fenced ? await currentPosition() : {}) } })
         toast('ok', 'Checked in')
       } else {
         const where = data?.location?.geofence ? await currentPosition() : {}
-        await api('/attendance/check-out', { body: { face: template, ...where } })
+        await api('/attendance/check-out', { body: { ...faceBody, ...where } })
         toast('ok', 'Checked out')
       }
       setTimeout(() => { setFaceFor(null); refresh() }, 1200)
       return { ok: true, message: 'Match found!' }
     } catch (err) {
       if (faceFor === 'out' && err instanceof ApiError && err.status === 409 && typeof err.detail === 'object') {
-        face.current = template
+        proof.current = faceBody
         setFaceFor(null)
         setExceptionOpen(true)
         return { ok: true, message: 'Match found!' }
       }
+      if (faceFor) await newChallenge(faceFor).catch(() => undefined)
       return { ok: false, message: err instanceof Error ? err.message : 'Could not verify your face' }
     }
   }
@@ -85,9 +107,9 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   async function checkOut(withReason?: string) {
     try {
       const where = data?.location?.geofence ? await currentPosition() : {}
-      await api('/attendance/check-out', { body: { exception_reason: withReason ?? null, ...(face.current ? { face: face.current } : {}), ...where } })
+      await api('/attendance/check-out', { body: { exception_reason: withReason ?? null, ...(proof.current ?? {}), ...where } })
       toast('ok', 'Checked out')
-      face.current = null
+      proof.current = null
       setExceptionOpen(false)
       setReason('')
       refresh()
@@ -133,7 +155,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
       </CardContent>
 
       <Modal open={faceFor !== null} title={faceFor === 'in' ? 'Verify your face to check in' : 'Verify your face to check out'} onClose={() => setFaceFor(null)}>
-        {faceFor !== null && <FaceCapture onCapture={verifyFace} />}
+        {faceFor !== null && <FaceCapture steps={challenge?.steps} onCapture={verifyFace} />}
       </Modal>
 
       <Modal open={exceptionOpen} title="Tasks still open" onClose={() => setExceptionOpen(false)}>

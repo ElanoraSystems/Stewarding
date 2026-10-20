@@ -73,7 +73,7 @@ def update_settings(body: SettingsIn, user: User = Depends(require("settings.man
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown setting: {sorted(unknown)[0]}")
     if any(v < 0 or v > MAX_SETTING for v in body.values.values()):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Values must be between 0 and {MAX_SETTING}")
-    for key in ("approval.checklists", "attendance.face_required"):
+    for key in ("approval.checklists", "attendance.face_required", "attendance.face_liveness"):
         if body.values.get(key, 0) not in (0, 1):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{key} must be 0 or 1")
     if "attendance.face_match_max" in body.values and not 10 <= body.values["attendance.face_match_max"] <= 80:

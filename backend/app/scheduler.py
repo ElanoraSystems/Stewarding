@@ -10,6 +10,7 @@ from .db import SessionLocal
 from .models import Location
 from .services import checklists, snapshots
 from .services.alerts import run_alerts
+from .services.face_snapshots import purge_face_snapshots
 
 log = logging.getLogger("stewarding.scheduler")
 INTERVAL_SECONDS = 60
@@ -24,8 +25,9 @@ def run_cycle(db: Session, now=None) -> dict:
     overdue = checklists.mark_overdue(db, now)
     alerts = run_alerts(db, now)
     stock = snapshots.refresh(db, now)
+    faces = purge_face_snapshots(db, now)
     db.commit()
-    return {"created": created, "overdue": overdue, "alerts": alerts, "snapshots": stock}
+    return {"created": created, "overdue": overdue, "alerts": alerts, "snapshots": stock, "face_snapshots_removed": faces}
 
 
 def _loop() -> None:

@@ -1,19 +1,26 @@
+import base64
+import binascii
+import secrets
+import uuid
 from datetime import date, datetime, time, timedelta
 from math import asin, cos, dist, isfinite, radians, sin, sqrt
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..audit import audit
+from ..config import settings
 from ..db import get_db
 from ..deps import check_location, require, role_names, scoped_locations
 from ..models import (AbsenceRecord, AttendanceCorrection, AttendanceRecord, ChecklistInstance, ChecklistTask, Employee,
-                      EmployeeLocation, Location, Shift, ShiftAssignment, User)
+                      EmployeeLocation, FaceChallenge, Location, Shift, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
 from ..services.checklists import DONE
 from ..services.settings import get_setting
@@ -22,6 +29,11 @@ from ..services.notify import notify
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
 MISSED_CHECKOUT_HOURS = 16
+CHALLENGE_STEPS = ("turn_left", "turn_right")
+CHALLENGE_LENGTH = 3
+CHALLENGE_TTL_S = 300  # long enough to type an exception reason after the check
+CHALLENGE_MIN_S = 3  # three turns and a straight look cannot honestly be done faster
+MAX_SNAPSHOT_BYTES = 150_000
 FIELDS = ("id", "employee_id", "location_id", "shift_id", "local_date", "check_in_at", "check_out_at",
           "late_minutes", "payable_minutes", "overtime_minutes", "exception_reason")
 
@@ -31,6 +43,9 @@ class Position(BaseModel):
     longitude: float | None = Field(default=None, ge=-180, le=180)
     accuracy: float | None = Field(default=None, ge=0, le=100000)
     face: list[float] | None = Field(default=None, min_length=128, max_length=128)
+    challenge: str | None = Field(default=None, max_length=64)
+    liveness: list[str] | None = Field(default=None, max_length=10)
+    snapshot: str | None = Field(default=None, max_length=250_000)  # base64 JPEG taken at the live check
 
 
 class CheckInIn(Position):
@@ -69,10 +84,56 @@ def _verify_face(db: Session, emp: Employee, where: Position, action: str) -> fl
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your face is not enrolled yet. Ask your manager to enroll it")
     if where.face is None or not all(isfinite(v) for v in where.face):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Face verification is required to {action}")
+    if get_setting(db, "attendance.face_liveness"):
+        _spend_challenge(db, emp, where, action)
     away = dist(where.face, emp.face_descriptor)
     if away > get_setting(db, "attendance.face_match_max") / 100:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Your face did not match. Face the camera in good light and try again")
     return away
+
+
+def _liveness_on(db: Session) -> bool:
+    return bool(get_setting(db, "attendance.face_required") and get_setting(db, "attendance.face_liveness"))
+
+
+def _spend_challenge(db: Session, emp: Employee, where: Position, action: str) -> None:
+    """The head-turn challenge must be this person's, unused, current, not suspiciously quick and shown in the order given."""
+    challenge = db.scalar(select(FaceChallenge).where(FaceChallenge.token == (where.challenge or ""), FaceChallenge.employee_id == emp.id))
+    if challenge is None or challenge.used_at is not None or challenge.action != action.split()[-1]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The camera check has expired or was already used. Start it again")
+    now = timeutil.utc_now()
+    challenge.used_at = now
+    db.commit()  # one attempt spends it, whether the face matches or not
+    elapsed = (now - challenge.created_at).total_seconds()
+    if elapsed > CHALLENGE_TTL_S:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The camera check took too long. Start it again")
+    if elapsed < CHALLENGE_MIN_S:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That was too quick to be a live check. Start it again")
+    if where.liveness != challenge.steps:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The head movements did not match the check. Start it again")
+
+
+def _snapshot_bytes(db: Session, where: Position) -> bytes | None:
+    """The photo taken at the live check, checked before anything is spent; none when live checks are off."""
+    if not _liveness_on(db):
+        return None
+    try:
+        data = base64.b64decode(where.snapshot or "", validate=True)
+    except binascii.Error:
+        data = b""
+    if not data.startswith(b"\xff\xd8\xff") or len(data) > MAX_SNAPSHOT_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A camera snapshot is needed with the face check")
+    return data
+
+
+def _write_snapshot(data: bytes | None) -> str | None:
+    if data is None:
+        return None
+    folder = Path(settings.upload_dir) / "faces"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"{uuid.uuid4().hex}.jpg"
+    (folder / name).write_bytes(data)
+    return name
 
 
 def _geo_evidence(db: Session, emp: Employee, where: Position, distance: float | None, now: datetime) -> dict | None:
@@ -183,11 +244,53 @@ def _serialize(record: AttendanceRecord, now: datetime, names: dict[int, str] | 
     out = row(record, *FIELDS)
     out["open"] = record.open_flag == 1
     out["geo_flags"] = record.geo_flags
+    out["snapshot_in"], out["snapshot_out"] = bool(record.check_in_snapshot), bool(record.check_out_snapshot)
     out["missed_checkout"] = (record.open_flag == 1 and
                               (now - record.check_in_at).total_seconds() > MISSED_CHECKOUT_HOURS * 3600)
     if names is not None:
         out["employee_name"] = names.get(record.employee_id)
     return out
+
+
+class ChallengeIn(BaseModel):
+    action: Literal["in", "out"]
+
+
+@router.post("/face-challenge", status_code=201)
+def face_challenge(body: ChallengeIn, user: User = Depends(require("attendance.self")), db: Session = Depends(get_db)):
+    """A random sequence of head turns for the camera screen to show; none when live checks are off."""
+    emp = _employee(user)
+    if not _liveness_on(db):
+        return {"required": False}
+    now = timeutil.utc_now()
+    recent = db.scalar(select(func.count()).select_from(FaceChallenge).where(FaceChallenge.employee_id == emp.id,
+                                                                               FaceChallenge.created_at > now - timedelta(minutes=1)))
+    if recent >= 10:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many camera checks started; wait a minute")
+    db.execute(delete(FaceChallenge).where(FaceChallenge.created_at < now - timedelta(days=1)))
+    steps = [secrets.choice(CHALLENGE_STEPS) for _ in range(CHALLENGE_LENGTH)]
+    while len(set(steps)) < len(CHALLENGE_STEPS):  # always both directions, so a recording of one turn cannot pass
+        steps = [secrets.choice(CHALLENGE_STEPS) for _ in range(CHALLENGE_LENGTH)]
+    challenge = FaceChallenge(employee_id=emp.id, token=secrets.token_urlsafe(32), action=body.action, created_at=now, steps=steps)
+    db.add(challenge)
+    db.commit()
+    return {"required": True, "token": challenge.token, "steps": challenge.steps, "expires_in": CHALLENGE_TTL_S}
+
+
+@router.get("/{record_id}/snapshot/{which}")
+def snapshot(record_id: int, which: Literal["in", "out"], user: User = Depends(require("attendance.view")), db: Session = Depends(get_db)):
+    """The photo kept with a face check, only for people who may view attendance at that location; every view is audited."""
+    record = db.get(AttendanceRecord, record_id)
+    if not record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Record not found")
+    check_location(user, db, record.location_id)
+    name = record.check_in_snapshot if which == "in" else record.check_out_snapshot
+    path = Path(settings.upload_dir) / "faces" / name if name else None
+    if path is None or not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No snapshot was kept")
+    audit(db, user, "attendance.snapshot_view", "attendance_record", record.id, None, {"which": which})
+    db.commit()
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
 
 
 @router.post("/check-in", status_code=201)
@@ -198,9 +301,10 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
     if not location.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Location is not active")
     away = _enforce_geofence(db, location, body, "check in")
-    face = _verify_face(db, emp, body, "check in")
     if _open_record(db, emp):
         raise HTTPException(status.HTTP_409_CONFLICT, "You are already checked in")
+    photo = _snapshot_bytes(db, body) if get_setting(db, "attendance.face_required") else None
+    face = _verify_face(db, emp, body, "check in")
     now = timeutil.utc_now()
     shift = _pick_shift(db, emp, location, now)
     day = timeutil.local_date(now, location.timezone)
@@ -211,7 +315,8 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
         late = minutes_after_start if minutes_after_start > shift.grace_minutes else 0
     record = AttendanceRecord(employee_id=emp.id, location_id=location.id, shift_id=shift.id if shift else None,
                               local_date=day, check_in_at=now, late_minutes=late, open_flag=1,
-                              check_in_geo=_geo_evidence(db, emp, body, away, now), check_in_face=face)
+                              check_in_geo=_geo_evidence(db, emp, body, away, now), check_in_face=face,
+                              check_in_snapshot=_write_snapshot(photo))
     try:
         db.add(record)
         db.flush()
@@ -229,16 +334,18 @@ def check_out(body: CheckOutIn, user: User = Depends(require("attendance.self"))
     if not record:
         raise HTTPException(status.HTTP_409_CONFLICT, "You are not checked in")
     away = _enforce_geofence(db, db.get(Location, record.location_id), body, "check out")
-    face = _verify_face(db, emp, body, "check out")
     pending = incomplete_tasks(db, user, record)
     reason = (body.exception_reason or "").strip()
     if pending and len(reason) < 5:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={
             "message": "Mandatory tasks are incomplete; finish them or give an exception reason",
             "tasks": [{"id": t.id, "task_id": t.task_id} for t in pending]})
+    photo = _snapshot_bytes(db, body) if get_setting(db, "attendance.face_required") else None
+    face = _verify_face(db, emp, body, "check out")
     now = timeutil.utc_now()
     record.check_out_geo = _geo_evidence(db, emp, body, away, now)
     record.check_out_face = face
+    record.check_out_snapshot = _write_snapshot(photo)
     record.check_out_at = now
     record.open_flag = None
     _recompute(record, db.get(Shift, record.shift_id) if record.shift_id else None)

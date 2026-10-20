@@ -50,6 +50,8 @@ const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = 
       'attendance.missed_checkout_hours': 'Missed check-out after (hours)',
       'attendance.max_accuracy_m': 'Largest location error accepted (metres)',
       'attendance.face_required': 'Require face verification to check in and out (1 = on, 0 = off)',
+      'attendance.face_liveness': 'Ask for a live head-turn check and keep a snapshot with each face check-in and check-out (1 = on, 0 = off)',
+      'attendance.snapshot_days': 'Keep face-check snapshots for (days, 0 = keep them)',
       'attendance.face_match_max': 'Face match strictness (10 to 80, lower is stricter)',
     },
   },
