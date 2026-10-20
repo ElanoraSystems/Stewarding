@@ -26,7 +26,9 @@ export function FaceCapture({ onCapture }: FaceCaptureProps) {
   const [phase, setPhase] = useState<Phase>('starting')
   const [message, setMessage] = useState('Starting the camera')
   const capture = useRef(onCapture)
-  capture.current = onCapture
+  useEffect(() => {
+    capture.current = onCapture
+  })
 
   useEffect(() => {
     let stopped = false
@@ -44,7 +46,10 @@ export function FaceCapture({ onCapture }: FaceCaptureProps) {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('camera-unavailable')
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false })
-        if (stopped || !video.current) return
+        if (stopped || !video.current) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
+        }
         video.current.srcObject = stream
         await video.current.play()
         show('starting', 'Loading the face model')
