@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..db import get_db
-from ..deps import check_location, require, role_names, scoped_locations
+from ..deps import check_location, permissions_of, require, role_names, scoped_locations
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Equipment,
                       InventoryTransfer, Location, TemperatureReading, User)
 from ..permissions import STEWARD
@@ -176,19 +176,57 @@ def _breakage_by_month(db: Session, scope: set[int] | None, location_id: int | N
     return [{"month": k, **v} for k, v in sorted(buckets.items())]
 
 
-def _supervisor_extras(db: Session, user: User, now: datetime, location_id: int | None) -> dict:
+SECTION_PERMISSION = {"people": "attendance.view", "checklists": "checklist.view", "monitoring": "temp.view",
+                      "stock": "inventory.module", "breakage": "breakage.view"}
+APPROVAL_PERMISSION = {"tasks": "checklist.verify", "readings": "temp.review", "breakage": "breakage.review"}
+CATEGORY_SECTION = {"verification": "checklists", "overdue_task": "checklists", "monitoring_check": "monitoring",
+                    "corrective_action": "monitoring", "monitoring_review": "monitoring", "breakage": "breakage",
+                    "transfer": "stock", "attendance": "people", "low_stock": "stock"}
+
+
+def _sections(allowed: set[str]) -> list[str]:
+    return [s for s, p in SECTION_PERMISSION.items() if p in allowed]
+
+
+def _limit_to_permissions(view: dict, allowed: set[str]) -> dict:
+    """Blanks every part of the dashboard the role may not open, and lists what is left for the page to show."""
+    shown = _sections(allowed)
+    k, charts, empty = view["kpis"], view["charts"], {"numerator": 0, "denominator": 0, "percent": None}
+    if "people" not in shown:
+        k.update(scheduled_today=0, checked_in=0, not_checked_in=0, off_today=0, absent=0, on_duty=0)
+        charts["attendance_trend"] = []
+    if "checklists" not in shown:
+        k.update(daily_completion=empty, weekly_completion=empty, overdue_tasks=0)
+        charts["task_trend"], charts["weekly_compliance"] = [], []
+    if "monitoring" not in shown:
+        k.update(monitoring_checks={"done": 0, "due": 0}, failed_checks=0, equipment_attention=0)
+        charts["monitoring_compliance"] = []
+    if "stock" not in shown:
+        k.update(inventory={"qty": 0, "value": 0.0}, low_stock_items=0)
+        charts["inventory_movement"] = []
+    if "breakage" not in shown:
+        k.update(breakage_today=0, breakage_month=0)
+        charts["breakage_trend"] = []
+    approvals = [a for a, p in APPROVAL_PERMISSION.items() if p in allowed]
+    for kind in APPROVAL_PERMISSION.keys() - set(approvals):
+        k["awaiting_approval"][kind] = 0
+    return {**view, "sections": shown, "approvals": approvals}
+
+
+def _supervisor_extras(db: Session, user: User, now: datetime, location_id: int | None, allowed: set[str]) -> dict:
     scope = scoped_locations(user, db)
     ids = {location_id} if location_id is not None else scope
-    items = pending_items(db, ids, now)
+    shown = _sections(allowed)
+    items = [i for i in pending_items(db, ids, now) if CATEGORY_SECTION.get(i["category"]) in shown]
     transfers = select(func.count()).select_from(InventoryTransfer).where(InventoryTransfer.status == "requested")
     if ids is not None:
         transfers = transfers.where(InventoryTransfer.from_location_id.in_(ids))
     today_wins = metrics.windows_by(db, now, scope, location_id, lambda t: (t, t))
-    staff = [r for w in today_wins for r in metrics.attendance_stats(db, w, now)["rows"]]
+    staff = [r for w in today_wins for r in metrics.attendance_stats(db, w, now)["rows"]] if "people" in shown else []
     return {
         "pending": {**grouped(items), "items": items[:25]},
         "staff_today": [{"name": r["name"], "shift": r["shift"], "status": r["status"], "late_minutes": r["late_minutes"]} for r in staff],
-        "stock_requests": db.scalar(transfers),
+        "stock_requests": db.scalar(transfers) if "stock" in shown else 0,
         "to_verify": sum(1 for i in items if i["category"] == "verification"),
         "failed_readings_open": sum(1 for i in items if i["category"] == "corrective_action"),
     }
@@ -246,6 +284,7 @@ def dashboard(location_id: int | None = None, date_from: date | None = None, dat
         view = _manager_view(db, user, now, location_id, date_from, date_to, employee_id, equipment_id, task_status)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    allowed = permissions_of(user)
     if user.role.tier != "manager":
-        view["supervisor"] = _supervisor_extras(db, user, now, location_id)
-    return view
+        view["supervisor"] = _supervisor_extras(db, user, now, location_id, allowed)
+    return _limit_to_permissions(view, allowed)

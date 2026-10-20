@@ -44,7 +44,7 @@ export function ColumnChart({ data, labelKey, series, height = 140 }: ColumnChar
       <div className="flex items-end gap-1 overflow-x-auto" style={{ height }} role="img"
         aria-label={`${series.map((s) => s.label).join(' and ')} by ${labelKey}`}>
         {data.map((d) => (
-          <div key={String(d[labelKey])} className="flex h-full min-w-5 flex-1 items-end justify-center gap-0.5"
+          <div key={String(d[labelKey])} className="flex h-full min-w-0 flex-1 items-end justify-center gap-0.5"
             title={`${d[labelKey]}: ${series.map((s) => `${s.label} ${d[s.key]}`).join(', ')}`}>
             {series.map((s) => (
               <div key={s.key} className={cn('w-full max-w-4 rounded-t', s.className)}
@@ -55,7 +55,7 @@ export function ColumnChart({ data, labelKey, series, height = 140 }: ColumnChar
       </div>
       <div className="mt-1 flex gap-1 text-[10px] text-ink-muted">
         {data.map((d, i) => (
-          <span key={String(d[labelKey])} className="min-w-5 flex-1 truncate text-center">
+          <span key={String(d[labelKey])} className="min-w-0 flex-1 truncate text-center">
             {data.length > 10 && i % 2 === 1 ? '' : String(d[labelKey]).slice(-5)}
           </span>
         ))}

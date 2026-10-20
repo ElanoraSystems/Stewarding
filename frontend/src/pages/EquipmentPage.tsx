@@ -85,7 +85,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         {embedded ? <h2 className="text-lg font-semibold">Monitoring points and checks</h2> : <h1 className="text-2xl font-semibold">Monitoring Setup</h1>}
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <LocationSelect value={locationId} onChange={setLocationId} />
           {canManage && <Button onClick={() => setPresetOpen(true)}><Plus className="h-4 w-4" /> From template</Button>}
           {canManage && <Button variant="outline" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Create form</Button>}

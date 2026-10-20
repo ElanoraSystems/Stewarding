@@ -15,7 +15,7 @@ from ..models import ApprovalRecord, BreakageIncident, Employee, InventoryBalanc
 from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services.inventory import post_txn
-from ..services.notify import notify, recipients
+from ..services.notify import holders_of, notify, recipients
 from ..services.settings import get_setting
 from .inventory import _can_see_cost, get_item_or_404
 from .uploads import is_valid_evidence
@@ -223,7 +223,7 @@ def review(incident_id: int, body: ReviewIn, user: User = Depends(require("break
     incident.reviewed_by, incident.reviewed_at = user.id, now
     if _needs_approval(db, incident.qty, incident.est_cost):
         incident.status = "pending_approval"
-        notify(db, recipients(db, None, MANAGER), "breakage_approval", f"Approval needed: {incident.code}",
+        notify(db, holders_of(db, "breakage.approve", incident.location_id), "breakage_approval", f"Approval needed: {incident.code}",
                key=f"brk_approve:{incident.id}", priority="high", location_id=incident.location_id,
                link="/breakage", requires_ack=True)
     else:

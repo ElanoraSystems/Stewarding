@@ -68,19 +68,21 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
         </Field>
       </div>
       <div className="space-y-2">
-        <div aria-hidden className="grid grid-cols-[minmax(12rem,1fr)_5rem_5.5rem_6rem_2.5rem] gap-2 text-sm font-medium">
+        <div aria-hidden className="hidden grid-cols-[minmax(12rem,1fr)_5rem_5.5rem_6rem_2.5rem] gap-2 text-sm font-medium sm:grid">
           <span>Item</span><span>Quantity</span><span className="text-right">{priced ? 'Unit cost' : ''}</span><span className="text-right">{priced ? 'Value' : ''}</span><span />
         </div>
         {lines.map((l, i) => (
-          <div key={i} className="grid grid-cols-[minmax(12rem,1fr)_5rem_5.5rem_6rem_2.5rem] items-center gap-2">
+          <div key={i} className="grid grid-cols-[1fr_4.5rem_2.5rem] items-center gap-2 sm:grid-cols-[minmax(12rem,1fr)_5rem_5.5rem_6rem_2.5rem]">
             <Select aria-label="Item" required value={l.item} onChange={(e) => patch(i, { item: e.target.value })}>
               <option value="">Select item</option>
               {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
             </Select>
             <Input aria-label="Quantity" required type="number" min={1} inputMode="numeric" value={l.qty} onChange={(e) => patch(i, { qty: e.target.value })} />
-            <output aria-label="Unit cost" className="text-right text-sm tabular-nums">{priced && l.item && cost.get(Number(l.item)) != null ? money(cost.get(Number(l.item))!) : ''}</output>
-            <output aria-label="Line value" className="text-right text-sm font-medium tabular-nums">{priced && worth(l) != null ? money(worth(l)!) : ''}</output>
-            {lines.length > 1 ? <Button type="button" variant="ghost" size="icon" aria-label="Remove item" onClick={() => setLines((all) => all.filter((_, n) => n !== i))}><Trash2 className="h-4 w-4" /></Button> : <span />}
+            <div className="order-2 col-span-3 flex justify-between text-sm sm:contents">
+              <output aria-label="Unit cost" className="text-sm tabular-nums sm:text-right">{priced && l.item && cost.get(Number(l.item)) != null ? <><span className="text-ink-muted sm:hidden">Unit cost </span>{money(cost.get(Number(l.item))!)}</> : ''}</output>
+              <output aria-label="Line value" className="text-sm font-medium tabular-nums sm:text-right">{priced && worth(l) != null ? <><span className="font-normal text-ink-muted sm:hidden">Value </span>{money(worth(l)!)}</> : ''}</output>
+            </div>
+            {lines.length > 1 ? <Button type="button" variant="ghost" size="icon" className="order-1 sm:order-none" aria-label="Remove item" onClick={() => setLines((all) => all.filter((_, n) => n !== i))}><Trash2 className="h-4 w-4" /></Button> : <span className="order-1 sm:order-none" />}
           </div>
         ))}
         {new Set(lines.map((l) => l.item).filter(Boolean)).size < lines.filter((l) => l.item).length && <p role="alert" className="text-xs text-danger">An item appears twice; add the quantities together.</p>}

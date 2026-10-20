@@ -19,7 +19,7 @@ from ..permissions import MANAGER, SUPERVISOR
 from ..services import metrics
 from ..services.costing import MEASURES, category_rows, cost_report
 from ..services.inventory import StockError, post_txn, received_breakdown, received_to_date, reconcile, variance_summary
-from ..services.notify import notify, recipients
+from ..services.notify import holders_of, notify, recipients
 from .inventory import get_item_or_404
 
 router = APIRouter(prefix="/api/stock", tags=["stock"])
@@ -141,7 +141,7 @@ def request_transfer(body: TransferIn, user: User = Depends(require("stock.trans
         db.add(ApprovalRecord(subject_type="transfer", subject_id=transfer.id, decision="approved", decided_by=user.id,
                               reason="Requested by approver"))
     else:
-        notify(db, recipients(db, None, MANAGER), "transfer_pending", "Stock transfer awaiting approval",
+        notify(db, holders_of(db, "stock.approve", body.from_location_id), "transfer_pending", "Stock transfer awaiting approval",
                key=f"transfer:{transfer.id}", priority="high", location_id=body.from_location_id,
                link="/stock-movements")
     audit(db, user, "stock.transfer_request", "inventory_transfer", transfer.id, None, body.model_dump(mode="json"))

@@ -9,6 +9,7 @@ import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
 import { fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { CostTab } from '@/pages/CostTab'
 import { CountsTab } from '@/pages/CountsTab'
 import { InsightsTab } from '@/pages/InsightsTab'
 import { ReceivingTab } from '@/pages/ReceivingTab'
@@ -26,7 +27,7 @@ interface Txn {
   user: string | null
 }
 
-const TABS = [['insights', 'Insights'], ['transactions', 'Transactions'], ['receiving', 'Receiving'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation']] as const
+const TABS = [['insights', 'Insights'], ['transactions', 'Transactions'], ['receiving', 'Receiving'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation'], ['costs', 'Costs']] as const
 const SIZE = 15
 
 function Transactions() {
@@ -92,6 +93,7 @@ export function StockMovementsPage() {
       {tab === 'transfers' && <TransfersTab />}
       {tab === 'counts' && <CountsTab />}
       {tab === 'reconciliation' && <ReconciliationTab />}
+      {tab === 'costs' && <CostTab />}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Employee, EmployeeLocation, Notification, Role, User
+from ..models import Employee, EmployeeLocation, Notification, Role, RolePermission, User
 from ..permissions import MANAGER
 
 
@@ -22,6 +22,22 @@ def recipients(db: Session, location_id: int | None, *roles: str) -> list[int]:
             EmployeeLocation.location_id == location_id, Role.tier.in_(non_manager)
         )
         ids |= set(db.scalars(q))
+    return sorted(ids)
+
+
+def holders_of(db: Session, permission: str, location_id: int | None = None) -> list[int]:
+    """Active users whose role grants `permission`: managers everywhere, other roles at the location."""
+    base = (
+        select(User.id)
+        .join(Role, User.role_id == Role.id)
+        .join(RolePermission, RolePermission.role_id == Role.id)
+        .join(Employee, Employee.user_id == User.id)
+        .where(User.active.is_(True), Employee.status == "active", RolePermission.permission == permission)
+    )
+    ids = set(db.scalars(base.where(Role.tier == MANAGER)))
+    if location_id is not None:
+        ids |= set(db.scalars(base.join(EmployeeLocation, EmployeeLocation.employee_id == Employee.id).where(
+            EmployeeLocation.location_id == location_id, Role.tier != MANAGER)))
     return sorted(ids)
 
 

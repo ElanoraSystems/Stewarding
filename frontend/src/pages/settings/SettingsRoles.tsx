@@ -19,6 +19,7 @@ interface RoleRow {
   builtin: boolean
   permissions: string[]
   users: number
+  defaults: string[] | null
 }
 
 interface Catalog {
@@ -31,6 +32,7 @@ interface Draft {
   label: string
   tier: string
   builtin: boolean
+  defaults: string[] | null
   permissions: string[]
 }
 
@@ -75,7 +77,7 @@ export function SettingsRoles() {
         <p className="max-w-2xl text-sm text-ink-muted">
           Make a role for any position, choose exactly what it may do, then give it to people from the Employees page. You can change the name and permissions of any role except the manager, which always has full access; Copy starts a new role from an existing one.
         </p>
-        <Button onClick={() => setDraft({ id: null, label: '', tier: 'supervisor', builtin: false, permissions: ['dashboard.view', 'notification.view'] })}>New role</Button>
+        <Button onClick={() => setDraft({ id: null, label: '', tier: 'supervisor', builtin: false, defaults: null, permissions: ['dashboard.view', 'notification.view'] })}>New role</Button>
       </div>
       <Table>
         <thead><tr><Th>Role</Th><Th>Behaves like</Th><Th className="text-right">People</Th><Th className="text-right">Permissions</Th><Th /></tr></thead>
@@ -87,8 +89,8 @@ export function SettingsRoles() {
               <Td className="text-right tabular-nums">{r.users}</Td>
               <Td className="text-right tabular-nums">{r.permissions.length}</Td>
               <Td className="space-x-2 text-right">
-                {r.name !== 'manager' && <Button size="sm" variant="outline" onClick={() => setDraft({ id: r.id, label: r.label, tier: r.tier, builtin: r.builtin, permissions: r.permissions })}>Edit</Button>}
-                {r.builtin && <Button size="sm" variant="outline" onClick={() => setDraft({ id: null, label: '', tier: r.tier === 'manager' ? 'supervisor' : r.tier, builtin: false, permissions: r.permissions })}>Copy</Button>}
+                {r.name !== 'manager' && <Button size="sm" variant="outline" onClick={() => setDraft({ id: r.id, label: r.label, tier: r.tier, builtin: r.builtin, defaults: r.defaults, permissions: r.permissions })}>Edit</Button>}
+                {r.builtin && <Button size="sm" variant="outline" onClick={() => setDraft({ id: null, label: '', tier: r.tier === 'manager' ? 'supervisor' : r.tier, builtin: false, defaults: null, permissions: r.permissions })}>Copy</Button>}
                 {!r.builtin && <Button size="sm" variant="outline" disabled={r.users > 0} title={r.users > 0 ? 'Move its people to another role first' : undefined} onClick={() => setRemoving(r)}>Delete</Button>}
               </Td>
             </tr>
@@ -129,6 +131,7 @@ export function SettingsRoles() {
               })}
             </div>
             <div className="flex justify-end gap-2">
+              {draft.defaults && <Button type="button" variant="ghost" className="mr-auto" onClick={() => setDraft({ ...draft, permissions: draft.defaults ?? draft.permissions })}>Restore default permissions</Button>}
               <Button type="button" variant="outline" onClick={() => setDraft(null)}>Cancel</Button>
               <Button type="submit" disabled={draft.permissions.length === 0}>Save role</Button>
             </div>
