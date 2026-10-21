@@ -6,7 +6,7 @@ from app.models import AuditLog, Lot, LotEvent, Supplier
 
 from .helpers import MGR, STEWARD, SUP, SUP_RB, loc_id
 from .test_custom_roles import hire, make_role
-from .test_two_step_logs import finish, make
+from .test_two_step_logs import checks, finish, make
 
 LOTS = "/api/lots"
 
@@ -450,3 +450,37 @@ def test_a_lot_without_a_quantity_or_unit_has_no_balance(client, login, db, cloc
     item = food(client, m)
     assert client.get(f"{LOTS}/{receive(client, sup, db, item).json()['id']}", headers=m).json()["balance"] is None
     assert client.get(f"{LOTS}/{receive(client, sup, db, item, qty=5).json()['id']}", headers=m).json()["balance"] is None
+
+
+def test_a_lot_timeline_follows_it_through_thaw_defrost_cooling_and_reheating(client, login, db, clock):
+    m, sup, steward = login(MGR), login(SUP), login(STEWARD)
+    item = food(client, m)
+    rule(client, m, condition="thawed", hours=48)
+    cook = butcher(client, db, m)
+    lot = receive(client, sup, db, item, condition="frozen", temp_c=-18, expiry_on="2026-03-30").json()
+    clock.advance(hours=1)
+    assert client.post(f"{LOTS}/{lot['id']}/thaw", headers=cook).status_code == 200
+
+    def record_in(point, value):
+        return client.post("/api/monitoring/readings/batch", headers=steward, json={"equipment_id": point["id"], "readings": [
+            {"schedule_id": c["id"], "value": value, "lot_ids": [lot["id"]]} for c in checks(point, "start")]}).json()
+
+    clock.advance(hours=1)
+    defrost = make(client, m, db, "defrosting")
+    assert finish(client, steward, defrost, record_in(defrost, 3)[0]["id"]).status_code == 201
+    clock.advance(hours=1)
+    cooling = make(client, m, db, "cooling")
+    assert finish(client, steward, cooling, record_in(cooling, 80)[0]["id"]).status_code == 201
+    clock.advance(hours=1)
+    reheating = make(client, m, db, "reheating")
+    done = client.post("/api/monitoring/readings", headers=steward, json={"equipment_id": reheating["id"], "schedule_id": reheating["schedules"][0]["id"], "value": 80, "lot_ids": [lot["id"]]})
+    assert done.status_code == 201
+    line = client.get(f"{LOTS}/{lot['id']}", headers=m).json()["timeline"]
+    assert [i["title"] for i in line] == ["Received", "Thawed", "Time in", "Time out", "Time out", "Time in", "Time out", "Core temperature after reheating"]
+    assert [i["at"] for i in line] == sorted(i["at"] for i in line)
+    assert {i["lot_code"] for i in line} == {lot["code"]} and {i["tone"] for i in line[2:]} == {"ok"}
+    assert [i["detail"].split(":")[0] for i in line[2:]] == [defrost["name"]] * 3 + [cooling["name"]] * 2 + [reheating["name"]]
+    clock.advance(hours=1)
+    child = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(condition="thawed")]}).json()["lots"][0]
+    from_child = [i["title"] for i in client.get(f"{LOTS}/{child['id']}", headers=m).json()["timeline"]]
+    assert from_child[:2] == ["Received", "Thawed"] and from_child[-2:] == ["Split", "Portioned"] and len(from_child) == 10

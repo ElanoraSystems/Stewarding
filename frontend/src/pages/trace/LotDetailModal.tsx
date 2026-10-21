@@ -12,7 +12,8 @@ import { fmtDate, fmtDateTime } from '@/lib/format'
 import { useRun, useToast } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 import { LabelActions } from '@/pages/trace/LabelActions'
-import { STATUS_LABEL, STATUS_TONE, type Lot, type Status, type Trace, type Use } from '@/pages/trace/types'
+import { cn } from '@/lib/utils'
+import { STATUS_LABEL, STATUS_TONE, type Lot, type Status, type TimelineItem, type Trace } from '@/pages/trace/types'
 
 interface Props {
   initialId: number
@@ -43,19 +44,22 @@ function Family({ title, lots, onOpen }: { title: string; lots: Lot[]; onOpen: (
   )
 }
 
-function Uses({ title, uses }: { title: string; uses: Use[] }) {
-  if (uses.length === 0) return null
+const DOT = { neutral: 'bg-ink-muted', ok: 'bg-ok', critical: 'bg-danger' }
+
+function Timeline({ items }: { items: TimelineItem[] }) {
   return (
-    <section className="space-y-1">
-      <h3 className="text-sm font-semibold">{title}</h3>
-      <ul className="divide-y divide-border rounded-lg border border-border text-sm">
-        {uses.map((u) => (
-          <li key={`${u.reading_id}-${u.lot_id}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-            <span><span className="font-medium">{u.stage}</span> <span className="text-ink-muted">at {u.equipment}, lot {u.lot_code}: {u.display} by {u.by ?? 'unknown'}, {fmtDateTime(u.at)}</span></span>
-            {u.rejected ? <Badge tone="neutral">Rejected</Badge> : <Badge tone={u.passed ? 'ok' : 'critical'}>{u.passed ? 'Passed' : 'Failed'}</Badge>}
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">Timeline from the supplier to the plate</h3>
+      <ol className="space-y-3 border-l-2 border-border pl-5">
+        {items.map((item, n) => (
+          <li key={n} className="relative">
+            <span aria-hidden className={cn('absolute -left-[1.7rem] top-1.5 h-3 w-3 rounded-full ring-4 ring-surface', DOT[item.tone])} />
+            <p className="text-sm"><span className="font-semibold">{item.title}</span> <span className="text-ink-muted">{item.lot_code}</span></p>
+            <p className="text-sm text-ink-muted">{item.detail}</p>
+            <p className="text-xs text-ink-muted">{fmtDateTime(item.at)}{item.by ? ` - ${item.by}` : ''}</p>
           </li>
         ))}
-      </ul>
+      </ol>
     </section>
   )
 }
@@ -132,18 +136,9 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
             </div>
           )}
 
+          <Timeline items={data.timeline} />
           <Family title="Came from (back toward the supplier)" lots={data.back} onOpen={setId} />
-          <Uses title="Checks recorded on the lots it came from" uses={data.uses_back} />
           <Family title="Made from this lot" lots={data.forward} onOpen={setId} />
-          <Uses title="Checks on this lot and what was made from it, including cooking" uses={data.uses_forward} />
-          {data.events.length > 0 && (
-            <section className="space-y-1">
-              <h3 className="text-sm font-semibold">History</h3>
-              <ul className="space-y-1 text-sm text-ink-muted">
-                {data.events.map((e, n) => <li key={n}>{fmtDateTime(e.at)} - {e.detail}{e.by ? ` (${e.by})` : ''}</li>)}
-              </ul>
-            </section>
-          )}
         </div>
       )}
     </Modal>

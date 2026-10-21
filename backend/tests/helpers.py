@@ -1,12 +1,28 @@
-from sqlalchemy import select
+from datetime import datetime
 
-from app.models import InventoryBalance, InventoryItem, Location, StockTransaction
+from sqlalchemy import func, select
+
+from app.db import SessionLocal
+from app.models import FoodItem, InventoryBalance, InventoryItem, Location, Lot, StockTransaction, User
 
 MGR = "manager@example.test"
 SUP = "sup.mk@example.test"
 SUP_RB = "sup.rb@example.test"
 STEWARD = "steward.mk@example.test"
 STEWARD_RB = "steward.rb@example.test"
+
+
+def make_lot(location_id):
+    """A received poultry lot written straight to the database, for checks that only need a lot to name; returns its id."""
+    with SessionLocal() as db:
+        item = db.scalar(select(FoodItem)) or FoodItem(name="Chicken breast", food_group="poultry")
+        db.add(item)
+        db.flush()
+        lot = Lot(code=f"POU-TEST-{db.scalar(select(func.count(Lot.id))) + 1:02d}", kind="received", food_item_id=item.id, food_group=item.food_group,
+                  condition="chilled_raw", supplier_lot="B1", location_id=location_id, created_by=db.scalar(select(User.id)), created_at=datetime(2026, 3, 2, 2, 5))
+        db.add(lot)
+        db.commit()
+        return lot.id
 
 
 def loc_id(db, code):

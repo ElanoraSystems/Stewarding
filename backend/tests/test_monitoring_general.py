@@ -2,7 +2,7 @@ from sqlalchemy import select
 
 from app.models import Notification
 
-from .helpers import MGR, STEWARD, SUP, loc_id
+from .helpers import MGR, STEWARD, SUP, loc_id, make_lot
 
 
 def point(client, h, db, kind="Sanitising", code="SN-T-1", loc="MK"):
@@ -109,6 +109,8 @@ def test_every_template_check_can_be_recorded(client, login, db, clock):
         for sched in sorted(made["schedules"], key=lambda c: c["phase"] == "finish"):
             value = 1 if sched["value_type"] == "yes_no" else (float(sched["min_value"] or 0) + float(sched["max_value"] or 0)) / 2
             extra = {"reference": "Batch 1"} if sched["require_reference"] else {}
+            if sched["trace_lots"] and sched["phase"] != "finish":
+                extra["lot_ids"] = [make_lot(made["location_id"])]
             if sched["phase"] == "finish":
                 extra["start_reading_id"] = started
             r = record(client, m, made, sched, value, **extra)

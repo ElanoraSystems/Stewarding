@@ -482,13 +482,37 @@ def _uses(db: Session, lot_ids: list[int], maps: dict, codes: dict[int, str]) ->
              "tz": maps["tz"].get(r.location_id)} for r, eq, lot_id in rows]
 
 
+EVENT_TITLES = {"split": "Split", "thaw": "Thawed", "status": "Status changed"}
+
+
+def _timeline(db: Session, family: list[Lot], uses: list[dict], maps: dict) -> list[dict]:
+    """Everything that happened to a lot and the lots around it, oldest first."""
+    items = []
+    for x in family:
+        if x.kind == "received":
+            title = "Received"
+            detail = f"{maps['item'].get(x.food_item_id)} from {maps['supplier'].get(x.supplier_id) or 'unknown supplier'}, supplier lot {x.supplier_lot or '-'}"
+        else:
+            title, detail = "Portioned", f"{x.pack_count} x {x.pack_description}"
+        items.append({"at": iso(x.created_at), "kind": x.kind, "title": title, "detail": detail, "lot_code": x.code, "by": maps["user"].get(x.created_by), "tone": "neutral"})
+    codes = {x.id: x.code for x in family}
+    for e in db.scalars(select(LotEvent).where(LotEvent.lot_id.in_(codes))):
+        items.append({"at": iso(e.at), "kind": e.kind, "title": EVENT_TITLES.get(e.kind, e.kind.capitalize()), "detail": e.detail, "lot_code": codes[e.lot_id],
+                      "by": maps["user"].get(e.user_id), "tone": "neutral"})
+    for u in uses:
+        items.append({"at": u["at"], "kind": "check", "title": u["stage"], "detail": f"{u['equipment']}: {u['display']}" + (" (rejected)" if u["rejected"] else ""),
+                      "lot_code": u["lot_code"], "by": u["by"], "tone": "neutral" if u["rejected"] else "ok" if u["passed"] else "critical"})
+    return sorted(items, key=lambda i: (_moment(i["at"]), i["kind"] != "split"))
+
+
 def _trace(db: Session, lot: Lot) -> dict:
     now = timeutil.utc_now()
     maps = _maps(db)
     back, forward = ancestors(db, lot.id), descendants(db, lot.id)
     codes = {x.id: x.code for x in [lot, *back, *forward]}
+    uses_back, uses_forward = _uses(db, [x.id for x in back], maps, codes), _uses(db, [lot.id, *[x.id for x in forward]], maps, codes)
     return {"lot": _lot(lot, maps, now), "balance": balance(db, lot), "back": [_lot(x, maps, now) for x in back], "forward": [_lot(x, maps, now) for x in forward],
-            "uses_back": _uses(db, [x.id for x in back], maps, codes), "uses_forward": _uses(db, [lot.id, *[x.id for x in forward]], maps, codes),
+            "uses_back": uses_back, "uses_forward": uses_forward, "timeline": _timeline(db, [*back, lot, *forward], [*uses_back, *uses_forward], maps),
             "events": [{"kind": e.kind, "detail": e.detail, "by": maps["user"].get(e.user_id), "at": iso(e.at)}
                        for e in db.scalars(select(LotEvent).where(LotEvent.lot_id == lot.id).order_by(LotEvent.id))]}
 

@@ -46,9 +46,20 @@ export interface Use {
   rejected: boolean
 }
 
+export interface TimelineItem {
+  at: string
+  kind: string
+  title: string
+  detail: string
+  lot_code: string
+  by: string | null
+  tone: 'neutral' | 'ok' | 'critical'
+}
+
 export interface Trace {
   lot: Lot
   balance: Balance | null
+  timeline: TimelineItem[]
   back: Lot[]
   forward: Lot[]
   uses_back: Use[]
