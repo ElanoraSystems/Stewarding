@@ -13,7 +13,7 @@ from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, Checkli
                       InventoryTransfer, InventoryTransferLine, Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
 from .inventory import level_map
 from .settings import get_setting
-from .monitoring import CLOSED_ACTIONS, expected_slots, has_reading
+from .monitoring import CLOSED_ACTIONS, expected_slots, has_reading, window_low
 from .reference import employee_names, locations_by_id, shifts_by_id
 
 DONE = ("completed", "verified", "pending_verification")
@@ -261,13 +261,14 @@ def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | N
                 times = first_reads.get(sched.id, [])
                 for day in daterange(win.d_from, last):
                     slots = expected_slots(sched, shifts.get(sched.shift_id), win.loc.timezone, day)
+                    day_start = timeutil.local_to_utc(day, time(0), win.loc.timezone)
                     day_end = timeutil.local_to_utc(day + timedelta(days=1), time(0), win.loc.timezone)
                     for i, slot in enumerate(slots):
                         if slot > now:
                             continue
                         upper = slots[i + 1] if i + 1 < len(slots) else day_end
                         entry["due"] += 1
-                        if has_reading(times, slot - grace, upper):
+                        if has_reading(times, window_low(slot, i == 0, day_start, grace), upper):
                             entry["done"] += 1
                         elif now > slot + grace:
                             entry["missed"] += 1

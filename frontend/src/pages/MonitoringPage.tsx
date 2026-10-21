@@ -86,6 +86,8 @@ export function MonitoringPage() {
     }
     return [...out.entries()]
   })()
+  const todo = cards.filter(([, card]) => card.status !== 'done')
+  const finished = cards.filter(([, card]) => card.status === 'done')
 
   function timeOut(p: Pending) {
     const finish = items.find((e) => e.id === p.equipment_id)?.schedules.find((s) => s.active && s.phase === 'finish')
@@ -116,11 +118,13 @@ export function MonitoringPage() {
       <Card>
         <CardHeader><CardTitle>Checks due today</CardTitle></CardHeader>
         <CardContent>
-          {(due.data ?? []).length === 0 ? <EmptyState title="No scheduled checks here" hint="Forms without a schedule are filled in from Record a check below." /> : (
+          {cards.length === 0 ? <EmptyState title="No scheduled checks here" hint="Forms without a schedule are filled in from Record a check below." /> : todo.length === 0 ? (
+            <EmptyState title="All of today's checks are recorded" hint="Anything recorded today is listed below." />
+          ) : (
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {cards.map(([key, { first: d, stages, status }]) => (
+              {todo.map(([key, { first: d, stages, status }]) => (
                 <li key={key}>
-                  <button type="button" disabled={!canRecord || status === 'done'}
+                  <button type="button" disabled={!canRecord}
                     onClick={() => startRecording({ equipmentId: d.equipment_id, scheduleId: d.schedule_id })}
                     className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-surface-muted">
                     <span><span className="block font-medium">{d.equipment}</span><span className="text-ink-muted">{stages.map(label).join(' and ')} at {fmtTime(d.slot_at, timezone)}</span></span>
@@ -130,7 +134,20 @@ export function MonitoringPage() {
               ))}
             </ul>
           )}
-          {canRecord && <p className="mt-2 text-xs text-ink-muted">Select a check to record it.</p>}
+          {canRecord && todo.length > 0 && <p className="mt-2 text-xs text-ink-muted">Select a check to record it.</p>}
+          {finished.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-sm font-medium text-ink-muted">Recorded today ({finished.length})</summary>
+              <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {finished.map(([key, { first: d, stages }]) => (
+                  <li key={key} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                    <span><span className="block font-medium">{d.equipment}</span><span className="text-ink-muted">{stages.map(label).join(' and ')} at {fmtTime(d.slot_at, timezone)}</span></span>
+                    <Badge tone="ok">Done</Badge>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </CardContent>
       </Card>
 
