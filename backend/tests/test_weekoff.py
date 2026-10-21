@@ -11,10 +11,10 @@ def weekoff_shift(client, h):
     return client.post("/api/roster/shifts", json=body, headers=h)
 
 
-def assign(client, h, db, shift, code="E004", loc="MK", weekdays=(0,), valid_from="2026-03-01"):
+def assign(client, h, db, shift, code="E004", loc="MK", weekdays=(0,), valid_from="2026-03-01", valid_to=None):
     return client.post("/api/roster/assignments", headers=h, json={
         "employee_id": emp_id(client, h, code), "shift_id": shift, "location_id": loc_id(db, loc),
-        "weekdays": list(weekdays), "valid_from": valid_from})
+        "weekdays": list(weekdays), "valid_from": valid_from, "valid_to": valid_to})
 
 
 def test_week_off_shift_has_no_hours_and_is_listed_first(client, login):
@@ -61,3 +61,17 @@ def test_week_off_day_is_flagged_not_scheduled_and_not_chased(client, login, db,
     with SessionLocal() as s:
         alerts.run_alerts(s, clock.now)
         assert not [n for n in s.scalars(select(Notification)) if "Sid Steward" in (n.body or "")]
+
+
+def test_an_assignment_can_end_on_a_date_that_is_checked_listed_and_used_for_clashes(client, login, db, clock):
+    h = login(MGR)
+    off = weekoff_shift(client, h).json()["id"]
+    work = next(s["id"] for s in client.get("/api/roster/shifts", headers=h).json() if s["kind"] == "work")
+    clear_days(client, h, weekdays=(5,))
+    assert assign(client, h, db, off, weekdays=(5,), valid_from="2026-03-09", valid_to="2026-03-01").status_code == 422
+    assert assign(client, h, db, off, weekdays=(5,), valid_from="2026-03-09", valid_to="2026-03-31").status_code == 201
+    saturday = [a for a in client.get(f"/api/roster/assignments?employee_id={emp_id(client, h)}", headers=h).json() if a["weekday"] == 5 and a["valid_from"] == "2026-03-09"]
+    assert [a["valid_to"] for a in saturday] == ["2026-03-31"]
+    assert assign(client, h, db, work, weekdays=(5,), valid_from="2026-03-20", valid_to="2026-04-10").status_code == 409
+    assert assign(client, h, db, work, weekdays=(5,), valid_from="2026-04-01").status_code == 201
+    assert assign(client, h, db, work, weekdays=(5,), valid_from="2026-03-01", valid_to="2026-03-08").status_code == 201

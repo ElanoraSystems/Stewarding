@@ -46,6 +46,13 @@ class AssignmentIn(BaseModel):
     location_id: int
     weekdays: list[int] = Field(min_length=1)
     valid_from: date
+    valid_to: date | None = None
+
+    @model_validator(mode="after")
+    def _range(self):
+        if self.valid_to is not None and self.valid_to < self.valid_from:
+            raise ValueError("The end date cannot be before the start date")
+        return self
 
 
 SHIFT_FIELDS = ("id", "kind", "name", "start_time", "end_time", "grace_minutes", "break_minutes",
@@ -106,7 +113,7 @@ def update_shift(shift_id: int, body: ShiftIn, user: User = Depends(require("ros
 def list_assignments(location_id: int | None = None, employee_id: int | None = None,
                      user: User = Depends(require("roster.view")), db: Session = Depends(get_db)):
     stmt = select(ShiftAssignment).where(or_(ShiftAssignment.valid_to.is_(None),
-                                             ShiftAssignment.valid_to >= date.today()))
+                                             ShiftAssignment.valid_to >= timeutil.utc_now().date()))
     allowed = scoped_locations(user, db)
     if location_id is not None:
         check_location(user, db, location_id)
@@ -135,7 +142,8 @@ def create_assignments(body: AssignmentIn, user: User = Depends(require("roster.
     clash = db.scalar(
         select(ShiftAssignment.id).join(Shift, Shift.id == ShiftAssignment.shift_id)
         .where(ShiftAssignment.employee_id == body.employee_id, ShiftAssignment.weekday.in_(set(body.weekdays)),
-               Shift.kind == opposite, or_(ShiftAssignment.valid_to.is_(None), ShiftAssignment.valid_to >= body.valid_from)))
+               Shift.kind == opposite, or_(ShiftAssignment.valid_to.is_(None), ShiftAssignment.valid_to >= body.valid_from),
+               ShiftAssignment.valid_from <= (body.valid_to or date.max)))
     if clash:
         raise HTTPException(status.HTTP_409_CONFLICT, "The employee already has a "
                             + ("working shift" if opposite == "work" else "week off") + " on one of those days; end it first")
@@ -143,7 +151,7 @@ def create_assignments(body: AssignmentIn, user: User = Depends(require("roster.
     try:
         for weekday in sorted(set(body.weekdays)):
             a = ShiftAssignment(employee_id=body.employee_id, shift_id=body.shift_id, location_id=body.location_id,
-                                weekday=weekday, valid_from=body.valid_from)
+                                weekday=weekday, valid_from=body.valid_from, valid_to=body.valid_to)
             db.add(a)
             db.flush()
             created.append(a.id)

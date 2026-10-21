@@ -40,6 +40,7 @@ interface Assignment {
   shift_id: number
   weekday: number
   valid_from: string
+  valid_to: string | null
 }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -53,6 +54,7 @@ export function RosterPage() {
   const [shiftId, setShiftId] = useState('')
   const [weekdays, setWeekdays] = useState<number[]>([0, 1, 2, 3, 4])
   const [validFrom, setValidFrom] = useState('')
+  const [validTo, setValidTo] = useState('')
 
   const today = useApi<Today[]>(locationId ? `/roster/today${qs({ location_id: locationId })}` : null)
   const shifts = useApi<Shift[]>('/roster/shifts')
@@ -64,7 +66,7 @@ export function RosterPage() {
   async function assign(event: FormEvent) {
     event.preventDefault()
     const ok = await run(
-      () => api('/roster/assignments', { body: { employee_id: Number(employeeId), shift_id: Number(shiftId), location_id: locationId, weekdays, valid_from: validFrom } }),
+      () => api('/roster/assignments', { body: { employee_id: Number(employeeId), shift_id: Number(shiftId), location_id: locationId, weekdays, valid_from: validFrom, valid_to: validTo || null } }),
       'Shift assigned',
     )
     if (ok) assignments.reload()
@@ -109,7 +111,7 @@ export function RosterPage() {
         <CardHeader><CardTitle>Weekly assignments</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <Table>
-            <thead><tr><Th>Employee</Th><Th>Day</Th><Th>Shift</Th><Th>From</Th>{canManage && <Th />}</tr></thead>
+            <thead><tr><Th>Employee</Th><Th>Day</Th><Th>Shift</Th><Th>From</Th><Th>Until</Th>{canManage && <Th />}</tr></thead>
             <tbody>
               {assignments.data?.map((a) => (
                 <tr key={a.id}>
@@ -117,6 +119,7 @@ export function RosterPage() {
                   <Td>{DAYS[a.weekday]}</Td>
                   <Td>{shiftNames.get(a.shift_id)}</Td>
                   <Td>{a.valid_from}</Td>
+                  <Td>{a.valid_to ?? 'Ongoing'}</Td>
                   {canManage && <Td><Button size="sm" variant="outline" onClick={() => end(a.id)}>End</Button></Td>}
                 </tr>
               ))}
@@ -139,6 +142,7 @@ export function RosterPage() {
                 </Select>
               </Field>
               <Field label="Valid from"><Input required type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></Field>
+              <Field label="Valid until (optional)" hint="Leave empty to keep it going."><Input type="date" min={validFrom || undefined} value={validTo} onChange={(e) => setValidTo(e.target.value)} /></Field>
               <fieldset className="flex gap-2 text-sm">
                 <legend className="mb-1 font-medium">Days</legend>
                 {DAYS.map((d, i) => (
