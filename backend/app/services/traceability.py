@@ -43,15 +43,17 @@ def balance(db: Session, lot: Lot) -> dict | None:
     if whole is None:
         return None
     size = UNITS.get(lot.unit.strip().lower(), (None, 1))[1]
-    used, unmeasured = Decimal(0), 0
+    used, lost, unmeasured = Decimal(0), Decimal(0), 0
     for child in db.scalars(select(Lot).join(LotLink, LotLink.child_id == Lot.id).where(LotLink.parent_id == lot.id)):
         measured = _measure(child.qty, child.unit)
         if measured and measured[0] == whole[0]:
             used += measured[1]
+            wasted = _measure(child.waste_qty, child.unit)
+            lost += wasted[1] if wasted else 0
         else:
             unmeasured += 1
-    return {"qty": float(lot.qty), "unit": lot.unit, "portioned": round(float(used / size), 2),
-            "left": round(float((whole[1] - used) / size), 2), "unmeasured": unmeasured}
+    return {"qty": float(lot.qty), "unit": lot.unit, "portioned": round(float(used / size), 2), "waste": round(float(lost / size), 2),
+            "left": round(float((whole[1] - used - lost) / size), 2), "unmeasured": unmeasured}
 
 
 def cold_chain_limits(db: Session) -> dict[str, float]:

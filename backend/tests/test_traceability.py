@@ -435,14 +435,14 @@ def test_a_lot_shows_what_is_left_to_portion_in_comparable_units(client, login, 
     rule(client, m)
     cook = butcher(client, db, m)
     lot = receive(client, sup, db, item, qty=20, unit="kg").json()
-    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 0.0, "left": 20.0, "unmeasured": 0}
+    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 0.0, "waste": 0.0, "left": 20.0, "unmeasured": 0}
     cut = {"description": "200 g breast portions", "count": 24, "condition": "vacuum_chilled"}
     assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{**cut, "qty": 4.8, "unit": "kg"}]}).status_code == 201
     assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"]["left"] == 15.2
     assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{**cut, "qty": 500, "unit": "G"}]}).status_code == 201
-    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 5.3, "left": 14.7, "unmeasured": 0}
+    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 5.3, "waste": 0.0, "left": 14.7, "unmeasured": 0}
     assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{**cut, "qty": 3, "unit": "trays"}, cut]}).status_code == 201
-    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 5.3, "left": 14.7, "unmeasured": 2}
+    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 5.3, "waste": 0.0, "left": 14.7, "unmeasured": 2}
 
 
 def test_a_lot_without_a_quantity_or_unit_has_no_balance(client, login, db, clock):
@@ -484,3 +484,24 @@ def test_a_lot_timeline_follows_it_through_thaw_defrost_cooling_and_reheating(cl
     child = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(condition="thawed")]}).json()["lots"][0]
     from_child = [i["title"] for i in client.get(f"{LOTS}/{child['id']}", headers=m).json()["timeline"]]
     assert from_child[:2] == ["Received", "Thawed"] and from_child[-2:] == ["Split", "Portioned"] and len(from_child) == 10
+
+
+def test_a_cut_takes_a_size_and_a_count_and_works_out_its_total_and_the_waste(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    rule(client, m)
+    cook = butcher(client, db, m)
+    lot = receive(client, sup, db, item, qty=20, unit="kg").json()
+    cut = {"description": "Chicken breast portions", "count": 24, "size": 200, "unit": "g", "condition": "vacuum_chilled", "waste": 600}
+    made = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [cut]})
+    assert made.status_code == 201
+    child = made.json()["lots"][0]
+    assert (child["qty"], child["unit"], child["waste_qty"], child["pack_count"]) == (4800.0, "g", 600.0, 24)
+    assert child["pack_description"] == "200 g Chicken breast portions"
+    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 4.8, "waste": 0.6, "left": 14.6, "unmeasured": 0}
+    timeline = client.get(f"{LOTS}/{child['id']}", headers=m).json()["timeline"]
+    assert next(i for i in timeline if i["title"] == "Portioned")["detail"] == "24 x 200 g Chicken breast portions, total 4800 g, waste 600 g"
+    for bad in ({"unit": None}, {"size": 0}, {"waste": -1}):
+        refused = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{**cut, **bad}]})
+        assert refused.status_code == 422, bad
+    assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{"description": "Whole breasts", "count": 2, "condition": "vacuum_chilled"}]}).status_code == 201

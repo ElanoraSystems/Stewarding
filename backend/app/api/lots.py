@@ -68,9 +68,17 @@ class PartIn(BaseModel):
     description: str = Field(min_length=2, max_length=120)
     count: int = Field(ge=1, le=1000)
     condition: Literal["chilled_raw", "vacuum_chilled", "frozen", "thawed"]
+    size: Decimal | None = Field(default=None, gt=0, le=1000000)
     qty: Decimal | None = Field(default=None, ge=0, le=1000000)
     unit: str | None = Field(default=None, max_length=20)
+    waste: Decimal | None = Field(default=None, ge=0, le=1000000)
     use_by: datetime | None = None
+
+    @model_validator(mode="after")
+    def _measured(self):
+        if (self.size is not None or self.waste is not None) and not (self.unit or "").strip():
+            raise ValueError("Give the unit of the portion size and waste")
+        return self
 
     @field_validator("description")
     @classmethod
@@ -132,7 +140,8 @@ def _lot(lot: Lot, maps: dict, now: datetime) -> dict:
             "supplier_lot": lot.supplier_lot, "produced_on": lot.produced_on.isoformat() if lot.produced_on else None,
             "expiry_on": lot.expiry_on.isoformat() if lot.expiry_on else None, "use_by": iso(lot.use_by),
             "past_use_by": bool(lot.use_by and lot.use_by < now), "temp_c": float(lot.temp_c) if lot.temp_c is not None else None,
-            "qty": float(lot.qty) if lot.qty is not None else None, "unit": lot.unit, "pack_count": lot.pack_count,
+            "qty": float(lot.qty) if lot.qty is not None else None, "unit": lot.unit, "waste_qty": float(lot.waste_qty) if lot.waste_qty is not None else None,
+            "pack_count": lot.pack_count,
             "pack_description": lot.pack_description, "tag_number": lot.tag_number, "location_id": lot.location_id,
             "location": maps["location"].get(lot.location_id), "status": lot.status, "note": lot.note,
             "created_by_name": maps["user"].get(lot.created_by), "created_at": iso(lot.created_at), "thawed_at": iso(lot.thawed_at)}
@@ -406,9 +415,12 @@ def split_lot(lot_id: int, body: SplitIn, user: User = Depends(require("lot.spli
             if use_by is not None and chosen > use_by and not manager:
                 raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a manager can set a use-by later than the shelf-life rule allows")
             use_by = chosen
+        unit = _clean(part.unit)
+        qty = part.size * part.count if part.size is not None else part.qty
+        pack = f"{part.size:g} {unit} {part.description}"[:120] if part.size is not None else part.description
         child = Lot(code=child_code(db, parent), kind="portion", food_item_id=parent.food_item_id, food_group=parent.food_group, condition=part.condition,
                     supplier_id=parent.supplier_id, supplier_lot=parent.supplier_lot, produced_on=parent.produced_on, expiry_on=parent.expiry_on,
-                    use_by=use_by, qty=part.qty, unit=_clean(part.unit), pack_count=part.count, pack_description=part.description,
+                    use_by=use_by, qty=qty, unit=unit, waste_qty=part.waste, pack_count=part.count, pack_description=pack,
                     tag_number=parent.tag_number, location_id=parent.location_id, created_by=user.id, created_at=now)
         db.add(child)
         db.flush()
@@ -476,7 +488,7 @@ def _uses(db: Session, lot_ids: list[int], maps: dict, codes: dict[int, str]) ->
         return []
     rows = db.execute(select(TemperatureReading, Equipment, ReadingLot.lot_id).join(ReadingLot, ReadingLot.reading_id == TemperatureReading.id)
                       .join(Equipment, Equipment.id == TemperatureReading.equipment_id).where(ReadingLot.lot_id.in_(lot_ids))
-                      .order_by(TemperatureReading.recorded_at)).all()
+                      .order_by(TemperatureReading.recorded_at, TemperatureReading.id)).all()
     return [{"reading_id": r.id, "lot_id": lot_id, "lot_code": codes[lot_id], "at": iso(r.recorded_at), "equipment": eq.name, "stage": r.stage,
              "display": describe(r), "passed": r.passed, "by": maps["user"].get(r.recorded_by), "rejected": r.rejected_at is not None,
              "tz": maps["tz"].get(r.location_id)} for r, eq, lot_id in rows]
@@ -494,9 +506,13 @@ def _timeline(db: Session, family: list[Lot], uses: list[dict], maps: dict) -> l
             detail = f"{maps['item'].get(x.food_item_id)} from {maps['supplier'].get(x.supplier_id) or 'unknown supplier'}, supplier lot {x.supplier_lot or '-'}"
         else:
             title, detail = "Portioned", f"{x.pack_count} x {x.pack_description}"
+            if x.qty is not None and x.unit:
+                detail += f", total {float(x.qty):g} {x.unit}"
+            if x.waste_qty:
+                detail += f", waste {float(x.waste_qty):g} {x.unit}"
         items.append({"at": iso(x.created_at), "kind": x.kind, "title": title, "detail": detail, "lot_code": x.code, "by": maps["user"].get(x.created_by), "tone": "neutral"})
     codes = {x.id: x.code for x in family}
-    for e in db.scalars(select(LotEvent).where(LotEvent.lot_id.in_(codes))):
+    for e in db.scalars(select(LotEvent).where(LotEvent.lot_id.in_(codes)).order_by(LotEvent.id)):
         items.append({"at": iso(e.at), "kind": e.kind, "title": EVENT_TITLES.get(e.kind, e.kind.capitalize()), "detail": e.detail, "lot_code": codes[e.lot_id],
                       "by": maps["user"].get(e.user_id), "tone": "neutral"})
     for u in uses:

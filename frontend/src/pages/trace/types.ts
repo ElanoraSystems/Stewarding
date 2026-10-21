@@ -18,6 +18,7 @@ export interface Lot {
   past_use_by: boolean
   temp_c: number | null
   qty: number | null
+  waste_qty: number | null
   unit: string | null
   pack_count: number | null
   pack_description: string | null

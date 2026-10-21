@@ -114,6 +114,7 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
             <Fact label={lot.kind === 'portion' ? 'Portioned' : 'Received'}>{`${fmtDateTime(lot.created_at)}${lot.created_by_name ? ` by ${lot.created_by_name}` : ''}`}</Fact>
             <Fact label="Temperature on arrival">{lot.temp_c != null ? `${lot.temp_c} C` : ''}</Fact>
             <Fact label="Quantity">{lot.qty != null ? `${lot.qty} ${lot.unit ?? ''}` : ''}</Fact>
+            <Fact label="Waste">{lot.waste_qty ? `${lot.waste_qty} ${lot.unit ?? ''}` : ''}</Fact>
             <Fact label="Pack">{lot.pack_description ? `${lot.pack_count ?? ''} x ${lot.pack_description}` : ''}</Fact>
             <Fact label="Tag number">{lot.tag_number}</Fact>
             <Fact label="Location">{lot.location}</Fact>

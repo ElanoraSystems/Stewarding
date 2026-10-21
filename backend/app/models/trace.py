@@ -48,6 +48,7 @@ class Lot(Base):
     temp_c: Mapped[Decimal | None] = mapped_column(Numeric(5, 1))
     qty: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     unit: Mapped[str | None] = mapped_column(String(20))
+    waste_qty: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # trim and loss from cutting this lot, in the same unit as qty
     pack_count: Mapped[int | None] = mapped_column(Integer)
     pack_description: Mapped[str | None] = mapped_column(String(120))
     tag_number: Mapped[str | None] = mapped_column(String(60))  # shellfish or other tag

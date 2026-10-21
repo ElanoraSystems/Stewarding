@@ -19,6 +19,8 @@ interface FoodItem {
   group_label: string
 }
 
+const QTY_UNITS = ['kg', 'g', 'l', 'ml', 'pcs', 'cases', 'packs']
+
 const BLANK = { item: '', condition: 'chilled_raw', supplier: '', supplier_lot: '', produced_on: '', expiry_on: '', temp_c: '', qty: '', unit: '', tag_number: '', note: '' }
 
 export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
@@ -93,8 +95,13 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
         <Field label="Temperature on arrival (C)"><Input type="number" step="0.1" value={form.temp_c} onChange={(e) => set('temp_c', e.target.value)} /></Field>
         <Field label="Production date"><Input type="date" value={form.produced_on} onChange={(e) => set('produced_on', e.target.value)} /></Field>
         <Field label="Expiry date" hint="Printed by the supplier. The use-by date is the earlier of this and your shelf-life rule."><Input type="date" min={form.produced_on || undefined} value={form.expiry_on} onChange={(e) => set('expiry_on', e.target.value)} /></Field>
-        <Field label="Quantity (optional)"><Input type="number" min={0} step="any" value={form.qty} onChange={(e) => set('qty', e.target.value)} /></Field>
-        <Field label="Unit (optional)"><Input maxLength={20} placeholder="kg, cases, packs" value={form.unit} onChange={(e) => set('unit', e.target.value)} /></Field>
+        <Field label="Quantity received" hint="Needed to see what is left when the lot is portioned."><Input type="number" min={0} step="any" value={form.qty} onChange={(e) => set('qty', e.target.value)} /></Field>
+        <Field label="Unit">
+          <Select required={form.qty !== ''} value={form.unit} onChange={(e) => set('unit', e.target.value)}>
+            <option value="">Select</option>
+            {QTY_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+          </Select>
+        </Field>
         {group === 'seafood' && <Field label="Shellfish or harvest tag number"><Input maxLength={60} value={form.tag_number} onChange={(e) => set('tag_number', e.target.value)} /></Field>}
         <Field label="Note (optional)"><Input maxLength={500} value={form.note} onChange={(e) => set('note', e.target.value)} /></Field>
       </div>
