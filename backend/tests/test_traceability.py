@@ -388,12 +388,24 @@ def test_a_warm_delivery_is_held_on_arrival_and_only_a_manager_releases_it(clien
 def test_a_delivery_cannot_be_received_without_a_known_supplier(client, login, db, clock):
     m, sup = login(MGR), login(SUP)
     item = food(client, m)
-    body = {"food_item_id": item, "location_id": loc_id(db, "MK"), "condition": "chilled_raw"}
+    body = {"food_item_id": item, "location_id": loc_id(db, "MK"), "condition": "chilled_raw", "supplier_lot": "B2610-884"}
     missing = client.post(LOTS, headers=sup, json=body)
     assert missing.status_code == 422 and missing.json()["detail"][0]["loc"] == ["body", "supplier_id"]
     assert client.post(LOTS, headers=sup, json={**body, "supplier_id": 9999}).json()["detail"] == "Unknown supplier"
     assert db.scalar(select(Lot.id)) is None
     assert client.post(LOTS, headers=sup, json={**body, "supplier_id": a_supplier(db)}).status_code == 201
+
+
+def test_a_delivery_cannot_be_received_without_the_suppliers_lot_number(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    body = {"food_item_id": item, "supplier_id": a_supplier(db), "location_id": loc_id(db, "MK"), "condition": "chilled_raw"}
+    for lot_number in (None, "", "   "):
+        refused = client.post(LOTS, headers=sup, json={**body, "supplier_lot": lot_number})
+        assert refused.status_code == 422 and refused.json()["detail"][0]["loc"] == ["body", "supplier_lot"]
+    assert client.post(LOTS, headers=sup, json=body).status_code == 422
+    assert db.scalar(select(Lot.id)) is None
+    assert client.post(LOTS, headers=sup, json={**body, "supplier_lot": "  B2610   884 "}).json()["supplier_lot"] == "B2610 884"
 
 
 def test_a_manager_sets_the_arrival_temperature_limits_and_they_apply_to_the_next_delivery(client, login, db, clock):

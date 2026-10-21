@@ -37,7 +37,7 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
     const ok = await run(async () => {
       lot = await api<Lot>('/lots', { body: {
         food_item_id: Number(form.item), location_id: locationId, condition: form.condition, supplier_id: Number(form.supplier),
-        supplier_lot: form.supplier_lot || null, produced_on: form.produced_on || null, expiry_on: form.expiry_on || null,
+        supplier_lot: form.supplier_lot, produced_on: form.produced_on || null, expiry_on: form.expiry_on || null,
         temp_c: form.temp_c !== '' ? Number(form.temp_c) : null, qty: form.qty !== '' ? Number(form.qty) : null, unit: form.unit || null,
         tag_number: form.tag_number || null, note: form.note || null,
       } })
@@ -89,7 +89,7 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
             {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
         </Field>
-        <Field label="Supplier lot or batch number"><Input maxLength={60} value={form.supplier_lot} onChange={(e) => set('supplier_lot', e.target.value)} /></Field>
+        <Field label="Supplier lot or batch number"><Input required maxLength={60} value={form.supplier_lot} onChange={(e) => set('supplier_lot', e.target.value)} /></Field>
         <Field label="Temperature on arrival (C)"><Input type="number" step="0.1" value={form.temp_c} onChange={(e) => set('temp_c', e.target.value)} /></Field>
         <Field label="Production date"><Input type="date" value={form.produced_on} onChange={(e) => set('produced_on', e.target.value)} /></Field>
         <Field label="Expiry date" hint="Printed by the supplier. The use-by date is the earlier of this and your shelf-life rule."><Input type="date" min={form.produced_on || undefined} value={form.expiry_on} onChange={(e) => set('expiry_on', e.target.value)} /></Field>
@@ -98,7 +98,7 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
         {group === 'seafood' && <Field label="Shellfish or harvest tag number"><Input maxLength={60} value={form.tag_number} onChange={(e) => set('tag_number', e.target.value)} /></Field>}
         <Field label="Note (optional)"><Input maxLength={500} value={form.note} onChange={(e) => set('note', e.target.value)} /></Field>
       </div>
-      <Button type="submit" disabled={!form.item || !form.supplier || locationId === null}>Create lot and label</Button>
+      <Button type="submit" disabled={!form.item || !form.supplier || !form.supplier_lot.trim() || locationId === null}>Create lot and label</Button>
     </form>
   )
 }

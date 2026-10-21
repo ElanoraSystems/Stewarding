@@ -47,7 +47,7 @@ class ReceiveIn(BaseModel):
     location_id: int
     condition: Received
     supplier_id: int
-    supplier_lot: str | None = Field(default=None, max_length=60)
+    supplier_lot: str = Field(min_length=1, max_length=60, pattern=r"\S")
     produced_on: date | None = None
     expiry_on: date | None = None
     temp_c: Decimal | None = Field(default=None, ge=-60, le=80)
