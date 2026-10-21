@@ -11,9 +11,7 @@ interface HeroCardProps {
 /** The gradient greeting card at the top of a dashboard, with short facts as pills. */
 export function HeroCard({ title, subtitle, eyebrow, chips = [], children }: HeroCardProps) {
   return (
-    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand to-brand-deep p-6 text-white shadow-[0_10px_30px_rgba(37,99,214,0.25)]">
-      <div aria-hidden className="pointer-events-none absolute -right-10 -top-16 h-52 w-52 rounded-full bg-white/10" />
-      <div aria-hidden className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full bg-white/10" />
+    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand to-brand-deep p-6 text-white shadow-lg shadow-brand/20">
       <div className="relative space-y-1">
         {eyebrow && <p className="text-xs font-medium uppercase tracking-wide text-white/70">{eyebrow}</p>}
         <h1 className="text-2xl font-semibold">{title}</h1>

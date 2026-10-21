@@ -138,7 +138,7 @@ export function ManagerDashboard() {
       {error && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}
 
       {urgent && k && (
-        <div role="alert" className="rounded-md border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">
+        <div role="alert" className="rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-4 py-3 text-sm text-danger">
           <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden /> Needs attention now</p>
           <ul className="mt-1 list-inside list-disc">
             {k.failed_checks > 0 && <li><Link className="underline" to="/monitoring">{k.failed_checks} failed check(s) today</Link></li>}
@@ -151,7 +151,7 @@ export function ManagerDashboard() {
       {loading && !data ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-24" />)}</div> : k && (
         <div className="space-y-5">
           {k.awaiting_approval.tasks + k.awaiting_approval.readings + k.awaiting_approval.breakage > 0 && (
-            <Link to="/tasks" className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-warn/50 bg-warn-soft px-4 py-3 text-sm">
+            <Link to="/tasks" className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-warn/25 border-l-4 border-l-warn bg-warn-soft px-4 py-3 text-sm">
               <span className="font-semibold">Waiting for approval</span>
               {approves('tasks') && <span>{k.awaiting_approval.tasks} checklist task(s)</span>}
               {approves('readings') && <span>{k.awaiting_approval.readings} monitoring reading(s)</span>}

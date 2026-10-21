@@ -253,7 +253,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
         )}
       </div>
       {anyFail && (
-        <div className="space-y-2 rounded-md border border-danger/40 bg-danger-soft p-3">
+        <div className="space-y-2 rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft p-3">
           <p className="text-sm font-medium text-danger">A failed check will be recorded as failed and your supervisor alerted.</p>
           <Field label="Corrective action taken" hint="Pick a standard action or type your own. You can also add it afterwards from the open actions list.">
             <Input list="standard-actions" value={action} onChange={(e) => setAction(e.target.value)} />

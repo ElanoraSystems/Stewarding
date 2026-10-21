@@ -85,13 +85,13 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
           <Input required value={form.name} onChange={(e) => set('name', e.target.value)} />
         </Field>
         {exact && (
-          <div role="alert" className="rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-sm text-danger">
+          <div role="alert" className="rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-3 py-2 text-sm text-danger">
             <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> This item already exists</p>
             <p className="mt-1">{exact.code} - {exact.name}{!exact.active && ' (inactive, restore it from Settings, Item master)'}. Use the existing item instead of adding it again.</p>
           </div>
         )}
         {!exact && shownSimilar.length > 0 && (
-          <div role="status" className="rounded-md border border-warn/50 bg-warn-soft px-3 py-2 text-sm text-warn">
+          <div role="status" className="rounded-xl border border-warn/25 border-l-4 border-l-warn bg-warn-soft px-3 py-2 text-sm text-warn">
             <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> Similar items already exist</p>
             <ul className="mt-1 list-inside list-disc">{shownSimilar.map((s) => <li key={s.id}>{s.code} - {s.name}{!s.active && ' (inactive)'}</li>)}</ul>
             <p className="mt-1">Use the existing item instead of adding a duplicate.</p>

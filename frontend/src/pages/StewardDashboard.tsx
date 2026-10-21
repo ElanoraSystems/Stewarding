@@ -40,7 +40,7 @@ export function StewardDashboard() {
       {loading && !data ? <Skeleton className="h-40 w-full" /> : data && (
         <>
           {(data.monitoring_checks.overdue > 0 || data.unresolved_issues > 0) && (
-            <div role="alert" className="rounded-md border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">
+            <div role="alert" className="rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-4 py-3 text-sm text-danger">
               <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden /> Safety checks need you</p>
               <ul className="mt-1 list-inside list-disc">
                 {data.monitoring_checks.overdue > 0 && <li><Link className="underline" to="/monitoring">{data.monitoring_checks.overdue} check(s) overdue</Link></li>}

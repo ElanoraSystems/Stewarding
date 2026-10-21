@@ -297,7 +297,7 @@ export function ReceivingTab() {
             {detail.status === 'void' && <p className="rounded-md bg-surface-muted p-2">Voided: {detail.void_reason}</p>}
             {detail.status === 'posted' && canVoid && !voiding && <Button variant="danger" onClick={() => setVoiding(true)}>Void this document</Button>}
             {voiding && (
-              <div className="space-y-2 rounded-md border border-danger/40 bg-danger-soft p-3">
+              <div className="space-y-2 rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft p-3">
                 <p className="text-danger">Voiding reverses the stock with new ledger entries. The original entries stay in the history.</p>
                 <Field label="Reason"><Input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} /></Field>
                 <div className="flex justify-end gap-2">

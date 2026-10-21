@@ -108,7 +108,7 @@ export function MonitoringPage() {
       </div>
 
       {overdue.length > 0 && (
-        <div role="alert" className="flex items-center gap-2 rounded-md border border-danger/40 bg-danger-soft px-4 py-3 text-sm font-medium text-danger">
+        <div role="alert" className="flex items-center gap-2 rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-4 py-3 text-sm font-medium text-danger">
           <AlertTriangle className="h-4 w-4" aria-hidden /> {overdue.length} check(s) overdue
         </div>
       )}
