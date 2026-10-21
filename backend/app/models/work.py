@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, Time, UniqueConstraint, true
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, Time, UniqueConstraint, false, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -114,6 +114,7 @@ class EquipmentSchedule(Base):
     fail_options: Mapped[list | None] = mapped_column(JSON)  # the choices that count as a failure
     max_length: Mapped[int | None] = mapped_column(Integer)  # longest written answer
     require_reference: Mapped[bool] = mapped_column(Boolean, default=False)  # batch, lot or product reference
+    trace_lots: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())  # the check must name the food lots it used
     required: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # an optional question may be left blank
     reference_label: Mapped[str | None] = mapped_column(String(40))  # what the reference is called, e.g. Item name
     phase: Mapped[str | None] = mapped_column(String(10))  # start or finish of a two-step log; empty for a single entry

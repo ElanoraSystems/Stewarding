@@ -28,7 +28,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     time_of_day: schedule?.time_of_day?.slice(0, 5) ?? '', interval_minutes: schedule?.interval_minutes ? String(schedule.interval_minutes) : '',
     weekdays: schedule?.weekdays ?? [], day_of_month: schedule?.day_of_month ? String(schedule.day_of_month) : '',
     min_value: schedule?.min_value != null ? String(Number(schedule.min_value)) : '', max_value: schedule?.max_value != null ? String(Number(schedule.max_value)) : '',
-    require_reference: schedule?.require_reference ?? false, required: schedule?.required ?? true, reference_label: schedule?.reference_label ?? '', phase: schedule?.phase ?? '',
+    require_reference: schedule?.require_reference ?? false, trace_lots: schedule?.trace_lots ?? false, required: schedule?.required ?? true, reference_label: schedule?.reference_label ?? '', phase: schedule?.phase ?? '',
   })
   const [extra, setExtra] = useState({ options: (schedule?.options ?? []).join('\n'), fail: schedule?.fail_options ?? [], maxLength: String(schedule?.max_length ?? 200) })
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
@@ -45,7 +45,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     event.preventDefault()
     const body = {
       stage: form.stage, parameter: form.parameter, unit: isNumber ? form.unit || null : null, value_type: form.value_type,
-      require_reference: form.require_reference, required: form.required, reference_label: form.require_reference ? form.reference_label.trim() || null : null,
+      require_reference: form.require_reference, trace_lots: form.trace_lots, required: form.required, reference_label: form.require_reference ? form.reference_label.trim() || null : null,
       phase: form.phase || null, source: form.source, timing: form.timing,
       time_of_day: form.time_of_day && !manual ? `${form.time_of_day}:00` : null,
       interval_minutes: form.timing === 'interval' ? Number(form.interval_minutes) : null,
@@ -139,6 +139,10 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
           Ask for a batch, lot or product reference (traceability)
         </label>
         {form.require_reference && <Field label="What is it called?" hint="For example Item or product name."><Input maxLength={40} value={form.reference_label} onChange={(e) => set('reference_label', e.target.value)} /></Field>}
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={form.trace_lots} onChange={(e) => set('trace_lots', e.target.checked)} />
+          Link this check to food lots (traceability): the person scans or types the lot, and it is recorded against the delivery
+        </label>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit">Save</Button>

@@ -10,6 +10,7 @@ export interface FieldSpec {
   fail: string[]
   maxLength: string
   reference: boolean
+  traceLots: boolean
   required: boolean
 }
 
@@ -24,7 +25,7 @@ export const FIELD_TYPES: { value: FieldType; label: string; hint: string }[] = 
   { value: 'choice', label: 'Dropdown (choose one)', hint: 'The person picks one answer from your list. You decide which answers fail.' },
 ]
 
-export const blankField = (): FieldSpec => ({ title: '', type: 'number', unit: '', min: '', max: '', options: '', fail: [], maxLength: '200', reference: false, required: true })
+export const blankField = (): FieldSpec => ({ title: '', type: 'number', unit: '', min: '', max: '', options: '', fail: [], maxLength: '200', reference: false, traceLots: false, required: true })
 
 export const optionList = (text: string): string[] => [...new Set(text.split('\n').map((o) => o.trim().replace(/\s+/g, ' ')).filter(Boolean))]
 
@@ -47,7 +48,7 @@ export function fieldProblem(f: FieldSpec): string | null {
 export function fieldPayload(f: FieldSpec) {
   const options = optionList(f.options)
   return {
-    title: f.title.trim(), value_type: f.type, require_reference: f.reference, required: f.required,
+    title: f.title.trim(), value_type: f.type, require_reference: f.reference, trace_lots: f.traceLots, required: f.required,
     unit: f.type === 'number' ? f.unit.trim() || null : null,
     min_value: f.type === 'number' && f.min !== '' ? Number(f.min) : null,
     max_value: f.type === 'number' && f.max !== '' ? Number(f.max) : null,

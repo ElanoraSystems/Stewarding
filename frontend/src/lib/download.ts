@@ -12,3 +12,18 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   URL.revokeObjectURL(url)
   return true
 }
+
+/** Opens an authenticated PDF in a new tab to read or print; the tab opens first so it is not blocked as a pop-up. */
+export async function openPdf(path: string): Promise<boolean> {
+  const tab = window.open('', '_blank')
+  const response = await fetch(path, { headers: { Authorization: `Bearer ${tokenStore.get()}` } })
+  if (!response.ok) {
+    tab?.close()
+    return false
+  }
+  const url = URL.createObjectURL(await response.blob())
+  if (tab) tab.location.href = url
+  else window.location.href = url
+  setTimeout(() => URL.revokeObjectURL(url), 120_000)
+  return true
+}

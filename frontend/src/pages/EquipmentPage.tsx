@@ -125,7 +125,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
               <tbody>
                 {eq.schedules.map((s) => (
                   <tr key={s.id}>
-                    <Td>{s.stage}{s.require_reference && <Badge className="ml-2">{s.reference_label ?? 'Reference'}</Badge>}{s.phase && <Badge className="ml-2">{s.phase === 'start' ? 'Time in' : 'Time out'}</Badge>}</Td>
+                    <Td>{s.stage}{s.require_reference && <Badge className="ml-2">{s.reference_label ?? 'Reference'}</Badge>}{s.trace_lots && <Badge className="ml-2">Food lots</Badge>}{s.phase && <Badge className="ml-2">{s.phase === 'start' ? 'Time in' : 'Time out'}</Badge>}</Td>
                     <Td>{({ yes_no: 'Yes or no', text: 'Short text', choice: 'Dropdown' } as Record<string, string>)[s.value_type] ?? s.parameter}</Td>
                     <Td>{when(s)}</Td>
                     <Td>{limits(s)}</Td>

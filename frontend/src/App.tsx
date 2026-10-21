@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth'
 import { AttendancePage } from '@/pages/AttendancePage'
 import { AuditPage } from '@/pages/AuditPage'
 import { BreakagePage } from '@/pages/BreakagePage'
+import { TraceabilityPage } from '@/pages/TraceabilityPage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { ChecklistsPage } from '@/pages/ChecklistsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="smallware" element={<Navigate to="/inventory" replace />} />
         <Route path="stock-movements" element={<StockMovementsPage />} />
         <Route path="breakage" element={<BreakagePage />} />
+        <Route path="traceability" element={<TraceabilityPage />} />
         <Route path="tasks" element={<TasksPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SettingsPage />} />

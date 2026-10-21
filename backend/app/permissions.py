@@ -14,6 +14,7 @@ ALL_PERMISSIONS = [
     "inventory.module", "inventory.view", "inventory.count", "inventory.manage",
     "stock.transfer", "stock.approve",
     "breakage.view", "breakage.report", "breakage.review", "breakage.approve",
+    "lot.view", "lot.receive", "lot.split", "lot.manage",
     "notification.view",
     "report.view", "report.export",
     "settings.manage",
@@ -26,6 +27,7 @@ SUPERVISOR_PERMISSIONS = [
     "temp.view", "temp.record", "temp.review", "equipment.view",
     "inventory.module", "inventory.view", "inventory.count", "stock.transfer",
     "breakage.view", "breakage.report", "breakage.review",
+    "lot.view", "lot.receive",
     "notification.view", "report.view",
 ]
 
@@ -60,6 +62,8 @@ PERMISSION_CATALOG = [
                    ("stock.transfer", "Post stock and request transfers"), ("stock.approve", "Approve transfers")]),
     ("Breakage", [("breakage.view", "View breakage"), ("breakage.report", "Report breakage"),
                   ("breakage.review", "Review breakage"), ("breakage.approve", "Approve high-value breakage")]),
+    ("Food traceability", [("lot.view", "View lots and traces"), ("lot.receive", "Receive food and create lots"),
+                           ("lot.split", "Split lots into portions (butcher)"), ("lot.manage", "Hold, discard and set shelf-life rules")]),
     ("Reports and admin", [("notification.view", "See tasks and notifications"), ("report.view", "View reports"),
                            ("report.export", "Export reports"), ("settings.manage", "Manage settings and roles"),
                            ("audit.view", "View audit logs")]),
@@ -77,6 +81,7 @@ MODULES = [
     ("inventory", "Inventory", "inventory.module"),
     ("stock-movements", "Stock Movements & Transfers", "stock.transfer"),
     ("breakage", "Breakage & Damage Logs", "breakage.report"),
+    ("traceability", "Food Traceability", "lot.view"),
     ("tasks", "Tasks & Notifications", "notification.view"),
     ("reports", "Reports & Analytics", "report.view"),
     ("settings", "Settings", "settings.manage"),

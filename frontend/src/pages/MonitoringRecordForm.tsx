@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { LotPicker, type LotChoice } from '@/components/LotPicker'
 import { SignaturePad } from '@/components/SignaturePad'
 import { Select } from '@/components/ui/select'
 import { api, uploadFile } from '@/lib/api'
@@ -21,6 +22,7 @@ export interface Schedule {
   fail_options: string[] | null
   max_length: number | null
   require_reference: boolean
+  trace_lots?: boolean
   required: boolean
   reference_label: string | null
   phase: 'start' | 'finish' | null
@@ -96,6 +98,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const [scheduleId, setScheduleId] = useState('')
   const [values, setValues] = useState<Record<number, string>>({})
   const [reference, setReference] = useState('')
+  const [lots, setLots] = useState<LotChoice[]>([])
   const [comment, setComment] = useState('')
   const [action, setAction] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -122,7 +125,8 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     setBlobs((b) => ({ ...b, ...(blob ? { [s.id]: blob } : {}) }))
     setValues((v) => ({ ...v, [s.id]: blob ? 'file' : '' }))
   }
-  const needsReference = cycle.some((s) => s.require_reference)
+  const needsReference = cycle.some((s) => s.require_reference && !s.trace_lots)
+  const needsLots = !prefill?.startReadingId && !prefill?.retestOf && cycle.some((s) => s.trace_lots)
   const alreadyDone = !prefill?.retestOf && cycle.length > 0 && cycle.every((s) => doneSchedules?.has(s.id))
 
   function pickPoint(id: string) {
@@ -138,7 +142,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     setBusy(true)
     const ok = await run(async () => {
       const evidence = file ? await uploadFile(file) : null
-      const common = { comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null }
+      const common = { comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null, lot_ids: lots.map((l) => l.id) }
       const body = { equipment_id: Number(equipmentId), start_reading_id: prefill?.startReadingId ?? null }
       if (prefill?.retestOf) {
         await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), ...answerOf(schedule, values[Number(scheduleId)]), retest_of_id: prefill.retestOf, ...common } })
@@ -155,6 +159,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     if (ok) {
       setValues({})
       setReference('')
+      setLots([])
       setComment('')
       setAction('')
       setFile(null)
@@ -241,6 +246,11 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
             <Input required maxLength={120} className="w-56" value={reference} onChange={(e) => setReference(e.target.value)} />
           </Field>
         )}
+        {needsLots && (
+          <Field label="Food lot or lots" hint="Required for this check. Scan the label or type the lot code, so the record is linked to the delivery.">
+            <LotPicker value={lots} onChange={setLots} />
+          </Field>
+        )}
       </div>
       {anyFail && (
         <div className="space-y-2 rounded-md border border-danger/40 bg-danger-soft p-3">
@@ -255,7 +265,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       <Field label="Photo evidence (optional)">
         <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </Field>
-      <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '')}>
+      <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '') || (needsLots && lots.length === 0)}>
         {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : cycle.length > 1 ? 'Record all' : 'Record check'}
       </Button>
     </form>

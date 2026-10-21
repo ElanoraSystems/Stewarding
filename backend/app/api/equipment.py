@@ -23,7 +23,7 @@ EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer",
                     "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
                    "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "options",
-                   "fail_options", "max_length", "required", "reference_label", "phase", "active")
+                   "fail_options", "max_length", "required", "reference_label", "phase", "trace_lots", "active")
 
 
 class EquipmentIn(BaseModel):
@@ -62,6 +62,7 @@ class ScheduleIn(BaseModel):
     fail_options: list[str] | None = None
     max_length: int | None = Field(default=None, ge=1, le=500)
     require_reference: bool = False
+    trace_lots: bool = False
     reference_label: str | None = Field(default=None, max_length=40)
     phase: Literal["start", "finish"] | None = None
     source: str = Field(default="machine_display", pattern="^(machine_display|independent_probe)$")
@@ -272,6 +273,7 @@ class FieldIn(BaseModel):
     fail_options: list[str] | None = None
     max_length: int | None = Field(default=None, ge=1, le=500)
     require_reference: bool = False
+    trace_lots: bool = False
 
 
 class FrequencyIn(BaseModel):
@@ -329,7 +331,7 @@ def _schedules_for(form: FormIn) -> list[dict]:
     for slot in slots:
         for f in form.fields:
             title = " ".join(f.title.split())
-            check = ScheduleIn(stage=title, parameter=title, unit=f.unit, value_type=f.value_type, require_reference=f.require_reference,
+            check = ScheduleIn(stage=title, parameter=title, unit=f.unit, value_type=f.value_type, require_reference=f.require_reference, trace_lots=f.trace_lots,
                                source="machine_display", weekdays=freq.weekdays if freq.mode == "weekly" else None,
                                day_of_month=freq.day_of_month if freq.mode == "monthly" else None, min_value=f.min_value,
                                max_value=f.max_value, options=f.options, fail_options=f.fail_options, max_length=f.max_length, required=f.required, **slot)

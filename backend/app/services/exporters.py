@@ -351,14 +351,14 @@ def _numeric(key: str, rows: list[dict]) -> bool:
     return bool(values) and all(not isinstance(v, dict) and NUMBER.fullmatch(str(v).strip()) for v in values)
 
 
-def _data_table(st: dict, columns: list, rows: list[dict], widths: list[float], chart: bool) -> Table:
+def _data_table(st: dict, columns: list, rows: list[dict], widths: list[float], chart: bool, empty: str = "No records in this period") -> Table:
     numeric = [not chart and _numeric(key, rows) for key, _ in columns]
     body = [ParagraphStyle(f"n{i}", parent=st["cell"], alignment=2) if n else st["cell"] for i, n in enumerate(numeric)]
     heads = [Paragraph(_esc(label).replace("\n", "<br/>"), ParagraphStyle(f"h{i}", parent=st["head"], alignment=2 if numeric[i] else (1 if chart and key != "task" else 0)))
              for i, (key, label) in enumerate(columns)]
     data = [heads] + [[_mark(key, row.get(key), body[i]) for i, (key, _) in enumerate(columns)] for row in rows]
     if not rows:
-        data.append([Paragraph("<i>No records in this period</i>", st["small"])] + [""] * (len(columns) - 1))
+        data.append([Paragraph(f"<i>{_esc(empty)}</i>", st["small"])] + [""] * (len(columns) - 1))
     table = Table(data, colWidths=widths, repeatRows=1)
     style = [("BACKGROUND", (0, 0), (-1, 0), BRAND), ("VALIGN", (0, 0), (-1, -1), "MIDDLE" if chart else "TOP"),
              ("TOPPADDING", (0, 0), (-1, -1), 3.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5), ("LEFTPADDING", (0, 0), (-1, -1), 5),
@@ -451,7 +451,7 @@ def _render(*, title: str, subtitle: str, org: dict | None, meta: list, sections
             piece += [_totals(st, sec["totals"], width), Spacer(1, 9)]
         if sec.get("legend"):
             piece += [Paragraph(_esc(sec["legend"]), st["small"]), Spacer(1, 4)]
-        piece.append(_data_table(st, sec["columns"], sec["rows"], widths, chart))
+        piece.append(_data_table(st, sec["columns"], sec["rows"], widths, chart, sec.get("empty", "No records in this period")))
         if sec["totals"] and not sec.get("summary_first"):
             piece += [Spacer(1, 7), _totals(st, sec["totals"], width)]
         story += [KeepTogether(piece)] if len(sec["rows"]) <= 8 else [CondPageBreak(120), *piece]

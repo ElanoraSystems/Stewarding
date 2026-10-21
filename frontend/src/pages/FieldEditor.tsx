@@ -85,6 +85,7 @@ export function FieldEditor({ value, onChange, index, count, onMove, onRemove }:
         ))}
       </div>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.reference} onChange={(e) => onChange({ ...value, reference: e.target.checked })} /> Also ask for a batch or lot reference with this field</label>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.traceLots} onChange={(e) => onChange({ ...value, traceLots: e.target.checked })} /> Link this field to food lots (traceability): scan or type the lot</label>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import {
   ArrowLeftRight, Bell, CalendarDays, ChartColumn, ClipboardCheck, Clock, LayoutDashboard, Package,
-  LogOut, Menu, ScrollText, Settings, Thermometer, TriangleAlert, Users, Wrench, X,
+  LogOut, Menu, QrCode, ScrollText, Settings, Thermometer, TriangleAlert, Users, Wrench, X,
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -25,6 +25,7 @@ const ICONS: Record<string, LucideIcon> = {
   inventory: Package,
   'stock-movements': ArrowLeftRight,
   breakage: TriangleAlert,
+  traceability: QrCode,
   tasks: Bell,
   reports: ChartColumn,
   settings: Settings,
@@ -35,7 +36,7 @@ const GROUPS: { title: string; keys: string[] }[] = [
   { title: 'Overview', keys: ['dashboard', 'tasks'] },
   { title: 'People', keys: ['employees', 'attendance', 'roster'] },
   { title: 'Daily operations', keys: ['checklists'] },
-  { title: 'Food safety', keys: ['monitoring', 'equipment'] },
+  { title: 'Food safety', keys: ['monitoring', 'equipment', 'traceability'] },
   { title: 'Stock', keys: ['inventory', 'stock-movements', 'breakage'] },
   { title: 'Insights and admin', keys: ['reports', 'settings', 'audit'] },
 ]
