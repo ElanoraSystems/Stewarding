@@ -12,6 +12,8 @@ import { STATUS_LABEL, STATUS_TONE, type Lot } from '@/pages/trace/types'
 
 const SIZE = 15
 
+const quantity = (lot: Lot) => (lot.qty === null ? '-' : `${lot.qty} ${lot.unit ?? ''}`.trim())
+
 export function LotsTab() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -46,6 +48,7 @@ export function LotsTab() {
               </span>
               <span className="block text-sm">{l.item}{l.pack_description ? <span className="text-ink-muted"> - {l.pack_count} x {l.pack_description}</span> : null}</span>
               <span className="flex flex-wrap items-center gap-x-3 text-xs text-ink-muted">
+                {l.qty !== null && <span>{quantity(l)}</span>}
                 <span>Use by {l.use_by ? fmtDateTime(l.use_by) : '-'}</span>
                 {l.past_use_by && l.status === 'active' && <Badge tone="critical">Past</Badge>}
                 <span>{l.location}</span>
@@ -56,12 +59,13 @@ export function LotsTab() {
       </ul>
       <div className="hidden md:block">
       <Table>
-        <thead><tr><Th>Lot</Th><Th>Food</Th><Th>Supplier</Th><Th>Produced</Th><Th>Expiry</Th><Th>Use by</Th><Th>Status</Th><Th>Location</Th></tr></thead>
+        <thead><tr><Th>Lot</Th><Th>Food</Th><Th>Quantity</Th><Th>Supplier</Th><Th>Produced</Th><Th>Expiry</Th><Th>Use by</Th><Th>Status</Th><Th>Location</Th></tr></thead>
         <tbody>
-          {loading && !data ? <SkeletonRows cols={8} /> : data?.items.map((l) => (
+          {loading && !data ? <SkeletonRows cols={9} /> : data?.items.map((l) => (
             <tr key={l.id} className="cursor-pointer" onClick={() => setOpen(l.id)}>
               <Td className="font-medium">{l.code}</Td>
               <Td>{l.item}{l.pack_description ? <span className="block text-xs text-ink-muted">{l.pack_count} x {l.pack_description}</span> : null}</Td>
+              <Td className="whitespace-nowrap">{quantity(l)}</Td>
               <Td>{l.supplier ?? '-'}{l.supplier_lot ? <span className="block text-xs text-ink-muted">lot {l.supplier_lot}</span> : null}</Td>
               <Td>{l.produced_on ? fmtDate(l.produced_on) : '-'}</Td>
               <Td>{l.expiry_on ? fmtDate(l.expiry_on) : '-'}</Td>

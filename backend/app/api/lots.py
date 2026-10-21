@@ -17,8 +17,8 @@ from ..pagination import iso, paginate
 from ..services import exporters, labels
 from ..services.monitoring import describe
 from ..services.organization import report_identity, stamp
-from ..services.traceability import (COLD_CHAIN_KEY, CONDITIONS, GROUPS, STATUSES, LotError, ancestors, child_code, cold_chain_limits, descendants,
-                                     new_code, usable, use_by_for)
+from ..services.traceability import (COLD_CHAIN_KEY, CONDITIONS, GROUPS, STATUSES, LotError, ancestors, balance, child_code, cold_chain_limits,
+                                     descendants, new_code, usable, use_by_for)
 
 router = APIRouter(prefix="/api/lots", tags=["food traceability"])
 
@@ -487,7 +487,7 @@ def _trace(db: Session, lot: Lot) -> dict:
     maps = _maps(db)
     back, forward = ancestors(db, lot.id), descendants(db, lot.id)
     codes = {x.id: x.code for x in [lot, *back, *forward]}
-    return {"lot": _lot(lot, maps, now), "back": [_lot(x, maps, now) for x in back], "forward": [_lot(x, maps, now) for x in forward],
+    return {"lot": _lot(lot, maps, now), "balance": balance(db, lot), "back": [_lot(x, maps, now) for x in back], "forward": [_lot(x, maps, now) for x in forward],
             "uses_back": _uses(db, [x.id for x in back], maps, codes), "uses_forward": _uses(db, [lot.id, *[x.id for x in forward]], maps, codes),
             "events": [{"kind": e.kind, "detail": e.detail, "by": maps["user"].get(e.user_id), "at": iso(e.at)}
                        for e in db.scalars(select(LotEvent).where(LotEvent.lot_id == lot.id).order_by(LotEvent.id))]}

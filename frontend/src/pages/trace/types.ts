@@ -1,3 +1,5 @@
+import type { Balance } from '@/lib/units'
+
 export interface Lot {
   id: number
   code: string
@@ -46,6 +48,7 @@ export interface Use {
 
 export interface Trace {
   lot: Lot
+  balance: Balance | null
   back: Lot[]
   forward: Lot[]
   uses_back: Use[]

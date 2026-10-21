@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { fmtDate, fmtDateTime } from '@/lib/format'
+import { cutsUse } from '@/lib/units'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 import { LabelActions } from '@/pages/trace/LabelActions'
@@ -20,8 +21,11 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
   const [parts, setParts] = useState([blank()])
   const [finish, setFinish] = useState(false)
   const [made, setMade] = useState<Lot[] | null>(null)
-  const parent = useApi<Trace>(chosen[0] ? `/lots/${chosen[0].id}` : null).data?.lot
+  const trace = useApi<Trace>(chosen[0] ? `/lots/${chosen[0].id}` : null).data
+  const parent = trace?.lot
+  const balance = trace?.balance ?? null
   const thawed = parent?.condition === 'thawed'
+  const using = balance ? cutsUse(balance, parts) : 0
   const patch = (index: number, change: Partial<ReturnType<typeof blank>>) => setParts((all) => all.map((p, n) => (n === index ? { ...p, ...change } : p)))
 
   async function save(event: FormEvent) {
@@ -70,6 +74,17 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
           {thawed && ' This lot is thawed, so its portions stay thawed and cannot be frozen again.'}
         </p>
       )}
+      {balance && (
+        <div className="space-y-1 text-sm">
+          <p>
+            Received <span className="font-semibold">{balance.qty} {balance.unit}</span>. Already portioned <span className="font-semibold">{balance.portioned} {balance.unit}</span>.
+            Left to portion <span className="font-semibold">{balance.left} {balance.unit}</span>.
+            {balance.unmeasured > 0 && ` ${balance.unmeasured} earlier portion lot(s) have no comparable quantity and are not counted.`}
+          </p>
+          {using > 0 && <p className="text-ink-muted">This split uses {using} {balance.unit}.</p>}
+          {using > balance.left && <p role="status" className="font-semibold text-warn">These cuts add up to more than the {balance.left} {balance.unit} left. Check the quantities before you save.</p>}
+        </div>
+      )}
       <div className="space-y-3">
         {parts.map((p, i) => (
           <div key={i} className="grid items-end gap-2 sm:grid-cols-[minmax(0,2fr)_5rem_minmax(0,1.4fr)_4.5rem_4.5rem_2.5rem]">
@@ -80,7 +95,7 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
                 {thawed ? <option value="thawed">Thawed</option> : RECEIVED_CONDITIONS.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
               </Select>
             </Field>
-            <Field label={i === 0 ? 'Qty' : ''}><Input type="number" min={0} step="any" value={p.qty} onChange={(e) => patch(i, { qty: e.target.value })} /></Field>
+            <Field label={i === 0 ? 'Total qty' : ''}><Input type="number" min={0} step="any" value={p.qty} onChange={(e) => patch(i, { qty: e.target.value })} /></Field>
             <Field label={i === 0 ? 'Unit' : ''}><Input maxLength={20} value={p.unit} onChange={(e) => patch(i, { unit: e.target.value })} /></Field>
             {parts.length > 1 ? <Button type="button" variant="ghost" size="icon" aria-label="Remove this cut" onClick={() => setParts((all) => all.filter((_, n) => n !== i))}><Trash2 className="h-4 w-4" /></Button> : <span />}
           </div>

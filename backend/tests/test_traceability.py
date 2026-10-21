@@ -427,3 +427,26 @@ def test_a_manager_sets_the_arrival_temperature_limits_and_they_apply_to_the_nex
     assert client.put(f"{LOTS}/cold-chain", headers=m, json={"condition": "thawed", "max_c": 4}).status_code == 422
     audit = db.scalar(select(AuditLog).where(AuditLog.action == "lot.cold_chain_save").order_by(AuditLog.id))
     assert audit.before == {"chilled_raw": 5.0} and audit.after == {"chilled_raw": 8.0}
+
+
+def test_a_lot_shows_what_is_left_to_portion_in_comparable_units(client, login, db, clock):
+    m, sup, cook = login(MGR), login(SUP), None
+    item = food(client, m)
+    rule(client, m)
+    cook = butcher(client, db, m)
+    lot = receive(client, sup, db, item, qty=20, unit="kg").json()
+    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 0.0, "left": 20.0, "unmeasured": 0}
+    cut = {"description": "200 g breast portions", "count": 24, "condition": "vacuum_chilled"}
+    assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{**cut, "qty": 4.8, "unit": "kg"}]}).status_code == 201
+    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"]["left"] == 15.2
+    assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{**cut, "qty": 500, "unit": "G"}]}).status_code == 201
+    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 5.3, "left": 14.7, "unmeasured": 0}
+    assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{**cut, "qty": 3, "unit": "trays"}, cut]}).status_code == 201
+    assert client.get(f"{LOTS}/{lot['id']}", headers=m).json()["balance"] == {"qty": 20.0, "unit": "kg", "portioned": 5.3, "left": 14.7, "unmeasured": 2}
+
+
+def test_a_lot_without_a_quantity_or_unit_has_no_balance(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    assert client.get(f"{LOTS}/{receive(client, sup, db, item).json()['id']}", headers=m).json()["balance"] is None
+    assert client.get(f"{LOTS}/{receive(client, sup, db, item, qty=5).json()['id']}", headers=m).json()["balance"] is None

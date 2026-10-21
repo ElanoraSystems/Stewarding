@@ -1,5 +1,6 @@
 from collections import deque
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -22,6 +23,35 @@ class LotError(Exception):
 
 def shelf_hours(db: Session, group: str, condition: str) -> int | None:
     return db.scalar(select(ShelfLifeRule.hours).where(ShelfLifeRule.food_group == group, ShelfLifeRule.condition == condition))
+
+
+# Units that can be compared with each other: (what they measure, size in the smallest unit).
+UNITS = {"kg": ("mass", 1000), "g": ("mass", 1), "l": ("volume", 1000), "ml": ("volume", 1)}
+
+
+def _measure(qty: Decimal | None, unit: str | None) -> tuple[str, Decimal] | None:
+    name = (unit or "").strip().lower()
+    if qty is None or not name:
+        return None
+    kind, size = UNITS.get(name, (name, 1))
+    return kind, Decimal(qty) * size
+
+
+def balance(db: Session, lot: Lot) -> dict | None:
+    """What is left to portion from a lot that has a quantity and unit; only portions in a comparable unit are counted."""
+    whole = _measure(lot.qty, lot.unit)
+    if whole is None:
+        return None
+    size = UNITS.get(lot.unit.strip().lower(), (None, 1))[1]
+    used, unmeasured = Decimal(0), 0
+    for child in db.scalars(select(Lot).join(LotLink, LotLink.child_id == Lot.id).where(LotLink.parent_id == lot.id)):
+        measured = _measure(child.qty, child.unit)
+        if measured and measured[0] == whole[0]:
+            used += measured[1]
+        else:
+            unmeasured += 1
+    return {"qty": float(lot.qty), "unit": lot.unit, "portioned": round(float(used / size), 2),
+            "left": round(float((whole[1] - used) / size), 2), "unmeasured": unmeasured}
 
 
 def cold_chain_limits(db: Session) -> dict[str, float]:
