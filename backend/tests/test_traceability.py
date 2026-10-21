@@ -304,7 +304,7 @@ def test_a_frozen_lot_is_thawed_once_and_its_use_by_follows_the_thawed_rule(clie
     m, sup = login(MGR), login(SUP)
     item = food(client, m)
     cook = butcher(client, db, m)
-    lot = receive(client, sup, db, item, condition="frozen", expiry_on="2026-03-30").json()
+    lot = receive(client, sup, db, item, condition="frozen", temp_c=-18, expiry_on="2026-03-30").json()
     thaw = f"{LOTS}/{lot['id']}/thaw"
     blocked = client.post(thaw, headers=cook)
     assert blocked.status_code == 409 and "shelf-life rule" in blocked.json()["detail"]
@@ -330,7 +330,7 @@ def test_thawing_never_pushes_the_use_by_past_the_suppliers_expiry(client, login
     item = food(client, m)
     cook = butcher(client, db, m)
     rule(client, m, condition="thawed", hours=500)
-    lot = receive(client, sup, db, item, condition="frozen", expiry_on="2026-03-03").json()
+    lot = receive(client, sup, db, item, condition="frozen", temp_c=-18, expiry_on="2026-03-03").json()
     assert client.post(f"{LOTS}/{lot['id']}/thaw", headers=cook).json()["use_by"] == "2026-03-03T20:00:00Z"
 
 
@@ -340,7 +340,7 @@ def test_thawed_food_can_only_be_portioned_as_thawed_and_frozen_food_must_be_tha
     cook = butcher(client, db, m)
     rule(client, m, condition="thawed", hours=48)
     rule(client, m, condition="vacuum_chilled", hours=96)
-    lot = receive(client, sup, db, item, condition="frozen", expiry_on="2026-04-30").json()
+    lot = receive(client, sup, db, item, condition="frozen", temp_c=-18, expiry_on="2026-04-30").json()
     too_soon = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(condition="thawed")]})
     assert too_soon.status_code == 409 and "Thaw the lot first" in too_soon.json()["detail"]
     client.post(f"{LOTS}/{lot['id']}/thaw", headers=cook)
@@ -350,3 +350,27 @@ def test_thawed_food_can_only_be_portioned_as_thawed_and_frozen_food_must_be_tha
     assert made.status_code == 201
     child = made.json()["lots"][0]
     assert child["condition"] == "thawed" and child["use_by"] == made.json()["parent"]["use_by"]
+
+
+def test_food_already_past_its_expiry_is_refused_at_receiving(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    refused = receive(client, sup, db, item, expiry_on="2026-03-01")
+    assert refused.status_code == 400 and "past its expiry date" in refused.json()["detail"]
+    assert db.scalar(select(Lot.id)) is None
+    assert receive(client, sup, db, item, expiry_on="2026-03-02").status_code == 201
+
+
+def test_a_warm_delivery_is_held_on_arrival_and_only_a_manager_releases_it(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    warm = receive(client, sup, db, item, temp_c=8).json()
+    assert warm["status"] == "on_hold"
+    event = db.scalar(select(LotEvent).where(LotEvent.lot_id == warm["id"]))
+    assert event.detail == "Held on arrival: 8 C is above the 5 C limit for chilled, raw food"
+    assert receive(client, sup, db, item, temp_c=5).json()["status"] == "active"
+    assert receive(client, sup, db, item, temp_c=None).json()["status"] == "active"
+    assert receive(client, sup, db, item, condition="frozen", temp_c=-10).json()["status"] == "on_hold"
+    assert receive(client, sup, db, item, condition="frozen", temp_c=-18).json()["status"] == "active"
+    assert client.post(f"{LOTS}/{warm['id']}/status", headers=sup, json={"status": "active"}).status_code == 403
+    assert client.post(f"{LOTS}/{warm['id']}/status", headers=m, json={"status": "active"}).json()["status"] == "active"

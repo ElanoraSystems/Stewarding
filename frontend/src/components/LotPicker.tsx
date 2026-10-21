@@ -95,6 +95,7 @@ export function LotPicker({ value, onChange, max = 20 }: Props) {
         </div>
       )}
       {problem && <p role="alert" className="text-sm text-danger">{problem}</p>}
+      {!problem && text.trim().length >= 3 && found.length === 0 && <p className="text-xs text-ink-muted">No lot to choose from matches. Press Enter to check this exact code.</p>}
       {text.trim() !== '' && found.length > 0 && (
         <ul className="max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-surface">
           {found.map((lot) => (

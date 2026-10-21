@@ -25,6 +25,9 @@ router = APIRouter(prefix="/api/lots", tags=["food traceability"])
 Received = Literal["chilled_raw", "vacuum_chilled", "frozen"]
 Group = Literal["poultry", "red_meat", "seafood", "dairy", "eggs", "other"]
 
+# A delivery warmer than this on arrival is held until a manager decides.
+COLD_CHAIN_LIMIT_C = {"chilled_raw": Decimal(5), "vacuum_chilled": Decimal(5), "frozen": Decimal(-12)}
+
 
 def any_of(*needed: str):
     """Dependency: 403 unless the user's role grants at least one of the permissions."""
@@ -331,12 +334,21 @@ def receive_lot(body: ReceiveIn, user: User = Depends(require("lot.receive")), d
     tz = db.get(Location, body.location_id).timezone
     now = timeutil.utc_now()
     use_by = use_by_for(db, item.food_group, body.condition, now, body.expiry_on, tz, rule_required=False)
+    if use_by is not None and use_by <= now:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This food is already past its expiry date. Reject the delivery instead of receiving it")
+    limit = COLD_CHAIN_LIMIT_C[body.condition]
+    too_warm = body.temp_c is not None and body.temp_c > limit
     lot = Lot(code=new_code(db, item.food_group, timeutil.local_date(now, tz)), kind="received", food_item_id=item.id, food_group=item.food_group,
               condition=body.condition, supplier_id=body.supplier_id, supplier_lot=_clean(body.supplier_lot), produced_on=body.produced_on,
               expiry_on=body.expiry_on, use_by=use_by, temp_c=body.temp_c, qty=body.qty, unit=_clean(body.unit), pack_count=body.pack_count,
               tag_number=_clean(body.tag_number), location_id=body.location_id, note=_clean(body.note), created_by=user.id, created_at=now)
+    if too_warm:
+        lot.status = "on_hold"
     db.add(lot)
     db.flush()
+    if too_warm:
+        db.add(LotEvent(lot_id=lot.id, kind="status", detail=f"Held on arrival: {body.temp_c} C is above the {limit} C limit for {CONDITIONS[body.condition].lower()} food",
+                        user_id=user.id, at=now))
     audit(db, user, "lot.receive", "lot", lot.id, None, {"code": lot.code, "item": item.name, "supplier_lot": lot.supplier_lot})
     db.commit()
     return _lot(lot, _maps(db), now)

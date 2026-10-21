@@ -53,6 +53,11 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
     return (
       <div className="space-y-4 rounded-xl border border-border bg-surface p-5">
         <p className="text-sm text-ink-muted">Lot created. Print the label and stick it on the case or pack.</p>
+        {made.status === 'on_hold' && (
+          <p role="alert" className="rounded-lg bg-danger-soft p-3 text-sm font-semibold text-danger">
+            This delivery arrived too warm and is on hold. Keep it apart and do not use it until a manager releases it.
+          </p>
+        )}
         <p className="text-3xl font-semibold tracking-wide">{made.code}</p>
         <p className="text-sm">{made.item}{made.supplier ? ` from ${made.supplier}` : ''}. Use by <span className="font-semibold">{made.use_by ? fmtDateTime(made.use_by) : 'not set'}</span>.</p>
         {!made.use_by && <p className="text-sm text-warn">No expiry date was entered and no shelf-life rule applies, so this lot has no use-by date.</p>}

@@ -77,7 +77,7 @@ export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-xs text-ink-muted">
+        <label className="w-full text-xs text-ink-muted sm:w-auto">
           Copies of each
           <Input aria-label="Copies of each label" type="number" min={1} max={50} className="mt-1 h-9 w-20" value={copies} onChange={(e) => setCopies(e.target.value)} />
         </label>
@@ -86,10 +86,10 @@ export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies
             {printers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
         )}
-        {printer && <Button type="button" onClick={toNetwork}><Printer className="h-4 w-4" aria-hidden /> Print to {printer.name}</Button>}
-        {local && <Button type="button" variant={first === 'local' ? 'default' : 'outline'} onClick={onThisComputer}><Printer className="h-4 w-4" aria-hidden /> Print on this computer&apos;s Zebra</Button>}
-        <Button type="button" variant={first === 'pdf' ? 'default' : 'outline'} onClick={pdf}><FileText className="h-4 w-4" aria-hidden /> Labels as PDF</Button>
-        <Button type="button" variant="outline" onClick={zplFile}><Download className="h-4 w-4" aria-hidden /> Zebra file (ZPL)</Button>
+        {printer && <Button type="button" className="w-full sm:w-auto" onClick={toNetwork}><Printer className="h-4 w-4" aria-hidden /> Print to {printer.name}</Button>}
+        {local && <Button type="button" className="w-full sm:w-auto" variant={first === 'local' ? 'default' : 'outline'} onClick={onThisComputer}><Printer className="h-4 w-4" aria-hidden /> Print on this computer&apos;s Zebra</Button>}
+        <Button type="button" className="w-full sm:w-auto" variant={first === 'pdf' ? 'default' : 'outline'} onClick={pdf}><FileText className="h-4 w-4" aria-hidden /> Labels as PDF</Button>
+        <Button type="button" className="w-full sm:w-auto" variant="outline" onClick={zplFile}><Download className="h-4 w-4" aria-hidden /> Zebra file (ZPL)</Button>
         {!printer && (
           <Select aria-label="Printer resolution" className="h-9 w-auto" value={dpi} onChange={(e) => setDpi(e.target.value)}>
             <option value="203">203 dpi</option>
