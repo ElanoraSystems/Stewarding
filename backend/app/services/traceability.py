@@ -5,13 +5,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import Lot, LotLink, ReadingLot, ShelfLifeRule
+from ..models import Lot, LotLink, ReadingLot, Setting, ShelfLifeRule
 
 GROUPS = {"poultry": ("Poultry", "POU"), "red_meat": ("Red meat", "RED"), "seafood": ("Seafood", "SEA"),
           "dairy": ("Dairy", "DAI"), "eggs": ("Eggs", "EGG"), "other": ("Other", "OTH")}
 CONDITIONS = {"chilled_raw": "Chilled, raw", "vacuum_chilled": "Vacuum packed, chilled", "frozen": "Frozen",
               "thawed": "Thawed", "cooked_chilled": "Cooked, chilled"}
 STATUSES = ("active", "used_up", "discarded", "on_hold")
+COLD_CHAIN_KEY = "lot.cold_chain"
+COLD_CHAIN_DEFAULTS = {"chilled_raw": 5.0, "vacuum_chilled": 5.0, "frozen": -12.0}
 
 
 class LotError(Exception):
@@ -20,6 +22,12 @@ class LotError(Exception):
 
 def shelf_hours(db: Session, group: str, condition: str) -> int | None:
     return db.scalar(select(ShelfLifeRule.hours).where(ShelfLifeRule.food_group == group, ShelfLifeRule.condition == condition))
+
+
+def cold_chain_limits(db: Session) -> dict[str, float]:
+    """The warmest arrival temperature in C accepted for each way food arrives; a manager can change them."""
+    row = db.get(Setting, COLD_CHAIN_KEY)
+    return {**COLD_CHAIN_DEFAULTS, **(row.value["v"] if row else {})}
 
 
 def use_by_for(db: Session, group: str, condition: str, start: datetime, expiry_on: date | None, tz: str, rule_required: bool) -> datetime | None:

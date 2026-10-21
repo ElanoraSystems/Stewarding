@@ -11,22 +11,19 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, current_user, permissions_of, require, scoped_locations
-from ..models import (Employee, Equipment, FoodItem, Location, Lot, LotEvent, LotLink, ReadingLot, ShelfLifeRule, Supplier, TemperatureReading,
-                      User)
+from ..models import (Employee, Equipment, FoodItem, Location, Lot, LotEvent, LotLink, ReadingLot, Setting, ShelfLifeRule, Supplier,
+                      TemperatureReading, User)
 from ..pagination import iso, paginate
 from ..services import exporters, labels
 from ..services.monitoring import describe
 from ..services.organization import report_identity, stamp
-from ..services.traceability import (CONDITIONS, GROUPS, STATUSES, LotError, ancestors, child_code, descendants, new_code, usable,
-                                     use_by_for)
+from ..services.traceability import (COLD_CHAIN_KEY, CONDITIONS, GROUPS, STATUSES, LotError, ancestors, child_code, cold_chain_limits, descendants,
+                                     new_code, usable, use_by_for)
 
 router = APIRouter(prefix="/api/lots", tags=["food traceability"])
 
 Received = Literal["chilled_raw", "vacuum_chilled", "frozen"]
 Group = Literal["poultry", "red_meat", "seafood", "dairy", "eggs", "other"]
-
-# A delivery warmer than this on arrival is held until a manager decides.
-COLD_CHAIN_LIMIT_C = {"chilled_raw": Decimal(5), "vacuum_chilled": Decimal(5), "frozen": Decimal(-12)}
 
 
 def any_of(*needed: str):
@@ -49,7 +46,7 @@ class ReceiveIn(BaseModel):
     food_item_id: int
     location_id: int
     condition: Received
-    supplier_id: int | None = None
+    supplier_id: int
     supplier_lot: str | None = Field(default=None, max_length=60)
     produced_on: date | None = None
     expiry_on: date | None = None
@@ -96,6 +93,11 @@ class RuleIn(BaseModel):
     condition: Literal["chilled_raw", "vacuum_chilled", "frozen", "thawed", "cooked_chilled"]
     hours: int = Field(ge=1, le=8760)
     note: str | None = Field(default=None, max_length=300)
+
+
+class ColdChainIn(BaseModel):
+    condition: Received
+    max_c: Decimal = Field(ge=-60, le=30)
 
 
 class FoodItemIn(BaseModel):
@@ -171,7 +173,24 @@ def _label(lot: Lot, maps: dict) -> dict:
 def list_rules(user: User = Depends(any_of("lot.view", "lot.receive", "lot.split", "lot.manage")), db: Session = Depends(get_db)):
     rules = db.scalars(select(ShelfLifeRule).order_by(ShelfLifeRule.food_group, ShelfLifeRule.condition))
     return {"groups": [{"key": k, "label": v[0]} for k, v in GROUPS.items()], "conditions": [{"key": k, "label": v} for k, v in CONDITIONS.items()],
-            "rules": [{"id": r.id, "food_group": r.food_group, "condition": r.condition, "hours": r.hours, "note": r.note} for r in rules]}
+            "rules": [{"id": r.id, "food_group": r.food_group, "condition": r.condition, "hours": r.hours, "note": r.note} for r in rules],
+            "cold_chain": cold_chain_limits(db)}
+
+
+@router.put("/cold-chain")
+def save_cold_chain(body: ColdChainIn, user: User = Depends(require("lot.manage")), db: Session = Depends(get_db)):
+    """The warmest arrival temperature a delivery may have before it is held; applies to deliveries received from now on."""
+    before = cold_chain_limits(db)
+    limits = {**before, body.condition: float(body.max_c)}
+    row = db.get(Setting, COLD_CHAIN_KEY)
+    if row:
+        row.value = {"v": limits}
+    else:
+        db.add(Setting(key=COLD_CHAIN_KEY, value={"v": limits}))
+    db.flush()
+    audit(db, user, "lot.cold_chain_save", "setting", None, {body.condition: before[body.condition]}, {body.condition: limits[body.condition]})
+    db.commit()
+    return {"cold_chain": limits}
 
 
 @router.put("/rules")
@@ -329,15 +348,15 @@ def receive_lot(body: ReceiveIn, user: User = Depends(require("lot.receive")), d
     item = db.get(FoodItem, body.food_item_id)
     if not item or not item.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a food item from the list")
-    if body.supplier_id is not None and not db.get(Supplier, body.supplier_id):
+    if not db.get(Supplier, body.supplier_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown supplier")
     tz = db.get(Location, body.location_id).timezone
     now = timeutil.utc_now()
     use_by = use_by_for(db, item.food_group, body.condition, now, body.expiry_on, tz, rule_required=False)
     if use_by is not None and use_by <= now:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This food is already past its expiry date. Reject the delivery instead of receiving it")
-    limit = COLD_CHAIN_LIMIT_C[body.condition]
-    too_warm = body.temp_c is not None and body.temp_c > limit
+    limit = cold_chain_limits(db)[body.condition]
+    too_warm = body.temp_c is not None and body.temp_c > Decimal(str(limit))
     lot = Lot(code=new_code(db, item.food_group, timeutil.local_date(now, tz)), kind="received", food_item_id=item.id, food_group=item.food_group,
               condition=body.condition, supplier_id=body.supplier_id, supplier_lot=_clean(body.supplier_lot), produced_on=body.produced_on,
               expiry_on=body.expiry_on, use_by=use_by, temp_c=body.temp_c, qty=body.qty, unit=_clean(body.unit), pack_count=body.pack_count,
@@ -347,7 +366,7 @@ def receive_lot(body: ReceiveIn, user: User = Depends(require("lot.receive")), d
     db.add(lot)
     db.flush()
     if too_warm:
-        db.add(LotEvent(lot_id=lot.id, kind="status", detail=f"Held on arrival: {body.temp_c} C is above the {limit} C limit for {CONDITIONS[body.condition].lower()} food",
+        db.add(LotEvent(lot_id=lot.id, kind="status", detail=f"Held on arrival: {body.temp_c:g} C is above the {limit:g} C limit for {CONDITIONS[body.condition].lower()} food",
                         user_id=user.id, at=now))
     audit(db, user, "lot.receive", "lot", lot.id, None, {"code": lot.code, "item": item.name, "supplier_lot": lot.supplier_lot})
     db.commit()

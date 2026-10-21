@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
-import type { Rules } from '@/pages/trace/types'
+import { RECEIVED_CONDITIONS, type Rules } from '@/pages/trace/types'
 
 /** How long each kind of food keeps in each condition, in hours; the use-by date of a lot is worked out from these. */
 export function RulesTab() {
@@ -13,6 +13,7 @@ export function RulesTab() {
   const run = useRun()
   const { data, reload } = useApi<Rules>('/lots/rules')
   const [draft, setDraft] = useState<Record<string, string>>({})
+  const [limits, setLimits] = useState<Record<string, string>>({})
   const canEdit = me?.permissions.includes('lot.manage') ?? false
 
   if (!data) return <Skeleton className="h-48 w-full" />
@@ -30,40 +31,76 @@ export function RulesTab() {
     if (ok) reload()
   }
 
+  async function saveLimit(condition: string) {
+    const typed = limits[condition]
+    setLimits((d) => Object.fromEntries(Object.entries(d).filter(([k]) => k !== condition)))
+    if (typed === undefined || typed === '' || Number(typed) === data?.cold_chain[condition]) return
+    if (await run(() => api('/lots/cold-chain', { method: 'PUT', body: { condition, max_c: Number(typed) } }), 'Limit saved')) reload()
+  }
+
   return (
-    <div className="space-y-3">
-      <p className="max-w-3xl text-sm text-ink-muted">
-        Set how many hours each kind of food keeps once it is in that condition, to match your local food-safety rules (72 hours is 3 days, 120 hours is 5 days).
-        A portion lot gets a use-by date that many hours after the split, never later than its parent&apos;s. A food and condition with no rule cannot be split until a manager sets one.
-        {!canEdit && ' Only a manager can change these.'}
-      </p>
-      <Table>
-        <thead><tr><Th>Food</Th>{data.conditions.map((c) => <Th key={c.key} className="text-right">{c.label} (hours)</Th>)}</tr></thead>
-        <tbody>
-          {data.groups.map((g) => (
-            <tr key={g.key}>
-              <Td className="font-medium">{g.label}</Td>
-              {data.conditions.map((c) => (
-                <Td key={c.key} className="text-right">
-                  <Input
-                    aria-label={`${g.label}, ${c.label}, hours`}
-                    type="number"
-                    min={1}
-                    max={8760}
-                    disabled={!canEdit}
-                    className="ml-auto h-9 w-24 text-right tabular-nums"
-                    placeholder="not set"
-                    value={draft[key(g.key, c.key)] ?? String(current(g.key, c.key)?.hours ?? '')}
-                    onChange={(e) => setDraft((d) => ({ ...d, [key(g.key, c.key)]: e.target.value }))}
-                    onBlur={() => save(g.key, c.key)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                  />
-                </Td>
-              ))}
-            </tr>
+    <div className="space-y-8">
+      <div className="space-y-3">
+        <p className="max-w-3xl text-sm text-ink-muted">
+          Set how many hours each kind of food keeps once it is in that condition, to match your local food-safety rules (72 hours is 3 days, 120 hours is 5 days).
+          A portion lot gets a use-by date that many hours after the split, never later than its parent&apos;s. A food and condition with no rule cannot be split until a manager sets one.
+          {!canEdit && ' Only a manager can change these.'}
+        </p>
+        <Table>
+          <thead><tr><Th>Food</Th>{data.conditions.map((c) => <Th key={c.key} className="text-right">{c.label} (hours)</Th>)}</tr></thead>
+          <tbody>
+            {data.groups.map((g) => (
+              <tr key={g.key}>
+                <Td className="font-medium">{g.label}</Td>
+                {data.conditions.map((c) => (
+                  <Td key={c.key} className="text-right">
+                    <Input
+                      aria-label={`${g.label}, ${c.label}, hours`}
+                      type="number"
+                      min={1}
+                      max={8760}
+                      disabled={!canEdit}
+                      className="ml-auto h-9 w-24 text-right tabular-nums"
+                      placeholder="not set"
+                      value={draft[key(g.key, c.key)] ?? String(current(g.key, c.key)?.hours ?? '')}
+                      onChange={(e) => setDraft((d) => ({ ...d, [key(g.key, c.key)]: e.target.value }))}
+                      onBlur={() => save(g.key, c.key)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                    />
+                  </Td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+      <div className="space-y-3">
+        <h2 className="text-base font-semibold">Arrival temperature limits</h2>
+        <p className="max-w-3xl text-sm text-ink-muted">
+          The warmest temperature, in degrees C, a delivery may have when it arrives. A delivery above the limit is received but put on hold until a manager releases it.
+          A change applies to deliveries received from now on.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          {RECEIVED_CONDITIONS.map(([condition, text]) => (
+            <label key={condition} className="text-sm">
+              <span className="block pb-1 font-medium">{text}</span>
+              <Input
+                aria-label={`${text}, warmest arrival temperature in C`}
+                type="number"
+                step="0.5"
+                min={-60}
+                max={30}
+                disabled={!canEdit}
+                className="h-9 w-28 tabular-nums"
+                value={limits[condition] ?? String(data.cold_chain[condition])}
+                onChange={(e) => setLimits((d) => ({ ...d, [condition]: e.target.value }))}
+                onBlur={() => saveLimit(condition)}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+              />
+            </label>
           ))}
-        </tbody>
-      </Table>
+        </div>
+      </div>
     </div>
   )
 }

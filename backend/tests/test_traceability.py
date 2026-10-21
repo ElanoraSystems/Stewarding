@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from app.models import AuditLog, Lot, LotEvent
+from app.models import AuditLog, Lot, LotEvent, Supplier
 
 from .helpers import MGR, STEWARD, SUP, SUP_RB, loc_id
 from .test_custom_roles import hire, make_role
@@ -21,8 +21,17 @@ def rule(client, m, group="poultry", condition="vacuum_chilled", hours=96):
     assert client.put(f"{LOTS}/rules", headers=m, json={"food_group": group, "condition": condition, "hours": hours}).status_code == 200
 
 
+def a_supplier(db):
+    row = db.scalar(select(Supplier))
+    if row is None:
+        row = Supplier(name="Test Supplier", name_key="test supplier")
+        db.add(row)
+        db.commit()
+    return row.id
+
+
 def receive(client, h, db, item, **over):
-    body = {"food_item_id": item, "location_id": loc_id(db, "MK"), "condition": "chilled_raw", "supplier_lot": "B2610-884",
+    body = {"food_item_id": item, "supplier_id": a_supplier(db), "location_id": loc_id(db, "MK"), "condition": "chilled_raw", "supplier_lot": "B2610-884",
             "produced_on": "2026-02-27", "expiry_on": "2026-03-10", "temp_c": 2.5, **over}
     return client.post(LOTS, headers=h, json=body)
 
@@ -374,3 +383,35 @@ def test_a_warm_delivery_is_held_on_arrival_and_only_a_manager_releases_it(clien
     assert receive(client, sup, db, item, condition="frozen", temp_c=-18).json()["status"] == "active"
     assert client.post(f"{LOTS}/{warm['id']}/status", headers=sup, json={"status": "active"}).status_code == 403
     assert client.post(f"{LOTS}/{warm['id']}/status", headers=m, json={"status": "active"}).json()["status"] == "active"
+
+
+def test_a_delivery_cannot_be_received_without_a_known_supplier(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    body = {"food_item_id": item, "location_id": loc_id(db, "MK"), "condition": "chilled_raw"}
+    missing = client.post(LOTS, headers=sup, json=body)
+    assert missing.status_code == 422 and missing.json()["detail"][0]["loc"] == ["body", "supplier_id"]
+    assert client.post(LOTS, headers=sup, json={**body, "supplier_id": 9999}).json()["detail"] == "Unknown supplier"
+    assert db.scalar(select(Lot.id)) is None
+    assert client.post(LOTS, headers=sup, json={**body, "supplier_id": a_supplier(db)}).status_code == 201
+
+
+def test_a_manager_sets_the_arrival_temperature_limits_and_they_apply_to_the_next_delivery(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    assert client.get(f"{LOTS}/rules", headers=sup).json()["cold_chain"] == {"chilled_raw": 5.0, "vacuum_chilled": 5.0, "frozen": -12.0}
+    assert receive(client, sup, db, item, temp_c=7).json()["status"] == "on_hold"
+    assert client.put(f"{LOTS}/cold-chain", headers=sup, json={"condition": "chilled_raw", "max_c": 8}).status_code == 403
+    saved = client.put(f"{LOTS}/cold-chain", headers=m, json={"condition": "chilled_raw", "max_c": 8})
+    assert saved.json()["cold_chain"] == {"chilled_raw": 8.0, "vacuum_chilled": 5.0, "frozen": -12.0}
+    assert receive(client, sup, db, item, temp_c=7).json()["status"] == "active"
+    held = receive(client, sup, db, item, temp_c=8.5).json()
+    assert held["status"] == "on_hold"
+    assert db.scalar(select(LotEvent.detail).where(LotEvent.lot_id == held["id"])) == "Held on arrival: 8.5 C is above the 8 C limit for chilled, raw food"
+    assert receive(client, sup, db, item, condition="vacuum_chilled", temp_c=7).json()["status"] == "on_hold"
+    assert client.put(f"{LOTS}/cold-chain", headers=m, json={"condition": "frozen", "max_c": -25}).status_code == 200
+    assert receive(client, sup, db, item, condition="frozen", temp_c=-18).json()["status"] == "on_hold"
+    assert client.put(f"{LOTS}/cold-chain", headers=m, json={"condition": "frozen", "max_c": 99}).status_code == 422
+    assert client.put(f"{LOTS}/cold-chain", headers=m, json={"condition": "thawed", "max_c": 4}).status_code == 422
+    audit = db.scalar(select(AuditLog).where(AuditLog.action == "lot.cold_chain_save").order_by(AuditLog.id))
+    assert audit.before == {"chilled_raw": 5.0} and audit.after == {"chilled_raw": 8.0}

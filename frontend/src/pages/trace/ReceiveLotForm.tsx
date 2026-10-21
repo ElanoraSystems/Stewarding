@@ -36,7 +36,7 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
     let lot: Lot | null = null
     const ok = await run(async () => {
       lot = await api<Lot>('/lots', { body: {
-        food_item_id: Number(form.item), location_id: locationId, condition: form.condition, supplier_id: form.supplier ? Number(form.supplier) : null,
+        food_item_id: Number(form.item), location_id: locationId, condition: form.condition, supplier_id: Number(form.supplier),
         supplier_lot: form.supplier_lot || null, produced_on: form.produced_on || null, expiry_on: form.expiry_on || null,
         temp_c: form.temp_c !== '' ? Number(form.temp_c) : null, qty: form.qty !== '' ? Number(form.qty) : null, unit: form.unit || null,
         tag_number: form.tag_number || null, note: form.note || null,
@@ -83,8 +83,8 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
             {RECEIVED_CONDITIONS.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
           </Select>
         </Field>
-        <Field label="Supplier">
-          <Select value={form.supplier} onChange={(e) => set('supplier', e.target.value)}>
+        <Field label="Supplier" hint={suppliers.data?.length === 0 ? 'No suppliers yet. Ask a manager to add the supplier first.' : undefined}>
+          <Select required value={form.supplier} onChange={(e) => set('supplier', e.target.value)}>
             <option value="">Select a supplier</option>
             {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
@@ -98,7 +98,7 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
         {group === 'seafood' && <Field label="Shellfish or harvest tag number"><Input maxLength={60} value={form.tag_number} onChange={(e) => set('tag_number', e.target.value)} /></Field>}
         <Field label="Note (optional)"><Input maxLength={500} value={form.note} onChange={(e) => set('note', e.target.value)} /></Field>
       </div>
-      <Button type="submit" disabled={!form.item || locationId === null}>Create lot and label</Button>
+      <Button type="submit" disabled={!form.item || !form.supplier || locationId === null}>Create lot and label</Button>
     </form>
   )
 }

@@ -57,6 +57,7 @@ export interface Rules {
   groups: { key: string; label: string }[]
   conditions: { key: string; label: string }[]
   rules: { id: number; food_group: string; condition: string; hours: number; note: string | null }[]
+  cold_chain: Record<string, number>
 }
 
 export const STATUS_LABEL: Record<Status, string> = { active: 'Active', used_up: 'Used up', discarded: 'Discarded', on_hold: 'On hold' }
