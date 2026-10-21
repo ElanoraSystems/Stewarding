@@ -1,6 +1,6 @@
-import jsQR from 'jsqr'
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from '@/components/ui/modal'
+import { decodeQr } from '@/lib/qr'
 
 interface Detector {
   detect: (source: CanvasImageSource) => Promise<{ rawValue: string }[]>
@@ -38,21 +38,25 @@ function Camera({ onScan }: { onScan: (code: string) => void }) {
         await video.current.play()
         setMessage('Point the camera at the QR code on the label')
         const Native = (window as unknown as { BarcodeDetector?: new (options: { formats: string[] }) => Detector }).BarcodeDetector
-        const detector = Native ? new Native({ formats: ['qr_code'] }) : null
+        let detector: Detector | null = null
+        try {
+          detector = Native ? new Native({ formats: ['qr_code'] }) : null
+        } catch {
+          detector = null
+        }
         const canvas = document.createElement('canvas')
 
         const look = async () => {
           if (stopped || !video.current) return
-          let text: string | null = null
-          if (detector) {
-            text = (await detector.detect(video.current).catch(() => []))[0]?.rawValue ?? null
-          } else if (video.current.videoWidth) {
+          // some browsers have a built-in detector that cannot read QR codes, so the decoder always gets a try on the same frame
+          let text: string | null = detector ? ((await detector.detect(video.current).catch(() => []))[0]?.rawValue ?? null) : null
+          if (!text && video.current.videoWidth) {
             canvas.width = video.current.videoWidth
             canvas.height = video.current.videoHeight
             const context = canvas.getContext('2d', { willReadFrequently: true })
             context?.drawImage(video.current, 0, 0)
             const image = context?.getImageData(0, 0, canvas.width, canvas.height)
-            text = image ? jsQR(image.data, image.width, image.height)?.data ?? null : null
+            text = image ? decodeQr(image) : null
           }
           if (text) {
             found.current(text.trim())

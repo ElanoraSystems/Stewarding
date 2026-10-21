@@ -79,6 +79,13 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
     }
   }
 
+  async function thaw() {
+    if (await run(() => api(`/lots/${id}/thaw`, { method: 'POST', body: {} }), 'Lot thawed: reprint its label')) {
+      reload()
+      onChanged()
+    }
+  }
+
   async function exportTrace() {
     if (!(await openPdf(`/api/lots/${id}/trace/export`))) toast('error', 'Could not make the trace')
   }
@@ -94,7 +101,7 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
           </div>
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Fact label="Type">{lot.kind === 'portion' ? 'Portions' : 'Delivery'}</Fact>
-            <Fact label="Storage">{lot.condition_label}</Fact>
+            <Fact label="Storage">{lot.condition_label}{lot.thawed_at ? ` (thawed ${fmtDateTime(lot.thawed_at)})` : ''}</Fact>
             <Fact label="Supplier">{lot.supplier}</Fact>
             <Fact label="Supplier lot">{lot.supplier_lot}</Fact>
             <Fact label="Produced">{lot.produced_on ? fmtDate(lot.produced_on) : ''}</Fact>
@@ -117,6 +124,7 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
           {(can('lot.split') || can('lot.manage')) && (
             <div className="flex flex-wrap items-end gap-2">
               <Input aria-label="Reason" placeholder="Reason (needed to discard or hold)" className="max-w-xs" value={note} onChange={(e) => setNote(e.target.value)} />
+              {can('lot.split') && lot.status === 'active' && lot.condition === 'frozen' && <Button type="button" onClick={thaw}>Thaw this lot</Button>}
               {lot.status === 'active' && <Button type="button" variant="outline" onClick={() => change('used_up')}>Mark used up</Button>}
               {lot.status === 'active' && <Button type="button" variant="outline" onClick={() => change('discarded')}>Discard</Button>}
               {can('lot.manage') && lot.status === 'active' && <Button type="button" variant="outline" onClick={() => change('on_hold')}>Put on hold</Button>}

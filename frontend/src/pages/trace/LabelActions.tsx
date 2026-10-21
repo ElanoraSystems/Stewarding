@@ -1,39 +1,103 @@
-import { Download, Printer } from 'lucide-react'
-import { useState } from 'react'
+import { Download, FileText, Printer } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-import { downloadFile, openPdf } from '@/lib/download'
-import { useToast } from '@/lib/toast'
+import { api } from '@/lib/api'
+import { downloadFile, fetchText, openPdf } from '@/lib/download'
+import { useRun, useToast } from '@/lib/toast'
+import { useApi } from '@/lib/useApi'
+import { findLocalZebra, printOnLocalZebra, type LocalHelper } from '@/lib/zebraLocal'
 
-/** Prints the 75 x 50 mm labels for some lots, or saves them as ZPL for a Zebra printer. */
+interface NetworkPrinter {
+  id: number
+  name: string
+  dpi: number
+}
+
+const CHOICE = 'lot_label_printer'
+
+/** Prints the 75 x 50 mm labels for some lots: straight to a network Zebra, to a Zebra on this computer, or as a PDF or ZPL file. */
 export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies?: number }) {
   const toast = useToast()
+  const run = useRun()
+  const printers = useApi<NetworkPrinter[]>('/label-printers').data ?? []
+  const [local, setLocal] = useState<LocalHelper | null>(null)
   const [copies, setCopies] = useState(String(start))
   const [dpi, setDpi] = useState('203')
+  const [chosen, setChosen] = useState<string>(() => {
+    try {
+      return localStorage.getItem(CHOICE) ?? ''
+    } catch {
+      return ''
+    }
+  })
   const count = Math.min(50, Math.max(1, Number(copies) || 1))
   const query = `ids=${ids.join(',')}&copies=${count}`
+  const printer = printers.find((p) => String(p.id) === chosen) ?? printers[0]
 
-  async function print() {
+  useEffect(() => {
+    let live = true
+    findLocalZebra().then((found) => live && setLocal(found))
+    return () => {
+      live = false
+    }
+  }, [])
+
+  function choose(id: string) {
+    setChosen(id)
+    try {
+      localStorage.setItem(CHOICE, id)
+    } catch {
+      /* the choice is only a convenience */
+    }
+  }
+
+  const toNetwork = () => run(() => api('/label-printers/print', { body: { printer_id: printer.id, lot_ids: ids, copies: count } }), `Sent to ${printer?.name}`)
+
+  async function onThisComputer() {
+    if (!local) return
+    try {
+      await printOnLocalZebra(local, await fetchText(`/api/lots/labels?${query}&fmt=zpl&dpi=${dpi}`))
+      toast('ok', `Sent to ${local.printer.name}`)
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not print')
+    }
+  }
+
+  async function pdf() {
     if (!(await openPdf(`/api/lots/labels?${query}`))) toast('error', 'Could not make the labels')
   }
 
-  async function zebra() {
+  async function zplFile() {
     if (!(await downloadFile(`/api/lots/labels?${query}&fmt=zpl&dpi=${dpi}`, 'lot-labels.zpl'))) toast('error', 'Could not make the Zebra file')
   }
 
+  const first = printer ? 'network' : local ? 'local' : 'pdf'
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <label className="text-xs text-ink-muted">
-        Copies of each
-        <Input aria-label="Copies of each label" type="number" min={1} max={50} className="mt-1 h-9 w-20" value={copies} onChange={(e) => setCopies(e.target.value)} />
-      </label>
-      <Button type="button" onClick={print}><Printer className="h-4 w-4" aria-hidden /> Print labels</Button>
-      <Button type="button" variant="outline" onClick={zebra}><Download className="h-4 w-4" aria-hidden /> Zebra file (ZPL)</Button>
-      <Select aria-label="Printer resolution" className="h-9 w-auto" value={dpi} onChange={(e) => setDpi(e.target.value)}>
-        <option value="203">203 dpi</option>
-        <option value="300">300 dpi</option>
-      </Select>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-xs text-ink-muted">
+          Copies of each
+          <Input aria-label="Copies of each label" type="number" min={1} max={50} className="mt-1 h-9 w-20" value={copies} onChange={(e) => setCopies(e.target.value)} />
+        </label>
+        {printers.length > 1 && (
+          <Select aria-label="Label printer" className="h-9 w-auto" value={String(printer?.id ?? '')} onChange={(e) => choose(e.target.value)}>
+            {printers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </Select>
+        )}
+        {printer && <Button type="button" onClick={toNetwork}><Printer className="h-4 w-4" aria-hidden /> Print to {printer.name}</Button>}
+        {local && <Button type="button" variant={first === 'local' ? 'default' : 'outline'} onClick={onThisComputer}><Printer className="h-4 w-4" aria-hidden /> Print on this computer&apos;s Zebra</Button>}
+        <Button type="button" variant={first === 'pdf' ? 'default' : 'outline'} onClick={pdf}><FileText className="h-4 w-4" aria-hidden /> Labels as PDF</Button>
+        <Button type="button" variant="outline" onClick={zplFile}><Download className="h-4 w-4" aria-hidden /> Zebra file (ZPL)</Button>
+        {!printer && (
+          <Select aria-label="Printer resolution" className="h-9 w-auto" value={dpi} onChange={(e) => setDpi(e.target.value)}>
+            <option value="203">203 dpi</option>
+            <option value="300">300 dpi</option>
+          </Select>
+        )}
+      </div>
+      {!printer && !local && <p className="text-xs text-ink-muted">To print straight to a Zebra, a manager adds the printer under Label printers, or run Zebra Browser Print on this computer.</p>}
     </div>
   )
 }

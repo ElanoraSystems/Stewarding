@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { FoodItemsTab } from '@/pages/trace/FoodItemsTab'
 import { LotsTab } from '@/pages/trace/LotsTab'
+import { PrintersTab } from '@/pages/trace/PrintersTab'
 import { ReceiveLotForm } from '@/pages/trace/ReceiveLotForm'
 import { RulesTab } from '@/pages/trace/RulesTab'
 import { SplitLotForm } from '@/pages/trace/SplitLotForm'
@@ -14,6 +15,7 @@ const TABS = [
   ['split', 'Split a lot', 'lot.split'],
   ['rules', 'Shelf life', 'lot.view'],
   ['items', 'Food items', 'lot.manage'],
+  ['printers', 'Label printers', 'lot.manage'],
 ] as const
 
 type Tab = (typeof TABS)[number][0]
@@ -43,6 +45,7 @@ export function TraceabilityPage() {
       {tab === 'split' && <SplitLotForm onSaved={refresh} />}
       {tab === 'rules' && <RulesTab />}
       {tab === 'items' && <FoodItemsTab />}
+      {tab === 'printers' && <PrintersTab />}
     </div>
   )
 }

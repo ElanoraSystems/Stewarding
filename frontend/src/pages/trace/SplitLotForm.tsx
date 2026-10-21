@@ -21,6 +21,7 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
   const [finish, setFinish] = useState(false)
   const [made, setMade] = useState<Lot[] | null>(null)
   const parent = useApi<Trace>(chosen[0] ? `/lots/${chosen[0].id}` : null).data?.lot
+  const thawed = parent?.condition === 'thawed'
   const patch = (index: number, change: Partial<ReturnType<typeof blank>>) => setParts((all) => all.map((p, n) => (n === index ? { ...p, ...change } : p)))
 
   async function save(event: FormEvent) {
@@ -29,7 +30,7 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
     const ok = await run(async () => {
       const result = await api<{ lots: Lot[] }>(`/lots/${chosen[0].id}/split`, { body: {
         finish_parent: finish,
-        parts: parts.map((p) => ({ description: p.description, count: Number(p.count), condition: p.condition, qty: p.qty !== '' ? Number(p.qty) : null, unit: p.unit || null })),
+        parts: parts.map((p) => ({ description: p.description, count: Number(p.count), condition: thawed ? 'thawed' : p.condition, qty: p.qty !== '' ? Number(p.qty) : null, unit: p.unit || null })),
       } })
       lots = result.lots
     }, 'Portion lots created')
@@ -66,6 +67,7 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
         <p className="rounded-lg bg-surface-muted p-3 text-sm">
           <span className="font-semibold">{parent.item}</span> from {parent.supplier ?? 'unknown supplier'}, supplier lot {parent.supplier_lot ?? '-'}. Produced {parent.produced_on ? fmtDate(parent.produced_on) : '-'},
           expiry {parent.expiry_on ? fmtDate(parent.expiry_on) : '-'}, use by {parent.use_by ? fmtDateTime(parent.use_by) : '-'}. The portions keep these details.
+          {thawed && ' This lot is thawed, so its portions stay thawed and cannot be frozen again.'}
         </p>
       )}
       <div className="space-y-3">
@@ -74,8 +76,8 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
             <Field label={i === 0 ? 'Cut and pack' : ''}><Input required maxLength={120} placeholder="200 g breast portions, vacuum" value={p.description} onChange={(e) => patch(i, { description: e.target.value })} /></Field>
             <Field label={i === 0 ? 'How many' : ''}><Input required type="number" min={1} value={p.count} onChange={(e) => patch(i, { count: e.target.value })} /></Field>
             <Field label={i === 0 ? 'Stored as' : ''}>
-              <Select value={p.condition} onChange={(e) => patch(i, { condition: e.target.value })}>
-                {RECEIVED_CONDITIONS.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
+              <Select value={thawed ? 'thawed' : p.condition} disabled={thawed} onChange={(e) => patch(i, { condition: e.target.value })}>
+                {thawed ? <option value="thawed">Thawed</option> : RECEIVED_CONDITIONS.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
               </Select>
             </Field>
             <Field label={i === 0 ? 'Qty' : ''}><Input type="number" min={0} step="any" value={p.qty} onChange={(e) => patch(i, { qty: e.target.value })} /></Field>

@@ -26,6 +26,7 @@ export interface Lot {
   note: string | null
   created_by_name: string | null
   created_at: string
+  thawed_at: string | null
 }
 
 export type Status = 'active' | 'used_up' | 'discarded' | 'on_hold'

@@ -56,6 +56,8 @@ class Lot(Base):
     note: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     created_at: Mapped[datetime] = ts(index=True)
+    thawed_at: Mapped[datetime | None] = mapped_column(DateTime)  # set once, when a frozen lot is thawed
+    thawed_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
 
 
 class LotLink(Base):
@@ -84,3 +86,16 @@ class ReadingLot(Base):
     __tablename__ = "reading_lot"
     reading_id: Mapped[int] = mapped_column(ForeignKey("temperature_reading.id"), primary_key=True)
     lot_id: Mapped[int] = mapped_column(ForeignKey("lot.id"), primary_key=True, index=True)
+
+
+class LabelPrinter(Base):
+    """A network label printer the server prints to directly, set up by a manager."""
+
+    __tablename__ = "label_printer"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(60), unique=True)
+    host: Mapped[str] = mapped_column(String(120))
+    port: Mapped[int] = mapped_column(Integer, default=9100)
+    dpi: Mapped[int] = mapped_column(Integer, default=203)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())

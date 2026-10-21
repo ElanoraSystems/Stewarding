@@ -13,6 +13,13 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   return true
 }
 
+/** An authenticated text file, such as ZPL label data; throws when the server refuses. */
+export async function fetchText(path: string): Promise<string> {
+  const response = await fetch(path, { headers: { Authorization: `Bearer ${tokenStore.get()}` } })
+  if (!response.ok) throw new Error('Could not make the labels')
+  return response.text()
+}
+
 /** Opens an authenticated PDF in a new tab to read or print; the tab opens first so it is not blocked as a pop-up. */
 export async function openPdf(path: string): Promise<boolean> {
   const tab = window.open('', '_blank')

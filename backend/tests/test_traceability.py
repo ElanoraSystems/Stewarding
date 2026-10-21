@@ -298,3 +298,55 @@ def test_a_retest_keeps_the_lots_of_the_failed_reading_and_receiving_lists_suppl
     client.post("/api/suppliers", headers=m, json={"name": "Al Wazzan Poultry"})
     assert "Al Wazzan Poultry" in [s["name"] for s in client.get(f"{LOTS}/suppliers", headers=sup).json()]
     assert client.get(f"{LOTS}/suppliers", headers=steward).status_code == 403
+
+
+def test_a_frozen_lot_is_thawed_once_and_its_use_by_follows_the_thawed_rule(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    cook = butcher(client, db, m)
+    lot = receive(client, sup, db, item, condition="frozen", expiry_on="2026-03-30").json()
+    thaw = f"{LOTS}/{lot['id']}/thaw"
+    blocked = client.post(thaw, headers=cook)
+    assert blocked.status_code == 409 and "shelf-life rule" in blocked.json()["detail"]
+    assert client.post(thaw, headers=sup).status_code == 403                    # a supervisor does not thaw
+    rule(client, m, condition="thawed", hours=48)
+    done = client.post(thaw, headers=cook)
+    assert done.status_code == 200
+    thawed = done.json()
+    assert (thawed["condition"], thawed["use_by"], thawed["thawed_at"]) == ("thawed", "2026-03-04T02:05:00Z", "2026-03-02T02:05:00Z")
+    again = client.post(thaw, headers=cook)
+    assert again.status_code == 409 and "already thawed" in again.json()["detail"]
+    chilled = receive(client, sup, db, item).json()
+    assert "Only a frozen lot" in client.post(f"{LOTS}/{chilled['id']}/thaw", headers=cook).json()["detail"]
+    zpl = client.get(f"{LOTS}/labels?ids={lot['id']}&fmt=zpl", headers=cook).text
+    assert "Thawed 02 Mar 2026 06:05" in zpl and "Thawed" in zpl and "USE BY 04 Mar 2026 06:05" in zpl
+    detail = client.get(f"{LOTS}/{lot['id']}", headers=m).json()
+    assert any(e["kind"] == "thaw" and "Thawed; use by" in e["detail"] for e in detail["events"])
+    assert db.scalar(select(AuditLog).where(AuditLog.action == "lot.thaw")) is not None
+
+
+def test_thawing_never_pushes_the_use_by_past_the_suppliers_expiry(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    cook = butcher(client, db, m)
+    rule(client, m, condition="thawed", hours=500)
+    lot = receive(client, sup, db, item, condition="frozen", expiry_on="2026-03-03").json()
+    assert client.post(f"{LOTS}/{lot['id']}/thaw", headers=cook).json()["use_by"] == "2026-03-03T20:00:00Z"
+
+
+def test_thawed_food_can_only_be_portioned_as_thawed_and_frozen_food_must_be_thawed_first(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    cook = butcher(client, db, m)
+    rule(client, m, condition="thawed", hours=48)
+    rule(client, m, condition="vacuum_chilled", hours=96)
+    lot = receive(client, sup, db, item, condition="frozen", expiry_on="2026-04-30").json()
+    too_soon = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(condition="thawed")]})
+    assert too_soon.status_code == 409 and "Thaw the lot first" in too_soon.json()["detail"]
+    client.post(f"{LOTS}/{lot['id']}/thaw", headers=cook)
+    refrozen = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(condition="vacuum_chilled")]})
+    assert refrozen.status_code == 409 and "cannot be frozen or re-stored" in refrozen.json()["detail"]
+    made = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(condition="thawed")]})
+    assert made.status_code == 201
+    child = made.json()["lots"][0]
+    assert child["condition"] == "thawed" and child["use_by"] == made.json()["parent"]["use_by"]

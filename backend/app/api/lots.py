@@ -67,7 +67,7 @@ class ReceiveIn(BaseModel):
 class PartIn(BaseModel):
     description: str = Field(min_length=2, max_length=120)
     count: int = Field(ge=1, le=1000)
-    condition: Received
+    condition: Literal["chilled_raw", "vacuum_chilled", "frozen", "thawed"]
     qty: Decimal | None = Field(default=None, ge=0, le=1000000)
     unit: str | None = Field(default=None, max_length=20)
     use_by: datetime | None = None
@@ -130,7 +130,7 @@ def _lot(lot: Lot, maps: dict, now: datetime) -> dict:
             "qty": float(lot.qty) if lot.qty is not None else None, "unit": lot.unit, "pack_count": lot.pack_count,
             "pack_description": lot.pack_description, "tag_number": lot.tag_number, "location_id": lot.location_id,
             "location": maps["location"].get(lot.location_id), "status": lot.status, "note": lot.note,
-            "created_by_name": maps["user"].get(lot.created_by), "created_at": iso(lot.created_at)}
+            "created_by_name": maps["user"].get(lot.created_by), "created_at": iso(lot.created_at), "thawed_at": iso(lot.thawed_at)}
 
 
 def _scoped(stmt, user: User, db: Session):
@@ -160,8 +160,8 @@ def _label(lot: Lot, maps: dict) -> dict:
         detail = ", ".join(part for part in (amount, f"tag {lot.tag_number}" if lot.tag_number else "") if part)
     return {"code": lot.code, "item": maps["item"].get(lot.food_item_id) or "", "detail": detail, "condition": CONDITIONS[lot.condition],
             "supplier": maps["supplier"].get(lot.supplier_id) or "", "supplier_lot": lot.supplier_lot or "", "produced": _day(lot.produced_on),
-            "expiry": _day(lot.expiry_on), "stamp_label": "Portioned" if portion else "Received", "stamped": _local(lot.created_at, tz),
-            "by": _initials(maps["user"].get(lot.created_by)), "use_by": _local(lot.use_by, tz), "location": maps["location"].get(lot.location_id) or ""}
+            "expiry": _day(lot.expiry_on), "stamp_label": "Thawed" if lot.thawed_at else "Portioned" if portion else "Received",
+            "stamped": _local(lot.thawed_at or lot.created_at, tz), "by": _initials(maps["user"].get(lot.thawed_by or lot.created_by)), "use_by": _local(lot.use_by, tz), "location": maps["location"].get(lot.location_id) or ""}
 
 
 @router.get("/rules")
@@ -274,6 +274,12 @@ def by_code(code: str, user: User = Depends(any_of("lot.view", "lot.split", "tem
     return {**_lot(lot, _maps(db), now), "blocked": usable(lot, now)}
 
 
+def label_pages(db: Session, user: User, lot_ids: list[int], copies: int) -> list[dict]:
+    """The label content for each lot, repeated per copy, for lots the user may see."""
+    maps = _maps(db)
+    return [_label(_get(db, user, lot_id), maps) for lot_id in lot_ids for _ in range(copies)]
+
+
 @router.get("/labels")
 def print_labels(ids: str = Query(max_length=600), copies: int = Query(1, ge=1, le=50), fmt: Literal["pdf", "zpl"] = "pdf",
                  dpi: int = Query(203, ge=150, le=600), user: User = Depends(any_of("lot.view", "lot.receive", "lot.split")), db: Session = Depends(get_db)):
@@ -284,8 +290,7 @@ def print_labels(ids: str = Query(max_length=600), copies: int = Query(1, ge=1, 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "ids must be lot numbers separated by commas") from None
     if not wanted or len(wanted) > 100:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose between 1 and 100 lots")
-    maps = _maps(db)
-    pages = [_label(_get(db, user, lot_id), maps) for lot_id in wanted for _ in range(copies)]
+    pages = label_pages(db, user, wanted, copies)
     if fmt == "zpl":
         return Response(labels.labels_zpl(pages, dpi), media_type="text/plain", headers={"Content-Disposition": 'attachment; filename="lot-labels.zpl"'})
     return Response(labels.labels_pdf(pages), media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="lot-labels.pdf"'})
@@ -353,6 +358,10 @@ def split_lot(lot_id: int, body: SplitIn, user: User = Depends(require("lot.spli
     manager = "lot.manage" in permissions_of(user)
     made = []
     for part in body.parts:
+        if parent.condition == "thawed" and part.condition != "thawed":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Thawed food keeps only on its thawed shelf life and cannot be frozen or re-stored; portion it as thawed")
+        if part.condition == "thawed" and parent.condition != "thawed":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Thaw the lot first, then portion it")
         try:
             use_by = use_by_for(db, parent.food_group, part.condition, now, parent.expiry_on, tz, rule_required=True)
         except LotError as exc:
@@ -383,6 +392,29 @@ def split_lot(lot_id: int, body: SplitIn, user: User = Depends(require("lot.spli
     db.commit()
     maps = _maps(db)
     return {"parent": _lot(parent, maps, now), "lots": [_lot(c, maps, now) for c in made]}
+
+
+@router.post("/{lot_id}/thaw")
+def thaw_lot(lot_id: int, user: User = Depends(require("lot.split")), db: Session = Depends(get_db)):
+    """A frozen lot becomes thawed once: its use-by is reset by the thawed shelf-life rule, never past the supplier's expiry."""
+    lot = _get(db, user, lot_id)
+    now = timeutil.utc_now()
+    reason = usable(lot, now)
+    if reason:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{reason}, so it cannot be thawed")
+    if lot.condition != "frozen":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only a frozen lot can be thawed" if lot.condition != "thawed" else "This lot is already thawed and cannot be thawed again")
+    tz = db.get(Location, lot.location_id).timezone
+    try:
+        use_by = use_by_for(db, lot.food_group, "thawed", now, lot.expiry_on, tz, rule_required=True)
+    except LotError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    was = lot.use_by
+    lot.condition, lot.thawed_at, lot.thawed_by, lot.use_by = "thawed", now, user.id, use_by
+    db.add(LotEvent(lot_id=lot.id, kind="thaw", detail=f"Thawed; use by {_local(use_by, tz)}"[:300], user_id=user.id, at=now))
+    audit(db, user, "lot.thaw", "lot", lot.id, {"use_by": iso(was)}, {"use_by": iso(use_by)})
+    db.commit()
+    return _lot(lot, _maps(db), now)
 
 
 @router.post("/{lot_id}/status")
