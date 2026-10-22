@@ -52,6 +52,9 @@ export function AppLayout() {
   const reloadOrg = org.reload
   setDisplayTimeZone(org.data?.timezone)
   useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+  useEffect(() => {
     window.addEventListener('organization-changed', reloadOrg)
     return () => window.removeEventListener('organization-changed', reloadOrg)
   }, [reloadOrg])

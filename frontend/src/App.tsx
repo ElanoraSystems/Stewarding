@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/AppLayout'
+import { RequireModule } from '@/components/RequireModule'
 import { useAuth } from '@/lib/auth'
 import { AttendancePage } from '@/pages/AttendancePage'
 import { AuditPage } from '@/pages/AuditPage'
@@ -30,25 +31,25 @@ export default function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
-        <Route path="employees" element={<EmployeesPage />} />
-        <Route path="attendance" element={<AttendancePage />} />
-        <Route path="roster" element={<RosterPage />} />
-        <Route path="checklists" element={<ChecklistsPage />} />
+        <Route path="employees" element={<RequireModule module="employees"><EmployeesPage /></RequireModule>} />
+        <Route path="attendance" element={<RequireModule module="attendance"><AttendancePage /></RequireModule>} />
+        <Route path="roster" element={<RequireModule module="roster"><RosterPage /></RequireModule>} />
+        <Route path="checklists" element={<RequireModule module="checklists"><ChecklistsPage /></RequireModule>} />
         <Route path="daily-checklists" element={<Navigate to="/checklists" replace />} />
         <Route path="weekly-checklists" element={<Navigate to="/checklists" replace />} />
-        <Route path="monitoring" element={<MonitoringPage />} />
+        <Route path="monitoring" element={<RequireModule module="monitoring"><MonitoringPage /></RequireModule>} />
         <Route path="temperature" element={<Navigate to="/monitoring" replace />} />
-        <Route path="equipment" element={<EquipmentPage />} />
-        <Route path="inventory" element={me.modules.some((m) => m.key === 'inventory') ? <InventoryPage /> : <Navigate to="/" replace />} />
+        <Route path="equipment" element={<RequireModule module="equipment"><EquipmentPage /></RequireModule>} />
+        <Route path="inventory" element={<RequireModule module="inventory"><InventoryPage /></RequireModule>} />
         <Route path="crockery" element={<Navigate to="/inventory" replace />} />
         <Route path="smallware" element={<Navigate to="/inventory" replace />} />
-        <Route path="stock-movements" element={<StockMovementsPage />} />
-        <Route path="breakage" element={<BreakagePage />} />
-        <Route path="traceability" element={<TraceabilityPage />} />
-        <Route path="tasks" element={<TasksPage />} />
-        <Route path="reports" element={<ReportsPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="audit" element={<AuditPage />} />
+        <Route path="stock-movements" element={<RequireModule module="stock-movements"><StockMovementsPage /></RequireModule>} />
+        <Route path="breakage" element={<RequireModule module="breakage"><BreakagePage /></RequireModule>} />
+        <Route path="traceability" element={<RequireModule module="traceability"><TraceabilityPage /></RequireModule>} />
+        <Route path="tasks" element={<RequireModule module="tasks"><TasksPage /></RequireModule>} />
+        <Route path="reports" element={<RequireModule module="reports"><ReportsPage /></RequireModule>} />
+        <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
+        <Route path="audit" element={<RequireModule module="audit"><AuditPage /></RequireModule>} />
         <Route path="account" element={<ChangePasswordPage />} />
         <Route path=":key" element={<ModulePage />} />
       </Route>
