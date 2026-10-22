@@ -51,7 +51,7 @@ export function LotsTab() {
           <input type="checkbox" checked={soon} onChange={(e) => { setSoon(e.target.checked); setPage(1) }} /> Use-by within 48 hours
         </label>
       </div>
-      <ul className="space-y-2 md:hidden">
+      <ul className="space-y-2 xl:hidden">
         {loading && !data && <li><Skeleton className="h-24 w-full" /></li>}
         {data?.items.map((l) => (
           <li key={l.id}>
@@ -71,7 +71,7 @@ export function LotsTab() {
           </li>
         ))}
       </ul>
-      <div className="hidden md:block">
+      <div className="hidden xl:block">
       <Table>
         <thead><tr><Th>Lot</Th><Th>Food</Th><Th>Quantity</Th><Th>Supplier</Th><Th>Produced</Th><Th>Expiry</Th><Th>Use by</Th><Th>Status</Th><Th>Location</Th></tr></thead>
         <tbody>

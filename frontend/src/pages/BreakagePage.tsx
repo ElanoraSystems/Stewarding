@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/modal'
 import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'
 import { StatusBadge } from '@/components/ui/status-badge'
-import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
+import { EmptyState, Skeleton, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDateTime, label } from '@/lib/format'
@@ -72,6 +72,27 @@ export function BreakagePage() {
     setText('')
   }
 
+
+  const rowActions = (i: Incident) => {
+    if (i.reported_by === me?.id) return null
+    if (i.status === 'reported' && can('breakage.review')) {
+      return (
+        <>
+          <Button size="sm" onClick={() => open('review', i)}>Review</Button>
+          <Button size="sm" variant="outline" onClick={() => open('reject', i)}>Reject</Button>
+        </>
+      )
+    }
+    if (i.status === 'pending_approval' && can('breakage.approve')) {
+      return (
+        <>
+          <Button size="sm" onClick={() => open('approve', i)}>Approve</Button>
+          <Button size="sm" variant="outline" onClick={() => open('reject', i)}>Reject</Button>
+        </>
+      )
+    }
+    return null
+  }
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Breakage &amp; Damage Logs</h1>
@@ -94,6 +115,25 @@ export function BreakagePage() {
           </Select>
         </div>
       )}
+      <ul className="space-y-2 xl:hidden">
+        {!rows ? <li><Skeleton className="h-24 w-full" /></li> : rows.map((i) => {
+          const actions = canList ? rowActions(i) : null
+          return (
+            <li key={i.id} className="space-y-2 rounded-xl border border-border bg-surface p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold">{i.code}</span>
+                <StatusBadge status={i.status} />
+              </div>
+              <p className="text-sm">
+                {byId.get(i.item_id)?.name ?? i.item_id} <span className="text-ink-muted">x {i.qty}{i.est_cost != null ? ` - ${i.est_cost.toFixed(2)}` : ''}</span>
+              </p>
+              <p className="text-xs text-ink-muted">{label(i.incident_type)} - {places.get(i.location_id)} - {fmtDateTime(i.occurred_at)}</p>
+              {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+            </li>
+          )
+        })}
+      </ul>
+      <div className="hidden xl:block">
       <Table>
         <thead><tr><Th>Incident</Th><Th>When</Th><Th>Location</Th><Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Value</Th><Th>Type</Th><Th>Status</Th>{canList && <Th />}</tr></thead>
         <tbody>
@@ -108,25 +148,13 @@ export function BreakagePage() {
               <Td>{label(i.incident_type)}</Td>
               <Td><StatusBadge status={i.status} /></Td>
               {canList && (
-                <Td className="space-x-2 text-right">
-                  {i.status === 'reported' && can('breakage.review') && i.reported_by !== me?.id && (
-                    <>
-                      <Button size="sm" onClick={() => open('review', i)}>Review</Button>
-                      <Button size="sm" variant="outline" onClick={() => open('reject', i)}>Reject</Button>
-                    </>
-                  )}
-                  {i.status === 'pending_approval' && can('breakage.approve') && i.reported_by !== me?.id && (
-                    <>
-                      <Button size="sm" onClick={() => open('approve', i)}>Approve</Button>
-                      <Button size="sm" variant="outline" onClick={() => open('reject', i)}>Reject</Button>
-                    </>
-                  )}
-                </Td>
+                <Td className="space-x-2 text-right">{rowActions(i)}</Td>
               )}
             </tr>
           ))}
         </tbody>
       </Table>
+      </div>
       {rows?.length === 0 && <EmptyState title="No incidents" />}
       {canList && list.data && list.data.total > 0 && (
         <p role="status" className="text-right text-sm">

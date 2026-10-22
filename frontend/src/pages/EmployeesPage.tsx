@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'
 import { StatusBadge } from '@/components/ui/status-badge'
-import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
+import { EmptyState, Skeleton, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +26,7 @@ interface Listing {
 }
 
 const SIZE = 15
+const initials = (name: string) => name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
 const COLUMNS = [
   ['employee_code', 'ID'],
   ['full_name', 'Name'],
@@ -88,6 +89,17 @@ export function EmployeesPage() {
     if (ok) reload()
   }
 
+
+  const rowActions = (e: EmployeeRow) => (
+    <>
+      <Button size="sm" variant="outline" onClick={() => { setEditing(e); setFormOpen(true) }}>Edit</Button>
+      <Button size="sm" variant="outline" onClick={() => setEnrolling(e)}>{e.face_enrolled ? 'Update face' : 'Enroll face'}</Button>
+      {e.id !== me?.employee?.id && <Button size="sm" variant="outline" onClick={() => setResetting(e)}>Reset password</Button>}
+      <Button size="sm" variant={e.status === 'active' ? 'danger' : 'outline'} onClick={() => setToggling(e)}>
+        {e.status === 'active' ? 'Deactivate' : 'Activate'}
+      </Button>
+    </>
+  )
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -111,8 +123,37 @@ export function EmployeesPage() {
           <option value="inactive">Inactive</option>
         </Select>
         <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />
+        <Select aria-label="Sort by" className="w-auto xl:hidden" value={sort} onChange={(e) => sortBy(e.target.value)}>
+          {COLUMNS.map(([key, text]) => <option key={key} value={key}>Sort by {text.toLowerCase()}</option>)}
+        </Select>
       </div>
 
+      <ul className="space-y-2 xl:hidden">
+        {loading && !data ? <li><Skeleton className="h-24 w-full" /></li> : data?.items.map((e) => (
+          <li key={e.id} className="space-y-2 rounded-xl border border-border bg-surface p-3">
+            <div className="flex items-start justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-3">
+                <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand">{initials(e.full_name)}</span>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold">{e.full_name}</span>
+                  <span className="text-xs text-ink-muted">{e.employee_code}</span>
+                </span>
+              </span>
+              <StatusBadge status={e.status} />
+            </div>
+            <p className="text-sm">{e.job_title}{e.company && <span className="text-ink-muted"> - {e.company}</span>}</p>
+            <p className="text-xs text-ink-muted">{e.location_ids.map((id) => locationNames.get(id) ?? id).join(', ')}</p>
+            {canManage && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
+                {e.date_joined && <span>Joined {fmtDate(e.date_joined)}</span>}
+                {e.account?.change_required ? <Badge tone="warn">Temporary password</Badge> : <span>{e.account?.last_login_at ? `Signed in ${fmtDateTime(e.account.last_login_at)}` : 'Never signed in'}</span>}
+              </p>
+            )}
+            {canManage && <div className="flex flex-wrap gap-2">{rowActions(e)}</div>}
+          </li>
+        ))}
+      </ul>
+      <div className="hidden xl:block">
       <Table>
         <thead>
           <tr>
@@ -136,7 +177,7 @@ export function EmployeesPage() {
               <Td>{e.employee_code}</Td>
               <Td className="font-medium">
                 <span className="flex items-center gap-3">
-                  <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand">{e.full_name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}</span>
+                  <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand">{initials(e.full_name)}</span>
                   {e.full_name}
                 </span>
               </Td>
@@ -148,19 +189,13 @@ export function EmployeesPage() {
                 <Td>{e.account?.change_required ? <Badge tone="warn">Temporary password</Badge> : e.account?.last_login_at ? fmtDateTime(e.account.last_login_at) : 'Never'}</Td>
               )}
               {canManage && (
-                <Td className="space-x-1.5 whitespace-nowrap text-right">
-                  <Button size="sm" variant="outline" onClick={() => { setEditing(e); setFormOpen(true) }}>Edit</Button>
-                  <Button size="sm" variant="outline" onClick={() => setEnrolling(e)}>{e.face_enrolled ? 'Update face' : 'Enroll face'}</Button>
-                  {e.id !== me?.employee?.id && <Button size="sm" variant="outline" onClick={() => setResetting(e)}>Reset password</Button>}
-                  <Button size="sm" variant={e.status === 'active' ? 'danger' : 'outline'} onClick={() => setToggling(e)}>
-                    {e.status === 'active' ? 'Deactivate' : 'Activate'}
-                  </Button>
-                </Td>
+                <Td className="min-w-44 text-right"><div className="flex flex-wrap justify-end gap-1.5">{rowActions(e)}</div></Td>
               )}
             </tr>
           ))}
         </tbody>
       </Table>
+      </div>
       {data?.items.length === 0 && <EmptyState title="No employees found" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
 
