@@ -62,7 +62,6 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
   if (made) {
     return (
       <div className="space-y-4 rounded-xl border border-border bg-surface p-5">
-        <p className="text-sm text-ink-muted">Portion lots created. Print one label per tray or batch and stick it on.</p>
         <ul className="divide-y divide-border rounded-lg border border-border text-sm">
           {made.map((l) => (
             <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
@@ -79,14 +78,13 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
 
   return (
     <form onSubmit={save} className="max-w-3xl space-y-4 rounded-xl border border-border bg-surface p-5">
-      <Field label="Lot being opened" hint="Scan the label on the case or main pack, or type its code.">
+      <Field label="Lot being opened">
         <LotPicker max={1} value={chosen} onChange={setChosen} />
       </Field>
       {parent && (
         <p className="rounded-lg bg-surface-muted p-3 text-sm">
           <span className="font-semibold">{parent.item}</span> from {parent.supplier ?? 'unknown supplier'}, supplier lot {parent.supplier_lot ?? '-'}. Produced {parent.produced_on ? fmtDate(parent.produced_on) : '-'},
-          expiry {parent.expiry_on ? fmtDate(parent.expiry_on) : '-'}, use by {parent.use_by ? fmtDateTime(parent.use_by) : '-'}. The portions keep these details.
-          {thawed && ' This lot is thawed, so its portions stay thawed and cannot be frozen again.'}
+          expiry {parent.expiry_on ? fmtDate(parent.expiry_on) : '-'}, use by {parent.use_by ? fmtDateTime(parent.use_by) : '-'}.
         </p>
       )}
       {parent && balance && (

@@ -66,7 +66,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     <Modal open title={schedule ? 'Edit check' : 'Add check'} onClose={onClose}>
       <form onSubmit={save} className="space-y-3">
         <p className="rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">Changes are audited and apply to new checks only.</p>
-        <Field label="Check name" hint="For example Morning temperature, Core temperature, Sanitiser strength.">
+        <Field label="Check name">
           <Input required value={form.stage} onChange={(e) => set('stage', e.target.value)} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
@@ -108,7 +108,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
           {form.timing === 'interval' && (
             <Field label="Every (minutes)"><Input required type="number" min={1} max={1440} value={form.interval_minutes} onChange={(e) => set('interval_minutes', e.target.value)} /></Field>
           )}
-          {!manual && <Field label="Day of month" hint="Leave blank unless it is monthly."><Input type="number" min={1} max={31} value={form.day_of_month} onChange={(e) => set('day_of_month', e.target.value)} /></Field>}
+          {!manual && <Field label="Day of month"><Input type="number" min={1} max={31} value={form.day_of_month} onChange={(e) => set('day_of_month', e.target.value)} /></Field>}
         </div>
         {(form.value_type === 'text' || form.value_type === 'choice') && (
           <FieldRestrictions value={{ ...blankField(), type: form.value_type, ...extra }} onChange={(v) => setExtra({ options: v.options, fail: v.fail, maxLength: v.maxLength })} />
@@ -123,7 +123,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
             ))}
           </div>
         </fieldset>}
-        <Field label="Entry type" hint="A time in and time out pair stays pending until the time out is recorded, as in defrosting or cooling.">
+        <Field label="Entry type">
           <Select value={form.phase} onChange={(e) => set('phase', e.target.value as typeof form.phase)}>
             <option value="">Single entry</option>
             <option value="start">Time in (starts an entry)</option>
@@ -132,13 +132,13 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
         </Field>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.required} onChange={(e) => set('required', e.target.checked)} />
-          This question is mandatory (an optional question can be left blank)
+          Mandatory
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.require_reference} onChange={(e) => set('require_reference', e.target.checked)} />
           Ask for a batch, lot or product reference (traceability)
         </label>
-        {form.require_reference && <Field label="What is it called?" hint="For example Item or product name."><Input maxLength={40} value={form.reference_label} onChange={(e) => set('reference_label', e.target.value)} /></Field>}
+        {form.require_reference && <Field label="What is it called?"><Input maxLength={40} value={form.reference_label} onChange={(e) => set('reference_label', e.target.value)} /></Field>}
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.trace_lots} onChange={(e) => set('trace_lots', e.target.checked)} />
           Link this check to food lots (traceability): the person scans or types the lot, and it is recorded against the delivery

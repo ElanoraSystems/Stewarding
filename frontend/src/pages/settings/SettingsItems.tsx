@@ -37,11 +37,7 @@ export function SettingsItems() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-sm text-ink-muted">
-          One master entry per item, with an automatically generated ID. Names are checked for duplicates, and every stock movement, receipt, count and
-          breakage report picks from this list. Retire an item instead of deleting it so history stays intact.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Add item</Button>
       </div>
       <div className="flex flex-wrap gap-3">
@@ -80,7 +76,7 @@ export function SettingsItems() {
           ))}
         </tbody>
       </Table>
-      {data?.items.length === 0 && <EmptyState title="No items found" hint="Add the first item, or change the filters." />}
+      {data?.items.length === 0 && <EmptyState title="No items found" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
       {formOpen && <ItemForm item={editing} open onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />}
     </div>

@@ -69,7 +69,6 @@ export function CountsTab() {
       <Card>
         <CardHeader><CardTitle>Physical count</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-ink-muted">Enter what you counted. Items left blank are not part of this count. A count can never be higher than what was received into the location (invoices, opening stock and approved transfers in); if it is, it is refused and the manager is alerted. A count higher than the system quantity needs a reason and a manager decides whether to post it.</p>
           <Table>
             <thead><tr><Th>Item</Th><Th className="text-right">System</Th><Th className="text-right">Received to date</Th><Th>Counted</Th></tr></thead>
             <tbody>

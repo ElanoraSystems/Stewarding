@@ -91,13 +91,8 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
           {canManage && <Button variant="outline" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Create form</Button>}
         </div>
       </div>
-      <p className="text-sm text-ink-muted">
-        A log form is anything you keep a record for: a chiller, a freezer, a dishwasher, a cooking or cooling batch, a delivery. Create your own form with the fields and rules you need, or start from a template.
-        Each point has checks. A check says what is measured (a temperature, ppm, pH or a yes or no), the limits, and how often it is due:
-        at startup, at set times, every few minutes, on chosen days or monthly. Take the limits from your approved food-safety procedure.
-      </p>
 
-      {data?.length === 0 && <EmptyState title="No monitoring points at this location" hint="Add one from a template, such as a chiller, freezer, cooking or traceability log." />}
+      {data?.length === 0 && <EmptyState title="No monitoring points at this location" />}
       {data?.map((eq) => (
         <Card key={eq.id} className={eq.needs_attention ? 'border-warn/60' : undefined}>
           <CardHeader>
@@ -157,7 +152,6 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
             </ul>
           )}
           <Field label="Name (optional)"><Input value={presetName} maxLength={120} onChange={(e) => setPresetName(e.target.value)} /></Field>
-          <p className="text-xs text-ink-muted">The point is created with its checks; change the limits and times afterwards if your procedure differs.</p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setPresetOpen(false)}>Cancel</Button>
             <Button type="submit" disabled={!preset || !locationId}>Add</Button>
@@ -168,7 +162,6 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
       <Modal open={renaming !== null} title="Rename monitoring point" onClose={() => setRenaming(null)}>
         <form onSubmit={rename} className="space-y-3">
           <Field label="Name"><Input required minLength={2} maxLength={120} value={renaming?.name ?? ''} onChange={(e) => setRenaming((r) => r && { ...r, name: e.target.value })} /></Field>
-          <p className="text-xs text-ink-muted">The code and the recorded history stay the same; only the name shown changes.</p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setRenaming(null)}>Cancel</Button>
             <Button type="submit" disabled={!renaming || renaming.name.trim().length < 2}>Save</Button>

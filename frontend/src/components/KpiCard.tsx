@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 interface KpiCardProps {
   label: string
   value: string | number
-  hint?: string
   tone?: 'default' | 'critical' | 'warn' | 'ok'
   icon?: LucideIcon
 }
@@ -23,7 +22,7 @@ const ICON_TONES = {
   ok: 'bg-ok/10 text-ok',
 }
 
-export function KpiCard({ label, value, hint, tone = 'default', icon: Icon }: KpiCardProps) {
+export function KpiCard({ label, value, tone = 'default', icon: Icon }: KpiCardProps) {
   return (
     <div className={cn('rounded-2xl border p-4 shadow-[0_1px_2px_rgba(27,36,32,0.05),0_8px_24px_-12px_rgba(27,36,32,0.12)]', TONES[tone])}>
       <div className="flex items-start justify-between gap-2">
@@ -31,7 +30,6 @@ export function KpiCard({ label, value, hint, tone = 'default', icon: Icon }: Kp
         {Icon && <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', ICON_TONES[tone])}><Icon className="h-4 w-4" aria-hidden /></span>}
       </div>
       <p className={cn('mt-1 text-3xl font-semibold tabular-nums tracking-tight', tone === 'critical' && 'text-danger', tone === 'warn' && 'text-warn', tone === 'ok' && 'text-ok')}>{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-ink-muted">{hint}</p>}
     </div>
   )
 }

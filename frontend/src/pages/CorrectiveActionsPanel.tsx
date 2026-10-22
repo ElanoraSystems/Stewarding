@@ -63,7 +63,7 @@ export function CorrectiveActionsPanel({ locationId, equipment, refreshKey, onRe
     <Card className={open.length ? 'border-danger/50' : undefined}>
       <CardHeader><CardTitle>Open corrective actions{open.length ? ` (${open.length})` : ''}</CardTitle></CardHeader>
       <CardContent>
-        {open.length === 0 ? <EmptyState title="Nothing outstanding" hint="Failed checks that need action will appear here." /> : (
+        {open.length === 0 ? <EmptyState title="Nothing outstanding" /> : (
           <ul className="divide-y divide-border">
             {open.map((a) => (
               <li key={a.id} className="space-y-2 py-3 text-sm">

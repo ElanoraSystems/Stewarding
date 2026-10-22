@@ -159,9 +159,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
       </Modal>
 
       <Modal open={exceptionOpen} title="Tasks still open" onClose={() => setExceptionOpen(false)}>
-        <p className="mb-3 text-sm text-ink-muted">
-          You have {data.incomplete_task_count} mandatory task(s) not finished. Finish them, or give a reason to check out anyway. The reason is recorded.
-        </p>
+        <p className="mb-3 text-sm text-ink-muted">{data.incomplete_task_count} mandatory task(s) not finished.</p>
         <Field label="Reason">
           <Input value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>

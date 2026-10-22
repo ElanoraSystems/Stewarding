@@ -54,7 +54,6 @@ export function ReportsPage() {
     <div className="space-y-5">
       <header>
         <h1 className="text-2xl font-semibold">Reports</h1>
-        <p className="text-sm text-ink-muted">Pick a report, choose the dates, then download it as a PDF or Excel file.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
@@ -85,7 +84,6 @@ export function ReportsPage() {
         <section className="min-w-0 space-y-4" aria-label={def.title}>
           <div>
             <h2 className="text-xl font-semibold">{def.title}</h2>
-            <p className="text-sm text-ink-muted">{def.blurb}</p>
           </div>
 
           {def.summary ? <OperationsSummary /> : (

@@ -54,7 +54,6 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
   if (made) {
     return (
       <div className="space-y-4 rounded-xl border border-border bg-surface p-5">
-        <p className="text-sm text-ink-muted">Lot created. Print the label and stick it on the case or pack.</p>
         {made.status === 'on_hold' && (
           <p role="alert" className="rounded-lg bg-danger-soft p-3 text-sm font-semibold text-danger">
             This delivery arrived too warm and is on hold. Keep it apart and do not use it until a manager releases it.
@@ -85,17 +84,17 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
             {RECEIVED_CONDITIONS.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
           </Select>
         </Field>
-        <Field label="Supplier" hint={suppliers.data?.length === 0 ? 'No suppliers yet. Ask a manager to add the supplier first.' : undefined}>
+        <Field label="Supplier">
           <Select required value={form.supplier} onChange={(e) => set('supplier', e.target.value)}>
-            <option value="">Select a supplier</option>
+            <option value="">{suppliers.data?.length === 0 ? 'No suppliers yet' : 'Select a supplier'}</option>
             {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
         </Field>
         <Field label="Supplier lot or batch number"><Input required maxLength={60} value={form.supplier_lot} onChange={(e) => set('supplier_lot', e.target.value)} /></Field>
         <Field label="Temperature on arrival (C)"><Input type="number" step="0.1" value={form.temp_c} onChange={(e) => set('temp_c', e.target.value)} /></Field>
         <Field label="Production date"><Input type="date" value={form.produced_on} onChange={(e) => set('produced_on', e.target.value)} /></Field>
-        <Field label="Expiry date" hint="Printed by the supplier. The use-by date is the earlier of this and your shelf-life rule."><Input type="date" min={form.produced_on || undefined} value={form.expiry_on} onChange={(e) => set('expiry_on', e.target.value)} /></Field>
-        <Field label="Quantity received" hint="Needed to see what is left when the lot is portioned."><Input type="number" min={0} step="any" value={form.qty} onChange={(e) => set('qty', e.target.value)} /></Field>
+        <Field label="Expiry date"><Input type="date" min={form.produced_on || undefined} value={form.expiry_on} onChange={(e) => set('expiry_on', e.target.value)} /></Field>
+        <Field label="Quantity received"><Input type="number" min={0} step="any" value={form.qty} onChange={(e) => set('qty', e.target.value)} /></Field>
         <Field label="Unit">
           <Select required={form.qty !== ''} value={form.unit} onChange={(e) => set('unit', e.target.value)}>
             <option value="">Select</option>

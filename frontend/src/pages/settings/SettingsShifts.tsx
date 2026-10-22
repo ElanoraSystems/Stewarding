@@ -61,7 +61,6 @@ export function SettingsShifts() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-ink-muted">Shifts drive late check-in, payable hours, overtime and which tasks apply. A shift that ends before it starts runs overnight.</p>
       <Table>
         <thead><tr><Th>Shift</Th><Th>Hours</Th><Th>Late after</Th><Th>Break</Th><Th>Overtime after</Th><Th /></tr></thead>
         <tbody>
@@ -98,7 +97,7 @@ export function SettingsShifts() {
             <Field label="End"><Input type="time" value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })} /></Field>
             <Field label="Late after (min)"><Input type="number" min={0} className="w-28" value={form.grace} onChange={(e) => setForm({ ...form, grace: e.target.value })} /></Field>
             <Field label="Break (min)"><Input type="number" min={0} className="w-28" value={form.brk} onChange={(e) => setForm({ ...form, brk: e.target.value })} /></Field>
-            <Field label="Overtime after (min)" hint="Blank = shift length"><Input type="number" min={0} className="w-32" value={form.overtime} onChange={(e) => setForm({ ...form, overtime: e.target.value })} /></Field>
+            <Field label="Overtime after (min)"><Input type="number" min={0} className="w-32" value={form.overtime} onChange={(e) => setForm({ ...form, overtime: e.target.value })} /></Field>
             </>}
             <Button type="submit">{editing ? 'Save' : 'Add shift'}</Button>
             {editing && <Button type="button" variant="outline" onClick={() => edit(null)}>Cancel</Button>}

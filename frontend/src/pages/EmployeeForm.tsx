@@ -95,7 +95,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
       <form onSubmit={submit} className="space-y-3">
         {!editing && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Employee ID" hint="Leave blank to generate one.">
+            <Field label="Employee ID">
               <Input value={form.employee_code} onChange={(e) => set('employee_code', e.target.value)} />
             </Field>
             <Field label="Email">
@@ -104,7 +104,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
           </div>
         )}
         {editing && (
-          <Field label="Email (their sign-in)" hint="Correct a typo here. They sign in with the new address straight away.">
+          <Field label="Email (their sign-in)">
             <Input required type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
           </Field>
         )}
@@ -123,11 +123,11 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
           </Field>
         </div>
         {!editing && (
-          <Field label="Initial password" hint="At least 10 characters with two kinds of characters. They are asked to choose their own at first sign-in.">
+          <Field label="Initial password">
             <Input required type="password" minLength={10} autoComplete="new-password" value={form.password} onChange={(e) => set('password', e.target.value)} />
           </Field>
         )}
-        <Field label="Organization or company" hint="Who the employee works for, such as a contractor or agency. Leave blank for your own staff.">
+        <Field label="Organization or company">
           <Input maxLength={120} value={form.company} onChange={(e) => set('company', e.target.value)} />
         </Field>
         <div className="grid grid-cols-2 gap-3">

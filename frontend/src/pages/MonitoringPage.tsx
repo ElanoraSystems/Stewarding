@@ -118,8 +118,8 @@ export function MonitoringPage() {
       <Card>
         <CardHeader><CardTitle>Checks due today</CardTitle></CardHeader>
         <CardContent>
-          {cards.length === 0 ? <EmptyState title="No scheduled checks here" hint="Forms without a schedule are filled in from Record a check below." /> : todo.length === 0 ? (
-            <EmptyState title="All of today's checks are recorded" hint="Anything recorded today is listed below." />
+          {cards.length === 0 ? <EmptyState title="No scheduled checks here" /> : todo.length === 0 ? (
+            <EmptyState title="All of today's checks are recorded" />
           ) : (
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {todo.map(([key, { first: d, stages, status }]) => (
@@ -134,7 +134,6 @@ export function MonitoringPage() {
               ))}
             </ul>
           )}
-          {canRecord && todo.length > 0 && <p className="mt-2 text-xs text-ink-muted">Select a check to record it.</p>}
           {finished.length > 0 && (
             <details className="mt-3">
               <summary className="cursor-pointer text-sm font-medium text-ink-muted">Recorded today ({finished.length})</summary>
@@ -166,7 +165,6 @@ export function MonitoringPage() {
                 </li>
               ))}
             </ul>
-            {canRecord && <p className="mt-2 text-xs text-ink-muted">Select an entry to record its time out.</p>}
           </CardContent>
         </Card>
       )}

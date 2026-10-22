@@ -157,7 +157,7 @@ export function ChecklistsPage() {
             </div>
           )}
           {loading && !data ? <Skeleton className="h-32 w-full" /> : items.length === 0 ? (
-            <EmptyState title="No tasks for this selection" hint="Tasks are generated each day from the location's checklist templates, on the days each task is set to repeat." />
+            <EmptyState title="No tasks for this selection" />
           ) : view === 'week' ? (
             <div className="space-y-5">
               {days.map((d) => (
@@ -171,7 +171,6 @@ export function ChecklistsPage() {
         </>
       )}
       <Modal open={waiving} title={`Waive ${selected.length} task${selected.length === 1 ? '' : 's'}`} onClose={() => setWaiving(false)}>
-        <p className="mb-3 text-sm text-ink-muted">Waived tasks are closed without being done. The reason is recorded on every one of them.</p>
         <Field label="Reason"><Input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></Field>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" onClick={() => setWaiving(false)}>Cancel</Button>

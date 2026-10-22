@@ -27,7 +27,6 @@ export function StewardDashboard() {
       <HeroCard
         eyebrow={new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}
         title={`${greeting()}, ${(me?.employee?.name ?? '').split(' ')[0] || 'there'}`}
-        subtitle="Your check-in, tasks and checks for this shift."
         chips={data ? [
           { label: `${data.tasks.done} of ${data.tasks.total} tasks done` },
           ...(data.tasks.overdue > 0 ? [{ label: `${data.tasks.overdue} overdue`, urgent: true }] : []),
@@ -60,7 +59,7 @@ export function StewardDashboard() {
               <div className="h-2 overflow-hidden rounded bg-border" role="img" aria-label={`${percent}% of tasks done`}>
                 <div className="h-full bg-brand" style={{ width: `${percent}%` }} />
               </div>
-              {data.tasks.outstanding.length === 0 ? <EmptyState title="All tasks are done" hint="Nice work." /> : (
+              {data.tasks.outstanding.length === 0 ? <EmptyState title="All tasks are done" /> : (
                 <ul className="divide-y divide-border">
                   {data.tasks.outstanding.map((t) => (
                     <li key={t.id}>

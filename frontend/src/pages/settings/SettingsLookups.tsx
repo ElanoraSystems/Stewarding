@@ -11,15 +11,15 @@ interface Row {
   active: boolean
 }
 
-const LISTS: { kind: LookupKind; title: string; hint: string; placeholder: string }[] = [
-  { kind: 'job_title', title: 'Job titles', hint: 'Suggested when adding or editing an employee.', placeholder: 'New job title' },
-  { kind: 'checklist_category', title: 'Checklist categories', hint: 'Used when creating a checklist template.', placeholder: 'New category' },
-  { kind: 'breakage_reason', title: 'Breakage reasons', hint: 'Choices when reporting breakage or damage.', placeholder: 'New reason' },
-  { kind: 'corrective_action', title: 'Standard corrective actions', hint: 'Suggested after a failed check.', placeholder: 'New standard action' },
-  { kind: 'monitoring_type', title: 'Monitoring types', hint: 'Groups monitoring points, such as cold storage, cooking or traceability.', placeholder: 'New monitoring type' },
+const LISTS: { kind: LookupKind; title: string; placeholder: string }[] = [
+  { kind: 'job_title', title: 'Job titles', placeholder: 'New job title' },
+  { kind: 'checklist_category', title: 'Checklist categories', placeholder: 'New category' },
+  { kind: 'breakage_reason', title: 'Breakage reasons', placeholder: 'New reason' },
+  { kind: 'corrective_action', title: 'Standard corrective actions', placeholder: 'New standard action' },
+  { kind: 'monitoring_type', title: 'Monitoring types', placeholder: 'New monitoring type' },
 ]
 
-function Lookup({ kind, title, hint, placeholder }: (typeof LISTS)[number]) {
+function Lookup({ kind, title, placeholder }: (typeof LISTS)[number]) {
   const run = useRun()
   const { data, reload } = useApi<Row[]>(`/lookups?kind=${kind}&include_inactive=true`)
   const act = async (call: () => Promise<unknown>, ok: string) => {
@@ -31,7 +31,6 @@ function Lookup({ kind, title, hint, placeholder }: (typeof LISTS)[number]) {
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <p className="text-sm text-ink-muted">{hint}</p>
       </CardHeader>
       <CardContent>
         <ManagedList
@@ -48,7 +47,6 @@ function Lookup({ kind, title, hint, placeholder }: (typeof LISTS)[number]) {
 export function SettingsLookups() {
   return (
     <div className="space-y-4">
-      <p className="text-sm text-ink-muted">Dropdown choices used across the app. Retire a value to stop offering it; past records keep what they were saved with.</p>
       <div className="grid gap-4 lg:grid-cols-2">{LISTS.map((l) => <Lookup key={l.kind} {...l} />)}</div>
     </div>
   )

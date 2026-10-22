@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { BrandMark } from '@/components/BrandMark'
-import { APP_NAME, APP_TAGLINE } from '@/lib/brand'
+import { APP_NAME } from '@/lib/brand'
 import { useAuth } from '@/lib/auth'
 import { useApi } from '@/lib/useApi'
 
@@ -34,7 +34,6 @@ export function LoginPage() {
         <CardHeader>
           <BrandMark organization={org.data?.name ?? ''} hasLogo={org.data?.has_logo ?? false} />
           <CardTitle className="pt-2 text-xl">Sign in to {APP_NAME}</CardTitle>
-          <p className="text-sm text-ink-muted">{APP_TAGLINE}. Use your individual account.</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="space-y-4">

@@ -102,10 +102,10 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
 
       {step === 0 && (
         <div className="space-y-4">
-          <Field label="Form name" hint="What staff will see, for example Cooking log, Freezer check or Goods received.">
+          <Field label="Form name">
             <Input autoFocus maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field label="Kind of log" hint="Used to group forms in reports.">
+          <Field label="Kind of log">
             <Select value={kind} onChange={(e) => setKind(e.target.value)}>
               {[...new Set([...types, 'Other'])].map((t) => <option key={t} value={t}>{t}</option>)}
             </Select>
@@ -117,14 +117,12 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
                 <label key={l.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={locations.includes(l.id)} onChange={() => setLocations((all) => toggle(all, l.id))} /> {l.name}</label>
               ))}
             </div>
-            <p className="mt-1 text-xs text-ink-muted">Each chosen location gets its own copy of the form, so each one keeps its own log.</p>
           </fieldset>
         </div>
       )}
 
       {step === 1 && (
         <div className="space-y-3">
-          <p className="text-sm text-ink-muted">Add the questions staff answer each time. Staff fill all fields together in one entry.</p>
           {fields.map((f, i) => (
             <FieldEditor key={i} index={i} count={fields.length} value={f} onChange={(next) => setField(i, next)}
               onMove={(delta) => moveField(i, delta)} onRemove={() => setFields((all) => all.filter((_, n) => n !== i))} />
@@ -182,7 +180,6 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
                 ))}
                 {times.length < 6 && <Button type="button" variant="outline" size="sm" onClick={() => setTimes((all) => [...all, ''])}><Plus className="h-4 w-4" /> Add another time</Button>}
               </div>
-              <p className="mt-1 text-xs text-ink-muted">Two times a day means staff fill the whole form twice, once for each time.</p>
             </fieldset>
           )}
         </div>

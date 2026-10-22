@@ -81,7 +81,7 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
   return (
     <Modal open={open} title={editing ? 'Edit item' : 'Add item to the item master'} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <Field label="Name" hint={editing ? `Item ID ${item.code}` : 'The item ID is generated automatically.'}>
+        <Field label="Name">
           <Input required value={form.name} onChange={(e) => set('name', e.target.value)} />
         </Field>
         {exact && (
@@ -126,7 +126,7 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
         )}
         {!editing && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Opening stock" hint="Better: receive stock against an invoice."><Input type="number" min={0} value={form.opening_qty} onChange={(e) => set('opening_qty', e.target.value)} /></Field>
+            <Field label="Opening stock"><Input type="number" min={0} value={form.opening_qty} onChange={(e) => set('opening_qty', e.target.value)} /></Field>
             <Field label="Opening location">
               <Select value={form.opening_location_id} onChange={(e) => set('opening_location_id', e.target.value)}>
                 {me?.locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}

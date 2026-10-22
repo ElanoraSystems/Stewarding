@@ -109,7 +109,6 @@ export function TransfersTab() {
             ))}
             <div className="flex flex-wrap items-center gap-3">
               <Button variant="outline" size="sm" onClick={entry.addRow}><Plus className="h-4 w-4" /> Add line</Button>
-              <span className="text-xs text-ink-muted">Press Enter on a completed line to save it and start the next one.</span>
             </div>
           </div>
           <p className="text-right text-sm">Total value <span className="ml-2 text-base font-semibold tabular-nums">{money(total)}</span></p>

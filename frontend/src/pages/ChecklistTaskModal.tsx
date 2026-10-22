@@ -91,7 +91,7 @@ export function ChecklistTaskModal({ templateId, templateFrequency, task, onClos
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => set('days', EVERY_DAY)}>Every day</Button>
             <Button type="button" size="sm" variant="outline" onClick={() => set('days', [0, 1, 2, 3, 4])}>Weekdays</Button>
-            <span className="text-xs text-ink-muted">{summary}. One day a week makes it a weekly task.</span>
+            <span className="text-xs text-ink-muted">{summary}</span>
           </div>
         </fieldset>
         <div className="grid grid-cols-3 gap-3">

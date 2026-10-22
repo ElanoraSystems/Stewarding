@@ -60,15 +60,14 @@ export function CostTab() {
       <div className="flex flex-wrap items-center gap-3">
         <LocationSelect allowAll value={locationId} onChange={setLocationId} />
         <Input aria-label="Month" type="month" className="w-auto" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
-        <p className="text-sm text-ink-muted">Weighted average cost. Cost consumed = opening + purchases + returns + transfers in - transfers out - closing.</p>
       </div>
 
       {loading && !data ? <Skeleton className="h-28 w-full" /> : t && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard icon={Wallet} label="Opening value" value={money(t.opening_value)} />
-          <KpiCard icon={ShoppingCart} label="Purchases" value={money(t.purchases)} hint={`Returns ${money(t.returns)}`} />
+          <KpiCard icon={ShoppingCart} label="Purchases" value={money(t.purchases)} />
           <KpiCard icon={Boxes} label="Closing value" value={money(t.closing_value)} />
-          <KpiCard icon={PackageMinus} label="Cost consumed" value={money(t.cost_consumed)} tone="warn" hint={`Breakage and damage ${money(t.breakage_damage)}`} />
+          <KpiCard icon={PackageMinus} label="Cost consumed" value={money(t.cost_consumed)} tone="warn" />
         </div>
       )}
 

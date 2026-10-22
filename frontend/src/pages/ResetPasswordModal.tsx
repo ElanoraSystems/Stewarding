@@ -52,7 +52,7 @@ export function ResetPasswordModal({ employee, onClose, onDone }: { employee: Em
       ) : (
         <form onSubmit={reset} className="space-y-3">
           <p className="text-sm text-ink-muted">A temporary password is generated for you to pass on. The employee must replace it when they sign in, and their open sessions end now.</p>
-          <Field label="Or set one yourself (optional)" hint="At least 10 characters, with two kinds of characters.">
+          <Field label="Or set one yourself (optional)">
             <Input type="text" autoComplete="off" value={custom} minLength={custom ? 10 : undefined} onChange={(e) => setCustom(e.target.value)} />
           </Field>
           <div className="flex justify-end gap-2">

@@ -14,15 +14,15 @@ export interface FieldSpec {
   required: boolean
 }
 
-export const FIELD_TYPES: { value: FieldType; label: string; hint: string }[] = [
-  { value: 'number', label: 'Number', hint: 'A measurement such as a temperature or ppm. It fails outside the limits you set.' },
-  { value: 'yes_no', label: 'Yes or no', hint: 'A question. A No answer counts as a failure.' },
-  { value: 'text', label: 'Short text', hint: 'Something written, such as a product name or batch. It is recorded, never failed.' },
-  { value: 'date', label: 'Date picker', hint: 'The person picks a date from a calendar. It is recorded, never failed.' },
-  { value: 'time', label: 'Time picker', hint: 'The person picks a time of day. It is recorded, never failed.' },
-  { value: 'signature', label: 'Signature box', hint: 'The person draws their signature with a finger, a stylus or the mouse.' },
-  { value: 'image', label: 'Image upload', hint: 'The person takes or chooses a photo to attach.' },
-  { value: 'choice', label: 'Dropdown (choose one)', hint: 'The person picks one answer from your list. You decide which answers fail.' },
+export const FIELD_TYPES: { value: FieldType; label: string }[] = [
+  { value: 'number', label: 'Number' },
+  { value: 'yes_no', label: 'Yes or no' },
+  { value: 'text', label: 'Short text' },
+  { value: 'date', label: 'Date picker' },
+  { value: 'time', label: 'Time picker' },
+  { value: 'signature', label: 'Signature box' },
+  { value: 'image', label: 'Image upload' },
+  { value: 'choice', label: 'Dropdown (choose one)' },
 ]
 
 export const blankField = (): FieldSpec => ({ title: '', type: 'number', unit: '', min: '', max: '', options: '', fail: [], maxLength: '200', reference: false, traceLots: false, required: true })

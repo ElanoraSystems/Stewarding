@@ -91,6 +91,9 @@ function firstOfEachCycle(schedules: Schedule[]): Schedule[] {
   return schedules.filter((s) => s.phase !== 'finish' && cycleOf(s, schedules)[0] === s)
 }
 
+const limitsText = (s: { min_value?: string | number | null; max_value?: string | number | null }) =>
+  s.min_value != null && s.max_value != null ? ` ${s.min_value}-${s.max_value}` : s.max_value != null ? ` max ${s.max_value}` : s.min_value != null ? ` min ${s.min_value}` : ''
+
 export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest, doneSchedules }: RecordFormProps) {
   const run = useRun()
   const standardActions = useLookup('corrective_action')
@@ -199,7 +202,6 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       </div>
       {prefill?.startReadingId && <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">Time out for <span className="font-medium">{prefill.item ?? 'this entry'}</span>. The time out is stamped when you save.</p>}
       {alreadyDone && <p role="alert" className="rounded-md bg-ok-soft px-3 py-2 text-sm text-ok">This check is already recorded for this time. It is due again at the next scheduled time.</p>}
-      {cycle.length > 1 && <p className="text-sm text-ink-muted">These checks are recorded together: {cycle.map((s) => label(s.stage)).join(', ')}. Questions marked optional can be left blank.</p>}
       <div className="space-y-3">
         {cycle.map((s, i) => (
           <div key={s.id} className="flex flex-wrap items-end gap-3">
@@ -221,7 +223,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
             ) : s.value_type === 'signature' ? (
               <Field label={title(s)}><SignaturePad onChange={(png) => setBlob(s, png)} /></Field>
             ) : s.value_type === 'image' ? (
-              <Field label={title(s)} hint={blobs[s.id] && values[s.id] ? 'Photo selected' : 'Take a photo or choose one'}>
+              <Field label={title(s)}>
                 <Input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => setBlob(s, e.target.files?.[0] ?? null)} />
               </Field>
             ) : s.value_type === 'date' || s.value_type === 'time' ? (
@@ -229,12 +231,11 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
                 <Input required={s.required} type={s.value_type} className="w-44" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             ) : s.value_type === 'text' ? (
-              <Field label={title(s)} hint={`Up to ${s.max_length ?? 200} characters`}>
+              <Field label={title(s)}>
                 <Input required={s.required} maxLength={s.max_length ?? 200} className="w-72" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             ) : (
-              <Field label={`${cycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}`}
-                hint={`Acceptable ${s.min_value ?? 'no minimum'} to ${s.max_value ?? 'no maximum'} ${s.unit ?? ''}`}>
+              <Field label={`${cycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}${limitsText(s)}`}>
                 <Input required={s.required} type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             )}
@@ -242,12 +243,12 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
           </div>
         ))}
         {needsReference && (
-          <Field label={cycle.find((s) => s.reference_label)?.reference_label ?? 'Batch, lot or product'} hint="Required for this check.">
+          <Field label={cycle.find((s) => s.reference_label)?.reference_label ?? 'Batch, lot or product'}>
             <Input required maxLength={120} className="w-56" value={reference} onChange={(e) => setReference(e.target.value)} />
           </Field>
         )}
         {needsLots && (
-          <Field label="Food lot or lots" hint="Required for this check. Scan the label or type the lot code, so the record is linked to the delivery.">
+          <Field label="Food lot or lots">
             <LotPicker value={lots} onChange={setLots} />
           </Field>
         )}
@@ -255,7 +256,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       {anyFail && (
         <div className="space-y-2 rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft p-3">
           <p className="text-sm font-medium text-danger">A failed check will be recorded as failed and your supervisor alerted.</p>
-          <Field label="Corrective action taken" hint="Pick a standard action or type your own. You can also add it afterwards from the open actions list.">
+          <Field label="Corrective action taken">
             <Input list="standard-actions" value={action} onChange={(e) => setAction(e.target.value)} />
             <datalist id="standard-actions">{standardActions.map((a) => <option key={a} value={a} />)}</datalist>
           </Field>

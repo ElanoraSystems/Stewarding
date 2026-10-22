@@ -8,10 +8,9 @@ import { useAuth } from '@/lib/auth'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 
-const RULES = 'At least 10 characters, using at least two kinds: letters, numbers or symbols. It must not contain your sign-in name.'
 
 export function ChangePasswordPage({ forced = false }: { forced?: boolean }) {
-  const { me, changePassword, logout } = useAuth()
+  const { changePassword, logout } = useAuth()
   const run = useRun()
   const org = useApi<{ name: string; has_logo: boolean }>(forced ? '/organization/public' : null)
   const [current, setCurrent] = useState('')
@@ -34,16 +33,13 @@ export function ChangePasswordPage({ forced = false }: { forced?: boolean }) {
       <CardHeader>
         {forced && <BrandMark organization={org.data?.name ?? ''} hasLogo={org.data?.has_logo ?? false} />}
         <CardTitle className="pt-1 text-xl">{forced ? 'Choose your own password' : 'Change password'}</CardTitle>
-        <p className="text-sm text-ink-muted">
-          {forced ? 'You are using a temporary password. Choose one only you know to continue.' : `Signed in as ${me?.email}. Changing it signs you out of other devices.`}
-        </p>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-4">
           <Field label={forced ? 'Temporary password' : 'Current password'}>
             <Input required type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
           </Field>
-          <Field label="New password" hint={RULES}>
+          <Field label="New password">
             <Input required type="password" minLength={10} maxLength={128} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
           </Field>
           <Field label="Repeat the new password">

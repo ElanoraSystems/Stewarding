@@ -89,7 +89,6 @@ export function ManagerDashboard() {
   )
   const people = useApi<{ items: { id: number; full_name: string }[] }>(me?.permissions.includes('employee.view') ? '/employees?size=200&status=active' : null)
   const equipment = useApi<{ id: number; name: string }[]>(me?.permissions.includes('equipment.view') ? '/equipment' : null)
-  const isManager = me?.tier === 'manager'
 
   const k = data?.kpis
   const show = (section: string) => data?.sections?.includes(section) ?? true
@@ -101,7 +100,6 @@ export function ManagerDashboard() {
       <HeroCard
         eyebrow={new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}
         title={`${greeting()}, ${(me?.employee?.name ?? '').split(' ')[0] || 'there'}`}
-        subtitle={isManager ? 'All locations, consolidated.' : 'Operations for your assigned locations.'}
         chips={k ? [
           ...(show('people') ? [{ label: `${k.checked_in} of ${k.scheduled_today} checked in` }] : []),
           ...(show('checklists') ? [{ label: `Daily checklists ${pct(k.daily_completion)}` }] : []),
@@ -162,27 +160,27 @@ export function ManagerDashboard() {
           {(show('people')) && (
           <KpiGroup title="People today" link="/attendance">
             <KpiCard icon={CalendarCheck} label="Scheduled" value={k.scheduled_today} />
-            <KpiCard icon={LogIn} label="Checked in" value={k.checked_in} hint={`${k.on_duty} on duty now`} tone="ok" />
-            <KpiCard icon={UserX} label="Not checked in" value={k.not_checked_in} hint={`${k.absent} absent`} tone={k.absent ? 'warn' : 'default'} />
-            <KpiCard icon={Coffee} label="Off today" value={k.off_today} hint="week off or leave" />
+            <KpiCard icon={LogIn} label="Checked in" value={k.checked_in} tone="ok" />
+            <KpiCard icon={UserX} label="Not checked in" value={k.not_checked_in} tone={k.absent ? 'warn' : 'default'} />
+            <KpiCard icon={Coffee} label="Off today" value={k.off_today} />
           </KpiGroup>)}
           {(show('checklists')) && (
           <KpiGroup title="Checklists" link="/checklists">
-            <KpiCard icon={ClipboardCheck} label="Daily completion" value={pct(k.daily_completion)} hint={ratio(k.daily_completion)} />
-            <KpiCard icon={ClipboardList} label="Weekly completion" value={pct(k.weekly_completion)} hint={ratio(k.weekly_completion)} />
+            <KpiCard icon={ClipboardCheck} label="Daily completion" value={pct(k.daily_completion)} />
+            <KpiCard icon={ClipboardList} label="Weekly completion" value={pct(k.weekly_completion)} />
             <KpiCard icon={Clock} label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
           </KpiGroup>)}
           {(show('monitoring')) && (
           <KpiGroup title="Food safety monitoring" link="/monitoring">
-            <KpiCard icon={Thermometer} label="Checks recorded" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} hint="recorded / due so far today" />
+            <KpiCard icon={Thermometer} label="Checks recorded" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} />
             <KpiCard icon={TriangleAlert} label="Failed checks" value={k.failed_checks} tone={k.failed_checks ? 'critical' : 'default'} />
             <KpiCard icon={Wrench} label="Points needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
           </KpiGroup>)}
           {(show('stock') || show('breakage')) && (
           <KpiGroup title="Stock and breakage" link="/stock-movements">
-            {show('stock') && <KpiCard icon={Package} label="Stock on hand" value={k.inventory.qty} hint={`Value ${k.inventory.value.toFixed(2)}`} />}
+            {show('stock') && <KpiCard icon={Package} label="Stock on hand" value={k.inventory.qty} />}
             {show('stock') && <KpiCard icon={PackageMinus} label="Low-stock items" value={k.low_stock_items} tone={k.low_stock_items ? 'warn' : 'default'} />}
-            {show('breakage') && <KpiCard icon={HeartCrack} label="Breakage today" value={k.breakage_today} hint={`${k.breakage_month} this month`} />}
+            {show('breakage') && <KpiCard icon={HeartCrack} label="Breakage today" value={k.breakage_today} />}
           </KpiGroup>)}
         </div>
       )}

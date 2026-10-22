@@ -97,7 +97,6 @@ export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies
           </Select>
         )}
       </div>
-      {!printer && !local && <p className="text-xs text-ink-muted">To print straight to a Zebra, a manager adds the printer under Label printers, or run Zebra Browser Print on this computer.</p>}
     </div>
   )
 }

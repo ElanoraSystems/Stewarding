@@ -88,7 +88,7 @@ function Notifications() {
           <Button size="sm" disabled={selected.length === 0} onClick={() => acknowledgeMany(selected)}>Acknowledge selected ({selected.length})</Button>
         </div>
       )}
-      {loading && !data ? <Skeleton className="h-32 w-full" /> : data?.items.length === 0 ? <EmptyState title="No notifications" hint="Reminders and alerts for you appear here." /> : (
+      {loading && !data ? <Skeleton className="h-32 w-full" /> : data?.items.length === 0 ? <EmptyState title="No notifications" /> : (
         <ul className="space-y-2">
           {data?.items.map((n) => (
             <li key={n.id} className={cn('rounded-lg border bg-surface p-4 text-sm',
@@ -123,7 +123,7 @@ function MyTasks() {
   const { data, loading } = useApi<{ items: Task[] }>('/checklists/instances?mine=true&size=100')
   const open = (data?.items ?? []).filter((t) => !['completed', 'verified', 'waived', 'pending_verification'].includes(t.effective_status))
   if (loading && !data) return <Skeleton className="h-32 w-full" />
-  if (open.length === 0) return <EmptyState title="No tasks assigned to you" hint="Tasks a supervisor assigns to you show here." />
+  if (open.length === 0) return <EmptyState title="No tasks assigned to you" />
   return (
     <ul className="space-y-2">
       {open.map((t) => (
@@ -141,7 +141,7 @@ function MyTasks() {
 function Pending() {
   const { data, loading } = useApi<{ total: number; by_urgency: Record<string, number>; by_location: Record<string, Record<string, number>>; items: PendingItem[] }>('/notifications/pending-summary')
   if (loading && !data) return <Skeleton className="h-32 w-full" />
-  if (!data || data.total === 0) return <EmptyState title="Nothing is pending" hint="Overdue tasks, failed checks and approvals appear here." />
+  if (!data || data.total === 0) return <EmptyState title="Nothing is pending" />
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2 text-sm">

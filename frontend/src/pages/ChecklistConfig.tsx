@@ -77,7 +77,7 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
             {categories.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
         </Field>
-        <Field label="Frequency" hint="Sets the default days for new tasks; each task can repeat on any days.">
+        <Field label="Frequency">
           <Select value={frequency} onChange={(e) => setFrequency(e.target.value)}>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
@@ -88,7 +88,7 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
         <Button type="submit">Add template</Button>
       </form>
 
-      {data?.length === 0 && <EmptyState title="No templates at this location" hint="Apply the starter templates or add your own." />}
+      {data?.length === 0 && <EmptyState title="No templates at this location" />}
       {data?.map((t) => (
         <Card key={t.id}>
           <CardHeader><CardTitle className="flex items-center gap-2">{t.name} <Badge>{label(t.frequency)}</Badge></CardTitle></CardHeader>

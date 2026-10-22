@@ -77,7 +77,7 @@ export function LotsTab() {
         </tbody>
       </Table>
       </div>
-      {data?.items.length === 0 && <EmptyState title="No lots found" hint="Lots appear when food is received. Try clearing the search or the filters." />}
+      {data?.items.length === 0 && <EmptyState title="No lots found" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
       {open !== null && <LotDetailModal key={open} initialId={open} onClose={() => setOpen(null)} onChanged={reload} />}
     </div>

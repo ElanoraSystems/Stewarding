@@ -33,7 +33,6 @@ export function TraceabilityPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Food Traceability</h1>
-        <p className="text-sm text-ink-muted">Receive food into lots, split them into labelled portions, and follow any lot from the supplier to the cooking record.</p>
       </div>
       <div role="tablist" aria-label="Traceability sections" className="flex gap-2 overflow-x-auto pb-1">
         {allowed.map(([key, text]) => (

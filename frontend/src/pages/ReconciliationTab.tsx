@@ -89,7 +89,6 @@ export function ReconciliationTab() {
         <LocationSelect allowAll value={locationId} onChange={setLocationId} />
         <Input aria-label="Month" type="month" className="w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />
       </div>
-      <p className="text-sm text-ink-muted">Opening + movements = closing. Every figure is summed from the immutable stock ledger, and values use the weighted average cost at the time of each movement. A variance is the difference between what was counted and what the system expected.</p>
       {data && data.variance.counted_items > 0 && (
         <div role="status" className={`flex flex-wrap items-center gap-3 rounded-md border px-3 py-2 text-sm ${data.variance.shortage_items + data.variance.surplus_items ? 'border-warn/25 border-l-4 border-l-warn bg-warn-soft' : 'border-ok/25 border-l-4 border-l-ok bg-ok-soft'}`}>
           <span className="font-medium">{data.variance.counted_items} item(s) counted</span>

@@ -19,7 +19,7 @@ export function FieldRestrictions({ value, onChange }: RestrictionsProps) {
     <div className="space-y-3">
       {value.type === 'number' && (
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Unit" hint="For example °C or ppm"><Input maxLength={20} value={value.unit} onChange={(e) => set({ unit: e.target.value })} /></Field>
+          <Field label="Unit"><Input maxLength={20} value={value.unit} onChange={(e) => set({ unit: e.target.value })} /></Field>
           <Field label="Minimum"><Input type="number" step="any" value={value.min} onChange={(e) => set({ min: e.target.value })} /></Field>
           <Field label="Maximum"><Input type="number" step="any" value={value.max} onChange={(e) => set({ max: e.target.value })} /></Field>
         </div>
@@ -29,7 +29,7 @@ export function FieldRestrictions({ value, onChange }: RestrictionsProps) {
       )}
       {value.type === 'choice' && (
         <>
-          <Field label="Answers to choose from" hint="One per line">
+          <Field label="Answers to choose from">
             <textarea rows={4} value={value.options} onChange={(e) => set({ options: e.target.value, fail: value.fail.filter((o) => optionList(e.target.value).includes(o)) })}
               className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-brand" />
           </Field>
@@ -43,7 +43,6 @@ export function FieldRestrictions({ value, onChange }: RestrictionsProps) {
           )}
         </>
       )}
-      <p className="text-xs text-ink-muted">{FIELD_TYPES.find((t) => t.value === value.type)?.hint}</p>
     </div>
   )
 }

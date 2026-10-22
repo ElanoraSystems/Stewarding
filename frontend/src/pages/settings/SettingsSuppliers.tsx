@@ -42,8 +42,7 @@ export function SettingsSuppliers() {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-xl text-sm text-ink-muted">Suppliers are linked to items and to every receiving document, so each invoice is tied to one supplier record.</p>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <Button onClick={() => setForm({ ...BLANK })}>Add supplier</Button>
       </div>
       <Table>
@@ -61,7 +60,7 @@ export function SettingsSuppliers() {
           ))}
         </tbody>
       </Table>
-      {data?.length === 0 && <EmptyState title="No suppliers yet" hint="Add the companies you receive stock from." />}
+      {data?.length === 0 && <EmptyState title="No suppliers yet" />}
 
       <Modal open={form !== null} title={form?.id ? 'Edit supplier' : 'Add supplier'} onClose={() => setForm(null)}>
         {form && (

@@ -161,7 +161,7 @@ export function EmployeesPage() {
           ))}
         </tbody>
       </Table>
-      {data?.items.length === 0 && <EmptyState title="No employees found" hint="Try changing the search or filters." />}
+      {data?.items.length === 0 && <EmptyState title="No employees found" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
 
       {formOpen && (
@@ -169,10 +169,7 @@ export function EmployeesPage() {
           onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />
       )}
       <Modal open={enrolling !== null} title={`Enroll face - ${enrolling?.full_name ?? ''}`} onClose={() => setEnrolling(null)}>
-        <p className="mb-3 text-sm text-ink-muted">
-          The employee looks at the camera. Only a numeric template of the face is stored, never a photo, and it is used to check them in and out when face verification is on in Settings.
-          {enrolling?.face_enrolled && ' A new capture replaces the one on file.'}
-        </p>
+        <p className="mb-3 text-sm text-ink-muted">Only a numeric face template is stored, never a photo.</p>
         {enrolling && <FaceCapture onCapture={enroll} />}
         {enrolling?.face_enrolled && <div className="mt-3 text-right"><Button size="sm" variant="outline" onClick={removeFace}>Remove the face on file</Button></div>}
       </Modal>

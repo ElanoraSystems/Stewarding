@@ -60,8 +60,8 @@ export function InventoryOverview({ locationId }: Props) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="Total items" value={all.data?.total ?? '-'} icon={Boxes} />
-        {all.data?.total_value !== undefined && <KpiCard label="Stock value" value={all.data.total_value.toFixed(2)} hint="At weighted average cost" icon={Wallet} />}
-        <KpiCard label="Below minimum" value={short.data?.total ?? '-'} hint="Item and location pairs" tone={short.data?.total ? 'warn' : 'ok'} icon={TrendingDown} />
+        {all.data?.total_value !== undefined && <KpiCard label="Stock value" value={all.data.total_value.toFixed(2)} icon={Wallet} />}
+        <KpiCard label="Below minimum" value={short.data?.total ?? '-'} tone={short.data?.total ? 'warn' : 'ok'} icon={TrendingDown} />
         <KpiCard label="Out of stock" value={short.data ? empty : '-'} tone={empty ? 'critical' : 'ok'} icon={PackageMinus} />
       </div>
 
@@ -69,7 +69,6 @@ export function InventoryOverview({ locationId }: Props) {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Inventory statistics</CardTitle>
-            {totals && <p className="text-xs text-ink-muted">Last 14 days: {totals.in} in, {totals.out} out</p>}
           </CardHeader>
           <CardContent>
             {insights.data ? <ColumnChart data={insights.data.movement} labelKey="date" series={SERIES} /> : <div className="h-40 animate-pulse rounded-lg bg-surface-muted" />}
@@ -89,7 +88,7 @@ export function InventoryOverview({ locationId }: Props) {
 
       {!!short.data?.items.length && (
         <Card>
-          <CardHeader><CardTitle>Shortages</CardTitle><p className="text-xs text-ink-muted">Below the minimum set for the location, with who can spare stock</p></CardHeader>
+          <CardHeader><CardTitle>Shortages</CardTitle></CardHeader>
           <CardContent>
             <ul className="divide-y divide-border">
               {short.data.items.slice(0, 8).map((r) => {

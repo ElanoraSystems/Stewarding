@@ -41,11 +41,7 @@ export function RulesTab() {
   return (
     <div className="space-y-8">
       <div className="space-y-3">
-        <p className="max-w-3xl text-sm text-ink-muted">
-          Set how many hours each kind of food keeps once it is in that condition, to match your local food-safety rules (72 hours is 3 days, 120 hours is 5 days).
-          A portion lot gets a use-by date that many hours after the split, never later than its parent&apos;s. A food and condition with no rule cannot be split until a manager sets one.
-          {!canEdit && ' Only a manager can change these.'}
-        </p>
+        <h2 className="text-base font-semibold">Shelf life</h2>
         <Table>
           <thead><tr><Th>Food</Th>{data.conditions.map((c) => <Th key={c.key} className="text-right">{c.label} (hours)</Th>)}</tr></thead>
           <tbody>
@@ -75,15 +71,11 @@ export function RulesTab() {
         </Table>
       </div>
       <div className="space-y-3">
-        <h2 className="text-base font-semibold">Arrival temperature limits</h2>
-        <p className="max-w-3xl text-sm text-ink-muted">
-          The warmest temperature, in degrees C, a delivery may have when it arrives. A delivery above the limit is received but put on hold until a manager releases it.
-          A change applies to deliveries received from now on.
-        </p>
+        <h2 className="text-base font-semibold">Warmest arrival temperature</h2>
         <div className="flex flex-wrap gap-4">
           {RECEIVED_CONDITIONS.map(([condition, text]) => (
             <label key={condition} className="text-sm">
-              <span className="block pb-1 font-medium">{text}</span>
+              <span className="block pb-1 font-medium">{text} (&deg;C)</span>
               <Input
                 aria-label={`${text}, warmest arrival temperature in C`}
                 type="number"

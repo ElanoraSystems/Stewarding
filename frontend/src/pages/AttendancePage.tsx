@@ -133,14 +133,13 @@ export function AttendancePage() {
           ))}
         </tbody>
       </Table>
-      {data?.items.length === 0 && <EmptyState title="No attendance records" hint="Records appear after the first check-in." />}
+      {data?.items.length === 0 && <EmptyState title="No attendance records" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
 
       {adding && <ManualAttendanceModal onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload() }} />}
 
       <Modal open={correcting !== null} title="Correct attendance" onClose={() => setCorrecting(null)}>
         <form onSubmit={submitCorrection} className="space-y-3">
-          <p className="text-sm text-ink-muted">The original value stays in the record history and the change is audited.</p>
           <Field label="Field">
             <Select value={field} onChange={(e) => setField(e.target.value)}>
               <option value="check_in_at">Check-in time</option>

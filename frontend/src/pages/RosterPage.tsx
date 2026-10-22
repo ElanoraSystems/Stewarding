@@ -129,7 +129,7 @@ export function RosterPage() {
 
           {canManage && (
             <form onSubmit={assign} className="flex flex-wrap items-end gap-3 border-t border-border pt-4">
-              <Field label="Employee" hint={people.data?.items.length === 0 ? 'Nobody is assigned to this location yet.' : undefined}>
+              <Field label="Employee">
                 <Select required value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
                   <option value="">{people.data?.items.length === 0 ? 'No employees at this location' : 'Select'}</option>
                   {people.data?.items.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
@@ -142,7 +142,7 @@ export function RosterPage() {
                 </Select>
               </Field>
               <Field label="Valid from"><Input required type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></Field>
-              <Field label="Valid until (optional)" hint="Leave empty to keep it going."><Input type="date" min={validFrom || undefined} value={validTo} onChange={(e) => setValidTo(e.target.value)} /></Field>
+              <Field label="Valid until (optional)"><Input type="date" min={validFrom || undefined} value={validTo} onChange={(e) => setValidTo(e.target.value)} /></Field>
               <fieldset className="flex gap-2 text-sm">
                 <legend className="mb-1 font-medium">Days</legend>
                 {DAYS.map((d, i) => (

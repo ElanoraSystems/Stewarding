@@ -143,7 +143,6 @@ export function ReceivingTab() {
       <Card>
         <CardHeader>
           <CardTitle>New receiving document</CardTitle>
-          <p className="text-sm text-ink-muted">Posting adds the quantities to stock at the chosen location, recorded against the supplier invoice number. The same invoice cannot be posted twice.</p>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -201,7 +200,6 @@ export function ReceivingTab() {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button variant="outline" size="sm" onClick={entry.addRow}><Plus className="h-4 w-4" /> Add line</Button>
-              <span className="text-xs text-ink-muted">Press Enter on a completed line to save it and start the next one.</span>
             </div>
           </div>
 
@@ -268,7 +266,7 @@ export function ReceivingTab() {
           ))}
         </tbody>
       </Table>
-      {list.data?.items.length === 0 && <EmptyState title="No receiving documents" hint="Post the first delivery above." />}
+      {list.data?.items.length === 0 && <EmptyState title="No receiving documents" />}
       {list.data && <Pagination page={page} size={SIZE} total={list.data.total} onPage={setPage} />}
 
       <Modal open={detail !== null} title={detail ? `${LABEL[detail.doc_type]} #${detail.id}` : ''} onClose={() => { setDetail(null); setVoiding(false) }}>

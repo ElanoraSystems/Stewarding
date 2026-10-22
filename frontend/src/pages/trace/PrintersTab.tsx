@@ -44,15 +44,10 @@ export function PrintersTab() {
   if (!data) return <Skeleton className="h-48 w-full" />
   return (
     <div className="space-y-4">
-      <p className="max-w-3xl text-sm text-ink-muted">
-        Add each Zebra that is connected to your network by Wi-Fi or cable. The app server sends labels straight to it, so people can print from any phone, tablet or computer
-        without installing anything. The server must be on the same network as the printer, and the address must be a private one such as 192.168.1.50.
-        A printer plugged into one computer by USB can print through Zebra Browser Print on that computer instead; no setup is needed here.
-      </p>
       <form onSubmit={add} className="flex flex-wrap items-end gap-3">
         <Field label="Name"><Input required minLength={2} maxLength={60} className="w-48" placeholder="Butchery Zebra" value={form.name} onChange={(e) => set('name', e.target.value)} /></Field>
         <Field label="IP address or network name"><Input required maxLength={120} className="w-52" placeholder="192.168.1.50" value={form.host} onChange={(e) => set('host', e.target.value)} /></Field>
-        <Field label="Port" hint="Usually 9100"><Input required type="number" min={1} max={65535} className="w-24" value={form.port} onChange={(e) => set('port', e.target.value)} /></Field>
+        <Field label="Port"><Input required type="number" min={1} max={65535} className="w-24" value={form.port} onChange={(e) => set('port', e.target.value)} /></Field>
         <Field label="Resolution">
           <Select className="w-32" value={form.dpi} onChange={(e) => set('dpi', e.target.value)}>
             <option value="203">203 dpi</option>

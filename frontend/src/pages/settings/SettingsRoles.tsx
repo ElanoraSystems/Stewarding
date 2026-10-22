@@ -36,11 +36,6 @@ interface Draft {
   permissions: string[]
 }
 
-const TIER_HINT: Record<string, string> = {
-  supervisor: 'Gets supervisor alerts for their locations and sees the manager-style dashboard.',
-  steward: 'Gets steward tasks and the personal dashboard.',
-}
-
 export function SettingsRoles() {
   const run = useRun()
   const roles = useApi<RoleRow[]>('/roles')
@@ -73,10 +68,7 @@ export function SettingsRoles() {
   if (!roles.data || !catalog.data) return <Skeleton className="h-48 w-full" />
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-2xl text-sm text-ink-muted">
-          Make a role for any position, choose exactly what it may do, then give it to people from the Employees page. You can change the name and permissions of any role except the manager, which always has full access; Copy starts a new role from an existing one.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <Button onClick={() => setDraft({ id: null, label: '', tier: 'supervisor', builtin: false, defaults: null, permissions: ['dashboard.view', 'notification.view'] })}>New role</Button>
       </div>
       <Table>
@@ -103,7 +95,7 @@ export function SettingsRoles() {
           <form onSubmit={save} className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Role name"><Input required minLength={2} maxLength={80} placeholder="Head chef" value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} /></Field>
-              <Field label="Behaves like" hint={TIER_HINT[draft.tier]}>
+              <Field label="Behaves like">
                 <Select value={draft.tier} disabled={draft.builtin} onChange={(e) => setDraft({ ...draft, tier: e.target.value })}>
                   {catalog.data.tiers.map((t) => <option key={t} value={t}>{t === 'supervisor' ? 'Supervisor' : 'Steward'}</option>)}
                 </Select>

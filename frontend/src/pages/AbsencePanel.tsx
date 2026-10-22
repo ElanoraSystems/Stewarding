@@ -57,14 +57,14 @@ export function AbsencePanel() {
       <CardContent className="space-y-4">
         <form onSubmit={record} className="flex flex-wrap items-end gap-3">
           <Field label="Location"><LocationSelect value={locationId} onChange={(id) => { setLocationId(id); setEmployeeId('') }} /></Field>
-          <Field label="Employee" hint={employees.data?.items.length === 0 ? 'Nobody is assigned to this location yet.' : undefined}>
+          <Field label="Employee">
             <Select required value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
               <option value="">{employees.data?.items.length === 0 ? 'No employees at this location' : 'Select'}</option>
               {employees.data?.items.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
             </Select>
           </Field>
           <Field label="From"><Input required type="date" value={day} onChange={(e) => setDay(e.target.value)} /></Field>
-          <Field label="To (optional)" hint="For several days in a row"><Input type="date" value={dayTo} min={day} onChange={(e) => setDayTo(e.target.value)} /></Field>
+          <Field label="To (optional)"><Input type="date" value={dayTo} min={day} onChange={(e) => setDayTo(e.target.value)} /></Field>
           <Field label="Type">
             <Select value={kind} onChange={(e) => setKind(e.target.value)}>{ABSENCE_TYPES.map((t) => <option key={t} value={t}>{label(t)}</option>)}</Select>
           </Field>

@@ -38,11 +38,11 @@ export function InsightsTab() {
       {!data ? <Skeleton className="h-64 w-full" /> : (
         <>
           <section aria-label="Key figures" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <KpiCard label="Stock in" value={data.totals.in} hint="receipts, returns, transfers in" tone="ok" />
-            <KpiCard label="Stock out" value={data.totals.out} hint="issues, breakage, transfers out" />
-            <KpiCard label="Breakage units" value={data.totals.breakage_units} hint={`Est. cost ${data.totals.breakage_cost.toFixed(2)}`} tone={data.totals.breakage_units ? 'warn' : 'default'} />
-            <KpiCard label="Transfers completed" value={data.transfers.completed} hint={`${data.transfers.units} units moved`} />
-            <KpiCard label="Transfers waiting" value={data.transfers.requested} hint={`${data.transfers.rejected} rejected`} tone={data.transfers.requested ? 'warn' : 'default'} />
+            <KpiCard label="Stock in" value={data.totals.in} tone="ok" />
+            <KpiCard label="Stock out" value={data.totals.out} />
+            <KpiCard label="Breakage units" value={data.totals.breakage_units} tone={data.totals.breakage_units ? 'warn' : 'default'} />
+            <KpiCard label="Transfers completed" value={data.transfers.completed} />
+            <KpiCard label="Transfers waiting" value={data.transfers.requested} tone={data.transfers.requested ? 'warn' : 'default'} />
           </section>
           <section aria-label="Charts" className="grid gap-4 lg:grid-cols-2">
             <Card>

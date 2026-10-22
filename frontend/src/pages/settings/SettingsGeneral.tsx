@@ -8,10 +8,9 @@ import { api } from '@/lib/api'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 
-const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = [
+const GROUPS: { title: string; keys: Record<string, string> }[] = [
   {
     title: 'Reminders and escalation',
-    hint: 'When people are reminded about a deadline and when an overdue task moves up to a supervisor, then a manager.',
     keys: {
       'reminder.lead_minutes': 'Reminder before a deadline (minutes)',
       'escalation.supervisor_after_minutes': 'Escalate to supervisor after (minutes overdue)',
@@ -20,7 +19,6 @@ const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = 
   },
   {
     title: 'Monitoring',
-    hint: 'Timing around checks, retests and repeat failures. The limits and frequency of each check are set per monitoring point under Monitoring setup.',
     keys: {
       'temp.due_grace_minutes': 'Grace period for a due check (minutes)',
       'temp.retest_minutes': 'Retest due after corrective action (minutes)',
@@ -32,12 +30,10 @@ const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = 
   },
   {
     title: 'Approvals',
-    hint: 'A supervisor or a manager can approve; whoever gets there first approves, and nobody approves their own work.',
     keys: { 'approval.checklists': 'Every completed checklist task needs approval (1 = yes, 0 = only tasks marked for verification)' },
   },
   {
     title: 'Breakage approval',
-    hint: 'An incident at or above either value needs a manager before stock is deducted.',
     keys: {
       'breakage.approval_qty': 'Approval needed from this quantity',
       'breakage.approval_cost': 'Approval needed from this estimated cost',
@@ -45,7 +41,6 @@ const GROUPS: { title: string; hint: string; keys: Record<string, string> }[] = 
   },
   {
     title: 'Attendance',
-    hint: 'How long an open check-in stays before it is flagged as a missed check-out, and how vague a phone position may be at a location with a geofence (0 turns the limit off).',
     keys: {
       'attendance.missed_checkout_hours': 'Missed check-out after (hours)',
       'attendance.max_accuracy_m': 'Largest location error accepted (metres)',
@@ -78,7 +73,6 @@ export function SettingsGeneral() {
         <Card key={group.title}>
           <CardHeader>
             <CardTitle>{group.title}</CardTitle>
-            <p className="text-sm text-ink-muted">{group.hint}</p>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {Object.entries(group.keys).map(([key, text]) => (

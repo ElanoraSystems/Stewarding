@@ -92,7 +92,7 @@ export function InventoryPage() {
           ))}
         </tbody>
       </Table>
-      {data?.items.length === 0 && <EmptyState title="No items found" hint="Try clearing the search or the low-stock filter." />}
+      {data?.items.length === 0 && <EmptyState title="No items found" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
 
       <h2 className="pt-2 text-lg font-semibold">Tracked assets</h2>

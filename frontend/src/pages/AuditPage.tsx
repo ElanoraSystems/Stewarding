@@ -32,7 +32,6 @@ export function AuditPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Audit Logs</h1>
-      <p className="text-sm text-ink-muted">A read-only record of sensitive edits, approvals and configuration changes.</p>
       <div className="filter-bar">
         <Input aria-label="Action starts with" className="w-48" placeholder="Action, e.g. employee" value={action} onChange={(e) => reset(setAction)(e.target.value)} />
         <Input aria-label="Entity" className="w-44" placeholder="Entity, e.g. location" value={entity} onChange={(e) => reset(setEntity)(e.target.value)} />

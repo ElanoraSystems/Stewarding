@@ -59,7 +59,6 @@ function UnitList() {
 export function SettingsInventoryLists() {
   return (
     <div className="space-y-4">
-      <p className="text-sm text-ink-muted">Categories separate the items in the single inventory. Categories and units appear in the item master. Retired values stay on existing items but cannot be chosen for new ones.</p>
       <div className="grid gap-4 lg:grid-cols-2">
         <CategoryList />
         <UnitList />
