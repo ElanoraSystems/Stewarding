@@ -125,10 +125,10 @@ export function AppLayout() {
           </Button>
         </div>
       </aside>
-      {open && <div className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setOpen(false)} aria-hidden />}
+      {open && <div className="scrim fixed inset-0 z-20 lg:hidden" onClick={() => setOpen(false)} aria-hidden />}
 
       <div className="flex min-w-0 flex-col">
-        <header className="flex h-14 items-center justify-between gap-3 px-4 lg:px-6">
+        <header className="glass sticky top-0 z-10 flex h-14 items-center justify-between gap-3 border-b border-border/60 px-4 lg:px-6">
           <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" onClick={() => setOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>

@@ -81,6 +81,37 @@ body {
   }
 }
 
+.glass {
+  background: var(--color-page);
+}
+
+.scrim {
+  background: rgb(0 0 0 / 0.45);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+  .glass {
+    background: color-mix(in srgb, var(--color-page) 92%, transparent);
+    backdrop-filter: blur(14px) saturate(1.4);
+  }
+
+  .scrim {
+    backdrop-filter: blur(5px);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--color-page);
+    backdrop-filter: none;
+  }
+
+  .scrim {
+    background: rgb(0 0 0 / 0.65);
+    backdrop-filter: none;
+  }
+}
+
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }

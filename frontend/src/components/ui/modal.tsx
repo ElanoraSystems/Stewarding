@@ -20,7 +20,7 @@ export function Modal({ open, title, onClose, children, wide = false }: ModalPro
 
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" onMouseDown={onClose}>
+    <div className="scrim fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center" onMouseDown={onClose}>
       <div
         role="dialog"
         aria-modal="true"
