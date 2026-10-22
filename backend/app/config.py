@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +13,15 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     scheduler_enabled: bool = True
     bcrypt_rounds: int = 12
+
+    @field_validator("database_url")
+    @classmethod
+    def _postgres_driver(cls, value: str) -> str:
+        """Hosting platforms hand out postgres:// or postgresql:// URLs; the app uses the psycopg driver."""
+        for scheme in ("postgres://", "postgresql://"):
+            if value.startswith(scheme):
+                return "postgresql+psycopg://" + value.removeprefix(scheme)
+        return value
 
 
 settings = Settings()

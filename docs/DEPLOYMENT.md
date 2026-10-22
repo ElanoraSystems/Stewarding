@@ -47,6 +47,24 @@ Employees get their login when you add them (Employees, Add): give each person t
 
 Then add employees and checklist templates (Checklists, Configure) and receive opening stock under **Stock Movements, Receiving**.
 
+## Deploy on Render
+`render.yaml` at the repository root describes the whole stack: a PostgreSQL database, a private API service with a 1 GB disk for uploads, and a public web service that serves the app and forwards `/api` to the API. It uses `backend/Dockerfile.render` and `frontend/Dockerfile.render`; the regular Dockerfiles are for Docker Compose.
+
+1. Push the repository to GitHub or GitLab.
+2. In Render choose **New > Blueprint**, pick the repository and apply. Render generates `STW_SECRET_KEY` and wires the database address and the API address itself; no secret goes in the file.
+3. When the three resources are live, open the `plato-api` service, its **Shell** tab, and create the first manager:
+   ```bash
+   STW_BOOTSTRAP_PASSWORD='choose-a-long-password' python -m app.bootstrap --email you@company.com --name "Your Name" --code E001
+   ```
+4. Open the `plato` service address and sign in. Continue with first-time setup below.
+
+Notes:
+- The region (Frankfurt) and the database name cannot be changed after creation; edit `render.yaml` before the first apply if you want another region. Plans are set to the smallest paid sizes; raise them in the dashboard when load grows.
+- A disk limits the API to one instance and makes each deploy restart it, so the site is unavailable for a few seconds. One instance is also what the in-process scheduler needs.
+- The API is not reachable from the internet; only the web service can call it, so the browser always talks to one address.
+- The database address Render provides starts with `postgresql://`; the app rewrites it to the psycopg driver itself.
+- Back up the database and the `/data` disk; they hold everything.
+
 ## Demo data (non-production only)
 ```bash
 docker compose exec -e STW_SEED_PASSWORD='demo-password-1' backend python -m app.seed
