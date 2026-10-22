@@ -234,7 +234,7 @@ def delete_rule(rule_id: int, user: User = Depends(require("lot.manage")), db: S
 
 
 @router.get("/suppliers")
-def list_suppliers(user: User = Depends(any_of("lot.receive", "lot.manage")), db: Session = Depends(get_db)):
+def list_suppliers(user: User = Depends(any_of("lot.view", "lot.receive", "lot.manage")), db: Session = Depends(get_db)):
     """Active suppliers, so receiving does not depend on a stock permission."""
     return [{"id": s.id, "name": s.name} for s in db.scalars(select(Supplier).where(Supplier.active.is_(True)).order_by(Supplier.name))]
 
@@ -334,8 +334,8 @@ def print_labels(ids: str = Query(max_length=600), copies: int = Query(1, ge=1, 
 
 @router.get("")
 def list_lots(q: str | None = None, lot_status: str | None = Query(None, alias="status"), food_group: str | None = None,
-              location_id: int | None = None, expiring_hours: int | None = Query(None, ge=1, le=8760), page: int = 1, size: int = 25,
-              user: User = Depends(require("lot.view")), db: Session = Depends(get_db)):
+              location_id: int | None = None, supplier_id: int | None = None, expiring_hours: int | None = Query(None, ge=1, le=8760), page: int = 1,
+              size: int = 25, user: User = Depends(require("lot.view")), db: Session = Depends(get_db)):
     stmt = _scoped(select(Lot).join(FoodItem, FoodItem.id == Lot.food_item_id), user, db)
     if q:
         like = f"%{q.strip()}%"
@@ -344,6 +344,8 @@ def list_lots(q: str | None = None, lot_status: str | None = Query(None, alias="
         stmt = stmt.where(Lot.status == lot_status)
     if food_group in GROUPS:
         stmt = stmt.where(Lot.food_group == food_group)
+    if supplier_id is not None:
+        stmt = stmt.where(Lot.supplier_id == supplier_id)
     if location_id is not None:
         check_location(user, db, location_id)
         stmt = stmt.where(Lot.location_id == location_id)

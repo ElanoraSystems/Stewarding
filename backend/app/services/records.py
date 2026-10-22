@@ -9,16 +9,21 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
-                      EquipmentSchedule, InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction, Supplier,
-                      TemperatureReading)
+                      EquipmentSchedule, FoodItem, InventoryCategory, InventoryItem, Location, Lot, Receipt, ReceiptLine, StockTransaction,
+                      Supplier, TemperatureReading)
 from . import metrics
+from .traceability import CONDITIONS, GROUPS
 from .costing import MEASURES, category_rows, cost_report
 from .monitoring import describe
 from .reference import user_names
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
          "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements",
-         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category"}
+         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "lots": "Lot Register"}
+STATUS_FILTERS = {"monitoring": ("passed", "failed", "awaiting"),
+                  "checklists": ("pending", "completed", "pending_verification", "verified", "failed", "waived"),
+                  "attendance": ("present", "late", "absent", "leave", "week_off"),
+                  "lots": ("active", "used_up", "discarded", "on_hold")}
 MAX_DAYS = 731
 CHART_DAYS = 31
 MOVEMENTS = {"receipts": ("receipt",), "issues": ("issue",), "returns": ("return",), "transfers": ("transfer_in", "transfer_out"),
@@ -34,6 +39,8 @@ class Filters:
     item_id: int | None = None
     movement: str | None = None
     frequency: str | None = None
+    status: str | None = None
+    food_group: str | None = None
 
 
 def _local(dt: datetime | None, tz: str) -> str:
@@ -67,7 +74,11 @@ def _locations(db: Session, scope: set[int] | None, location_id: int | None) -> 
     return list(db.scalars(stmt.order_by(Location.name)))
 
 
-def _monitoring_groups(db: Session, locations: list[Location], day_from: date, day_to: date, equipment_id: int | None) -> list[dict]:
+READING_STATUS = {"passed": lambda r: r.passed, "failed": lambda r: not r.passed, "awaiting": lambda r: not r.reviewed_at and not r.rejected_at}
+
+
+def _monitoring_groups(db: Session, locations: list[Location], day_from: date, day_to: date, equipment_id: int | None,
+                       status: str | None = None) -> list[dict]:
     """One table per monitoring point, including points with nothing recorded in the period."""
     names = _names(db)
     groups = []
@@ -80,7 +91,9 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
             readings = list(db.scalars(select(TemperatureReading).where(
                 TemperatureReading.equipment_id == eq.id, TemperatureReading.recorded_at >= start,
                 TemperatureReading.recorded_at < end).order_by(TemperatureReading.recorded_at)))
-            if not readings and not eq.active:
+            if status:
+                readings = [r for r in readings if READING_STATUS[status](r)]
+            if not readings and (status or not eq.active):
                 continue
             actions = {a.reading_id: a for a in db.scalars(select(CorrectiveAction).where(
                 CorrectiveAction.reading_id.in_([r.id for r in readings])))}
@@ -182,7 +195,7 @@ def _category_group(title: str, meta: list, columns: list, lines: list[dict], to
 
 
 def _checklist_groups(db: Session, locations: list[Location], day_from: date, day_to: date,
-                      frequency: str | None = None, employee_id: int | None = None) -> list[dict]:
+                      frequency: str | None = None, employee_id: int | None = None, status: str | None = None) -> list[dict]:
     names = _names(db)
     groups = []
     for loc in locations:
@@ -195,6 +208,8 @@ def _checklist_groups(db: Session, locations: list[Location], day_from: date, da
                 .order_by(ChecklistInstance.local_date, ChecklistTemplate.name, ChecklistTask.id))
         if frequency:
             stmt = stmt.where(ChecklistTemplate.frequency == frequency)
+        if status:
+            stmt = stmt.where(ChecklistInstance.status == status)
         if employee_id is not None:
             emp_user = db.scalar(select(Employee.user_id).where(Employee.id == employee_id))
             stmt = stmt.where((ChecklistInstance.assigned_employee_id == employee_id) | (ChecklistInstance.completed_by == (emp_user or -1)))
@@ -293,13 +308,18 @@ def _chart_groups(db: Session, now: datetime, scope, f: Filters, day_from: date,
 
 
 PRESENT_STATUSES = ("present", "late", "on_duty", "missed_checkout", "unscheduled")
+LEAVE_DAY_STATUSES = ("sick_leave", "annual_leave", "unpaid_leave", "other_leave")
+ATTENDANCE_STATUS = {"present": lambda r: r["status"] in PRESENT_STATUSES, "late": lambda r: r["status"] == "late" or (r["late_minutes"] or 0) > 0,
+                     "absent": lambda r: r["status"] == "absent", "leave": lambda r: r["status"] in LEAVE_DAY_STATUSES,
+                     "week_off": lambda r: r["status"] == "week_off"}
 
 
 def _attendance_groups(db: Session, now: datetime, scope, f: Filters, day_from: date, day_to: date) -> list[dict]:
     groups = []
     for win in metrics.windows(db, now, scope, f.location_id, day_from, day_to):
         stats = metrics.attendance_stats(db, win, now, f.employee_id)
-        if not stats["rows"]:
+        shown = [r for r in stats["rows"] if ATTENDANCE_STATUS[f.status](r)] if f.status else stats["rows"]
+        if not shown:
             continue
         tz = win.loc.timezone
         rows = [{"date": r["day"].strftime("%d %b %Y"), "employee": r["name"], "shift": r["shift"] or "",
@@ -307,7 +327,7 @@ def _attendance_groups(db: Session, now: datetime, scope, f: Filters, day_from: 
                  "check_in": timeutil.to_local(r["check_in"], tz).strftime("%H:%M") if r["check_in"] else "",
                  "check_out": timeutil.to_local(r["check_out"], tz).strftime("%H:%M") if r["check_out"] else "",
                  "late": r["late_minutes"] or "", "worked": _hm(r["payable_minutes"]), "overtime": _hm(r["overtime_minutes"]),
-                 "note": r["note"] or "", "location_check": "; ".join(dict.fromkeys(r["geo_flags"]))} for r in stats["rows"]]
+                 "note": r["note"] or "", "location_check": "; ".join(dict.fromkeys(r["geo_flags"]))} for r in shown]
         groups.append({
             "title": f"{win.loc.name} - Attendance", "meta": [("Location", win.loc.name)],
             "columns": [("date", "Date"), ("employee", "Employee"), ("shift", "Shift"), ("status", "Status"), ("check_in", "In"),
@@ -441,6 +461,37 @@ def _movement_groups(db: Session, locations: list[Location], f: Filters, day_fro
     return groups
 
 
+def _lot_groups(db: Session, locations: list[Location], f: Filters, day_from: date, day_to: date) -> list[dict]:
+    """One table per location of the lots received in the period, with their status and use-by."""
+    items = dict(db.execute(select(FoodItem.id, FoodItem.name)).all())
+    suppliers = dict(db.execute(select(Supplier.id, Supplier.name)).all())
+    groups = []
+    for loc in locations:
+        start, end = _bounds(day_from, day_to, loc.timezone)
+        stmt = select(Lot).where(Lot.location_id == loc.id, Lot.kind == "received", Lot.created_at >= start, Lot.created_at < end)
+        if f.food_group:
+            stmt = stmt.where(Lot.food_group == f.food_group)
+        if f.supplier_id is not None:
+            stmt = stmt.where(Lot.supplier_id == f.supplier_id)
+        if f.status:
+            stmt = stmt.where(Lot.status == f.status)
+        lots = list(db.scalars(stmt.order_by(Lot.created_at, Lot.id)))
+        if not lots:
+            continue
+        rows = [{"lot": lot.code, "received": _local(lot.created_at, loc.timezone), "food": items.get(lot.food_item_id, ""),
+                 "supplier": suppliers.get(lot.supplier_id, ""), "stored": CONDITIONS[lot.condition],
+                 "quantity": f"{lot.qty:f} {lot.unit or ''}".strip() if lot.qty is not None else "",
+                 "arrival_temp": "" if lot.temp_c is None else f"{lot.temp_c:f} C", "use_by": _local(lot.use_by, loc.timezone),
+                 "status": lot.status.replace("_", " ").capitalize()} for lot in lots]
+        groups.append({
+            "title": f"{loc.name} - Lot register", "meta": [("Location", loc.name)],
+            "columns": [("lot", "Lot"), ("received", "Received"), ("food", "Food"), ("supplier", "Supplier"), ("stored", "Stored as"),
+                        ("quantity", "Quantity"), ("arrival_temp", "Arrival temperature"), ("use_by", "Use by"), ("status", "Status")],
+            "rows": rows,
+            "totals": [("Lots", len(lots))] + [(s.replace("_", " ").capitalize(), sum(1 for lot in lots if lot.status == s)) for s in STATUS_FILTERS["lots"]]})
+    return groups
+
+
 def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, day_from: date, day_to: date,
                  f: Filters, prepared_by: str) -> dict:
     if kind not in KINDS:
@@ -449,11 +500,17 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
         raise ValueError("The start date is after the end date")
     if (day_to - day_from).days >= MAX_DAYS:
         raise ValueError(f"A record covers at most {MAX_DAYS} days")
+    if f.status and f.status not in STATUS_FILTERS.get(kind, ()):
+        raise ValueError("Unknown status for this report")
+    if f.food_group and f.food_group not in GROUPS:
+        raise ValueError("Unknown food group")
     locations = _locations(db, scope, f.location_id)
     if kind == "monitoring":
-        groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id)
+        groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id, f.status)
+    elif kind == "lots":
+        groups = _lot_groups(db, locations, f, day_from, day_to)
     elif kind == "checklists":
-        groups = _checklist_groups(db, locations, day_from, day_to, f.frequency, f.employee_id)
+        groups = _checklist_groups(db, locations, day_from, day_to, f.frequency, f.employee_id, f.status)
     elif kind == "checklist_chart":
         groups = _chart_groups(db, now, scope, f, day_from, day_to)
     elif kind == "attendance":

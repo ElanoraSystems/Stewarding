@@ -541,3 +541,22 @@ def test_a_code_with_a_slash_can_be_scanned_and_typed_in_any_case(client, login,
         found = client.get(f"{LOTS}/by-code/{quote(typed, safe='')}", headers=m)
         assert found.status_code == 200 and found.json()["id"] == lot["id"], typed
     assert client.get(f"{LOTS}/by-code/NOPE", headers=m).status_code == 404
+
+
+def test_the_lot_list_filters_by_food_group_and_supplier_and_a_viewer_can_list_suppliers(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    chicken, salmon = food(client, m), food(client, m, "Salmon fillet", "seafood")
+    other = client.post("/api/suppliers", headers=m, json={"name": "Gulf Seafood"}).json()["id"]
+    receive(client, sup, db, chicken, supplier_lot="B1")
+    receive(client, sup, db, salmon, supplier_lot="S1", supplier_id=other)
+
+    def codes(**params):
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        return sorted(x["code"] for x in client.get(f"{LOTS}?{query}", headers=m).json()["items"])
+
+    assert codes() == ["B1", "S1"] and codes(food_group="seafood") == ["S1"] and codes(supplier_id=other) == ["S1"]
+    assert codes(food_group="poultry", supplier_id=other) == []
+    cook = butcher(client, db, m)
+    names = [s["name"] for s in client.get(f"{LOTS}/suppliers", headers=cook).json()]
+    assert "Gulf Seafood" in names
+    assert client.get(f"{LOTS}/suppliers", headers=login(STEWARD)).status_code == 403

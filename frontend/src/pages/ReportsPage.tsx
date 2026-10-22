@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth'
 import { PRESETS, type Range } from '@/lib/dates'
 import { downloadFile } from '@/lib/download'
-import { MOVEMENTS, REPORTS, SECTIONS, type ReportDef } from '@/lib/reportCatalog'
+import { FOOD_GROUPS, MOVEMENTS, REPORTS, SECTIONS, type ReportDef } from '@/lib/reportCatalog'
 import { useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
@@ -38,7 +38,7 @@ export function ReportsPage() {
   const params = {
     date_from: range[0], date_to: range[1], location_id: locationId, employee_id: extra.employee, frequency: extra.frequency,
     equipment_id: has('monitoringPoint') && locationId ? extra.monitoringPoint : '', supplier_id: extra.supplier,
-    movement: extra.movement, item_id: extra.item,
+    movement: extra.movement, item_id: extra.item, status: extra.status, food_group: extra.foodGroup,
   }
   const preview = useApi<RecordDoc>(def.summary ? null : `/reports/records/${key}${qs(params)}`)
   const setFilter = (name: string, value: string) => setExtra((e) => ({ ...e, [name]: value }))
@@ -57,28 +57,23 @@ export function ReportsPage() {
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
-        <nav aria-label="Reports" className="space-y-4">
-          <Select aria-label="Report" className="lg:hidden" value={key} onChange={(e) => choose(e.target.value)}>
-            {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.title}</option>)}
-          </Select>
-          <div className="hidden space-y-4 lg:block">
-            {SECTIONS.map((section) => (
-              <div key={section}>
-                <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">{section}</p>
-                <ul className="space-y-1">
-                  {REPORTS.filter((r) => r.section === section).map((r) => (
-                    <li key={r.key}>
-                      <button type="button" onClick={() => choose(r.key)} aria-current={r.key === key}
-                        className={cn('flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-muted',
-                          r.key === key && 'bg-surface-muted font-medium ring-1 ring-brand')}>
-                        <FileText className="h-4 w-4 shrink-0 text-brand" aria-hidden /> {r.title}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+        <nav aria-label="Reports" className="space-y-3 lg:space-y-4">
+          {SECTIONS.map((section) => (
+            <div key={section} className="flex flex-wrap items-center gap-2 lg:block">
+              <p className="px-1 text-xs font-semibold uppercase tracking-wide text-ink-muted lg:mb-1 lg:px-2">{section}</p>
+              <ul className="flex flex-wrap gap-2 lg:block lg:space-y-1">
+                {REPORTS.filter((r) => r.section === section).map((r) => (
+                  <li key={r.key}>
+                    <button type="button" onClick={() => choose(r.key)} aria-current={r.key === key}
+                      className={cn('flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 text-sm hover:bg-surface-muted lg:w-full lg:rounded-md lg:border-transparent lg:bg-transparent lg:py-2 lg:text-left',
+                        r.key === key && 'border-brand bg-brand-soft font-medium ring-1 ring-brand lg:bg-surface-muted')}>
+                      <FileText className="h-4 w-4 shrink-0 text-brand" aria-hidden /> {r.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </nav>
 
         <section className="min-w-0 space-y-4" aria-label={def.title}>
@@ -136,6 +131,22 @@ export function ReportsPage() {
                       <Select value={extra.movement ?? ''} onChange={(e) => setFilter('movement', e.target.value)}>
                         <option value="">All movements</option>
                         {MOVEMENTS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                  {has('foodGroup') && (
+                    <Field label="Food group">
+                      <Select value={extra.foodGroup ?? ''} onChange={(e) => setFilter('foodGroup', e.target.value)}>
+                        <option value="">All food groups</option>
+                        {FOOD_GROUPS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                  {has('status') && def.statuses && (
+                    <Field label="Status">
+                      <Select value={extra.status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
+                        <option value="">All</option>
+                        {def.statuses.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
                       </Select>
                     </Field>
                   )}

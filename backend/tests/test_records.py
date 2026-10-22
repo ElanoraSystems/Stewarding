@@ -9,6 +9,7 @@ from .helpers import loc_id
 from .test_approvals import SUP_RB, complete, verify
 from .test_checklists import MGR, STEWARD, SUP, find, generate
 from .test_monitoring import mk_stage, record
+from .test_traceability import food, receive
 
 URL = "/api/reports/records"
 
@@ -250,3 +251,64 @@ def test_the_report_header_gives_name_and_position_separately(client, login, db,
     assert ("Prepared by", "Maya Manager") in cells and ("Position", "Back of House Manager") in cells
     summary = client.get("/api/reports/daily/export?fmt=csv", headers=login(MGR)).content.decode("utf-8-sig").splitlines()
     assert "Prepared by,Maya Manager" in summary and "Position,Back of House Manager" in summary
+
+
+def rec(client, h, kind, **params):
+    query = "&".join(f"{k}={v}" for k, v in {"date_from": "2026-03-02", "date_to": "2026-03-02", **params}.items())
+    return client.get(f"{URL}/{kind}?{query}", headers=h)
+
+
+def test_the_monitoring_record_filters_by_result_and_approval(client, login, db, clock):
+    seed_readings(client, login)
+    m = login(MGR)
+
+    def checks(status):
+        doc = monitoring(client, m, location_id=loc_id(db, "MK"), status=status).json()
+        return [r["check"] for g in doc["groups"] for r in g["rows"]], len(doc["groups"])
+
+    assert checks("failed") == (["Final rinse"], 1)
+    assert checks("passed") == (["Wash"], 1)
+    assert checks("awaiting") == (["Final rinse"], 1)
+    assert monitoring(client, m, status="nonsense").status_code == 400
+
+
+def test_the_attendance_record_filters_by_status(client, login, db, clock):
+    client.post("/api/attendance/check-in", json={"location_id": loc_id(db, "MK")}, headers=login(STEWARD))
+    mgr = login(MGR)
+    emp = next(e["id"] for e in client.get("/api/employees?size=50", headers=mgr).json()["items"] if e["employee_code"] == "E005")
+    client.post("/api/absences", json={"employee_id": emp, "location_id": loc_id(db, "BQ"), "day": "2026-03-02", "absence_type": "sick_leave"}, headers=mgr)
+    clock.advance(hours=10)
+
+    def people(status):
+        doc = rec(client, mgr, "attendance", status=status).json()
+        return {r["employee"] for g in doc["groups"] for r in g["rows"]}
+
+    assert people("leave") == {"Bina Steward"}
+    assert "Sid Steward" in people("present") and "Bina Steward" not in people("present")
+    assert "Sid Steward" not in people("absent") and "Bina Steward" not in people("absent")
+    assert rec(client, mgr, "attendance", status="nonsense").status_code == 400
+
+
+def test_the_lot_register_lists_received_lots_and_filters_by_group_supplier_and_status(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    chicken, salmon = food(client, m), food(client, m, "Salmon fillet", "seafood")
+    other = client.post("/api/suppliers", headers=m, json={"name": "Gulf Seafood"}).json()["id"]
+    receive(client, sup, db, chicken, supplier_lot="B1", qty=20, unit="kg")
+    receive(client, sup, db, salmon, supplier_lot="S1", temp_c=9, supplier_id=other)
+
+    def codes(**params):
+        doc = rec(client, m, "lots", **params).json()
+        return [r["lot"] for g in doc["groups"] for r in g["rows"]]
+
+    doc = rec(client, m, "lots").json()
+    assert doc["title"] == "Lot Register" and codes() == ["B1", "S1"]
+    first, second = doc["groups"][0]["rows"]
+    assert (first["food"], first["quantity"], first["status"]) == ("Chicken breast", "20.00 kg", "Active")
+    assert (second["supplier"], second["arrival_temp"], second["status"]) == ("Gulf Seafood", "9.0 C", "On hold")
+    assert dict(doc["groups"][0]["totals"]) == {"Lots": 2, "Active": 1, "Used up": 0, "Discarded": 0, "On hold": 1}
+    assert codes(food_group="seafood") == ["S1"] and codes(status="on_hold") == ["S1"] and codes(supplier_id=other) == ["S1"]
+    assert codes(food_group="seafood", status="active") == []
+    assert rec(client, m, "lots", food_group="nonsense").status_code == 400
+    assert rec(client, m, "lots", status="nonsense").status_code == 400
+    assert rec(client, m, "receipts", status="active").status_code == 400
+    assert b"B1" in client.get(f"{URL}/lots/export?fmt=csv&date_from=2026-03-02&date_to=2026-03-02", headers=m).content

@@ -6,6 +6,7 @@ import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'
 import { EmptyState, Skeleton, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
 import { fmtDate, fmtDateTime } from '@/lib/format'
+import { FOOD_GROUPS } from '@/lib/reportCatalog'
 import { qs, useApi } from '@/lib/useApi'
 import { LotDetailModal } from '@/pages/trace/LotDetailModal'
 import { STATUS_LABEL, STATUS_TONE, type Lot } from '@/pages/trace/types'
@@ -17,10 +18,13 @@ const quantity = (lot: Lot) => (lot.qty === null ? '-' : `${lot.qty} ${lot.unit 
 export function LotsTab() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
+  const [group, setGroup] = useState('')
+  const [supplier, setSupplier] = useState('')
   const [soon, setSoon] = useState(false)
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState<number | null>(null)
-  const { data, loading, reload } = useApi<{ total: number; items: Lot[] }>(`/lots${qs({ q: search, status, expiring_hours: soon ? 48 : '', page, size: SIZE })}`)
+  const suppliers = useApi<{ id: number; name: string }[]>('/lots/suppliers')
+  const { data, loading, reload } = useApi<{ total: number; items: Lot[] }>(`/lots${qs({ q: search, status, food_group: group, supplier_id: supplier, expiring_hours: soon ? 48 : '', page, size: SIZE })}`)
 
   return (
     <div className="space-y-3">
@@ -33,6 +37,16 @@ export function LotsTab() {
           <option value="">Any status</option>
           {Object.entries(STATUS_LABEL).map(([key, text]) => <option key={key} value={key}>{text}</option>)}
         </Select>
+        <Select aria-label="Food group" className="w-auto" value={group} onChange={(e) => { setGroup(e.target.value); setPage(1) }}>
+          <option value="">Any food group</option>
+          {FOOD_GROUPS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+        </Select>
+        {(suppliers.data?.length ?? 0) > 0 && (
+          <Select aria-label="Supplier" className="w-auto" value={supplier} onChange={(e) => { setSupplier(e.target.value); setPage(1) }}>
+            <option value="">Any supplier</option>
+            {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </Select>
+        )}
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={soon} onChange={(e) => { setSoon(e.target.checked); setPage(1) }} /> Use-by within 48 hours
         </label>
