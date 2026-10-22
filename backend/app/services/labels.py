@@ -8,6 +8,8 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import simpleSplit
 from reportlab.pdfgen import canvas
 
+from .traceability import lot_code
+
 LABEL_W_MM, LABEL_H_MM = 75, 50
 LABEL = (LABEL_W_MM * mm, LABEL_H_MM * mm)
 
@@ -22,7 +24,8 @@ def _fit(text: str, font: str, size: float, width: float, limit: int) -> list[st
 
 def _facts(info: dict) -> list[str]:
     """The readable lines under the item: who supplied it, the original dates, and when it was received or portioned."""
-    supplier = " - ".join(part for part in (info.get("supplier"), f"lot {info['supplier_lot']}" if info.get("supplier_lot") else "") if part)
+    lot_is_code = info.get("supplier_lot") and info["code"].startswith(lot_code(info["supplier_lot"]))
+    supplier = " - ".join(part for part in (info.get("supplier"), f"lot {info['supplier_lot']}" if info.get("supplier_lot") and not lot_is_code else "") if part)
     dates = "   ".join(part for part in (f"Produced {info['produced']}" if info.get("produced") else "",
                                          f"Expiry {info['expiry']}" if info.get("expiry") else "") if part)
     stamped = f"{info.get('stamp_label', 'Received')} {info['stamped']}" + (f"  by {info['by']}" if info.get("by") else "") if info.get("stamped") else ""

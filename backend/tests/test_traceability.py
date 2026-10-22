@@ -52,10 +52,10 @@ def test_receiving_makes_a_numbered_lot_with_the_supplier_details_and_a_use_by(c
     first = receive(client, sup, db, item, supplier_id=supplier)
     assert first.status_code == 201
     lot = first.json()
-    assert lot["code"] == "POU-260302-01" and lot["supplier"] == "Al Wazzan Poultry" and lot["supplier_lot"] == "B2610-884"
+    assert lot["code"] == "B2610-884" and lot["supplier"] == "Al Wazzan Poultry" and lot["supplier_lot"] == "B2610-884"
     assert (lot["produced_on"], lot["expiry_on"], lot["kind"], lot["status"], lot["temp_c"]) == ("2026-02-27", "2026-03-10", "received", "active", 2.5)
     assert lot["use_by"] == "2026-03-10T20:00:00Z"                       # no rule yet: the end of the supplier's expiry day, Dubai time
-    assert receive(client, sup, db, item).json()["code"] == "POU-260302-02"
+    assert receive(client, sup, db, item).json()["code"] == "B2610-884-B"
     rule(client, m, condition="chilled_raw", hours=48)
     assert receive(client, sup, db, item).json()["use_by"] == "2026-03-04T02:05:00Z"   # the rule is earlier than the expiry
     assert receive(client, sup, db, item, expiry_on=None, produced_on=None).json()["use_by"] == "2026-03-04T02:05:00Z"
@@ -92,7 +92,7 @@ def test_a_split_needs_a_shelf_life_rule_and_the_portions_keep_the_original_fact
     made = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": two})
     assert made.status_code == 201
     first, second = made.json()["lots"]
-    assert (first["code"], second["code"]) == ("POU-260302-01-1", "POU-260302-01-2") and first["kind"] == "portion"
+    assert (first["code"], second["code"]) == ("B2610-884-1", "B2610-884-2") and first["kind"] == "portion"
     assert first["supplier"] == "Al Wazzan Poultry" and first["supplier_lot"] == "B2610-884" and first["produced_on"] == "2026-02-27" and first["expiry_on"] == "2026-03-06"
     assert first["use_by"] == "2026-03-03T02:35:00Z" and second["use_by"] == "2026-03-02T14:35:00Z"      # 24 h and 12 h from the split
     assert (first["pack_count"], first["pack_description"]) == (24, "200 g breast portions, vacuum")
@@ -158,13 +158,13 @@ def test_a_trace_runs_back_to_the_supplier_and_forward_to_the_portions_and_expor
     lot = receive(client, sup, db, item).json()
     child = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part()]}).json()["lots"][0]
     grandchild = client.post(f"{LOTS}/{child['id']}/split", headers=cook, json={"parts": [part(description="100 g strips", count=48)]}).json()["lots"][0]
-    assert grandchild["code"] == "POU-260302-01-1-1"
+    assert grandchild["code"] == "B2610-884-1-1"
     forward = client.get(f"{LOTS}/{lot['id']}", headers=m).json()
     assert [x["code"] for x in forward["forward"]] == [child["code"], grandchild["code"]] and forward["back"] == []
     back = client.get(f"{LOTS}/{grandchild['id']}", headers=m).json()
     assert [x["code"] for x in back["back"]] == [lot["code"], child["code"]] and back["back"][0]["supplier_lot"] == "B2610-884"
     pdf = client.get(f"{LOTS}/{lot['id']}/trace/export", headers=m)
-    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and "trace-POU-260302-01.pdf" in pdf.headers["content-disposition"]
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and "trace-B2610-884.pdf" in pdf.headers["content-disposition"]
     assert client.get(f"{LOTS}/{lot['id']}/trace/export", headers=login(STEWARD)).status_code == 403
 
 
@@ -184,7 +184,7 @@ def test_search_and_scanning_find_a_lot_by_code_and_say_when_it_may_not_be_used(
     lot = receive(client, sup, db, item, expiry_on="2026-03-03").json()
     chef = login(STEWARD)                                                # a steward records checks, so may look lots up
     assert [x["code"] for x in client.get(f"{LOTS}/search?q=salmon", headers=chef).json()] == [lot["code"]]
-    assert [x["code"] for x in client.get(f"{LOTS}/search?q=sea-26", headers=chef).json()] == [lot["code"]]
+    assert [x["code"] for x in client.get(f"{LOTS}/search?q=b2610", headers=chef).json()] == [lot["code"]]
     found = client.get(f"{LOTS}/by-code/{lot['code'].lower()}", headers=chef).json()
     assert found["id"] == lot["id"] and found["blocked"] is None
     clock.advance(days=3)
@@ -505,3 +505,39 @@ def test_a_cut_takes_a_size_and_a_count_and_works_out_its_total_and_the_waste(cl
         refused = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{**cut, **bad}]})
         assert refused.status_code == 422, bad
     assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [{"description": "Whole breasts", "count": 2, "condition": "vacuum_chilled"}]}).status_code == 201
+
+
+def test_the_supplier_lot_is_the_lot_code_and_a_repeat_delivery_gets_a_letter(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    rule(client, m)
+    cook = butcher(client, db, m)
+    first = receive(client, sup, db, item, supplier_lot="b2610  884").json()
+    assert (first["code"], first["supplier_lot"]) == ("B2610-884", "b2610 884")
+    again = receive(client, sup, db, item, supplier_lot="B2610-884").json()
+    third = receive(client, sup, db, item, supplier_lot="B2610-884").json()
+    assert (again["code"], third["code"]) == ("B2610-884-B", "B2610-884-C")
+    child = client.post(f"{LOTS}/{again['id']}/split", headers=cook, json={"parts": [part()]}).json()["lots"][0]
+    assert child["code"] == "B2610-884-B-1" and child["supplier_lot"] == "B2610-884"
+    assert receive(client, sup, db, item, supplier_lot="Other 77").json()["code"] == "OTHER-77"
+
+
+def test_a_supplier_lot_may_only_use_letters_digits_and_a_few_marks(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    for bad in ("B26^10", "B26~10", "B26;10", "-B2610", "X" * 31):
+        refused = receive(client, sup, db, item, supplier_lot=bad)
+        assert refused.status_code == 422 and refused.json()["detail"][0]["loc"] == ["body", "supplier_lot"], bad
+    assert db.scalar(select(Lot.id)) is None
+    assert receive(client, sup, db, item, supplier_lot="AB/12.3_4-5").json()["code"] == "AB/12.3_4-5"
+
+
+def test_a_code_with_a_slash_can_be_scanned_and_typed_in_any_case(client, login, db, clock):
+    from urllib.parse import quote
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    lot = receive(client, sup, db, item, supplier_lot="AB/12").json()
+    for typed in ("AB/12", "ab/12", " ab/12 "):
+        found = client.get(f"{LOTS}/by-code/{quote(typed, safe='')}", headers=m)
+        assert found.status_code == 200 and found.json()["id"] == lot["id"], typed
+    assert client.get(f"{LOTS}/by-code/NOPE", headers=m).status_code == 404

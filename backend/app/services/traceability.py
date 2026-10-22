@@ -1,3 +1,4 @@
+import re
 from collections import deque
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -79,13 +80,19 @@ def _taken(db: Session, code: str) -> bool:
     return db.scalar(select(Lot.id).where(Lot.code == code)) is not None
 
 
-def new_code(db: Session, group: str, day: date) -> str:
-    """GROUP-yymmdd-nn, numbered within the group and day."""
-    prefix = f"{GROUPS[group][1]}-{day:%y%m%d}-"
-    number = (db.scalar(select(func.count()).select_from(Lot).where(Lot.code.like(f"{prefix}%"), Lot.kind == "received")) or 0) + 1
-    while _taken(db, f"{prefix}{number:02d}"):
-        number += 1
-    return f"{prefix}{number:02d}"
+def lot_code(supplier_lot: str) -> str:
+    """The lot code a supplier's lot number gives: upper case with spaces as hyphens."""
+    return re.sub(r"\s+", "-", supplier_lot.strip().upper())
+
+
+def received_code(db: Session, supplier_lot: str) -> str:
+    """The supplier's lot number as the code; a repeat delivery of the same number gets -B, -C and so on."""
+    base = lot_code(supplier_lot)
+    code, repeat = base, 1
+    while _taken(db, code):
+        repeat += 1
+        code = f"{base}-{chr(64 + repeat) if repeat <= 26 else repeat}"
+    return code
 
 
 def child_code(db: Session, parent: Lot) -> str:

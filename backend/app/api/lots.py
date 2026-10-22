@@ -18,7 +18,7 @@ from ..services import exporters, labels
 from ..services.monitoring import describe
 from ..services.organization import report_identity, stamp
 from ..services.traceability import (COLD_CHAIN_KEY, CONDITIONS, GROUPS, STATUSES, LotError, ancestors, balance, child_code, cold_chain_limits,
-                                     descendants, new_code, usable, use_by_for)
+                                     descendants, lot_code, received_code, usable, use_by_for)
 
 router = APIRouter(prefix="/api/lots", tags=["food traceability"])
 
@@ -47,7 +47,7 @@ class ReceiveIn(BaseModel):
     location_id: int
     condition: Received
     supplier_id: int
-    supplier_lot: str = Field(min_length=1, max_length=60, pattern=r"\S")
+    supplier_lot: str = Field(min_length=1, max_length=30, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._/-]*$")
     produced_on: date | None = None
     expiry_on: date | None = None
     temp_c: Decimal | None = Field(default=None, ge=-60, le=80)
@@ -56,6 +56,11 @@ class ReceiveIn(BaseModel):
     pack_count: int | None = Field(default=None, ge=1, le=10000)
     tag_number: str | None = Field(default=None, max_length=60)
     note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("supplier_lot", mode="before")
+    @classmethod
+    def _tidy_lot(cls, value):
+        return " ".join(value.split()) if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def _dates(self):
@@ -294,10 +299,10 @@ def search(q: str = Query(min_length=1, max_length=60), limit: int = Query(15, g
             for lot in db.scalars(stmt.order_by(Lot.id.desc()).limit(limit))]
 
 
-@router.get("/by-code/{code}")
+@router.get("/by-code/{code:path}")
 def by_code(code: str, user: User = Depends(any_of("lot.view", "lot.split", "temp.record")), db: Session = Depends(get_db)):
     """What a scanned or typed code refers to, and whether it may be used right now."""
-    lot = db.scalar(select(Lot).where(Lot.code == code.strip().upper()))
+    lot = db.scalar(select(Lot).where(Lot.code == lot_code(code)))
     if not lot:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No lot has that code")
     check_location(user, db, lot.location_id)
@@ -366,7 +371,7 @@ def receive_lot(body: ReceiveIn, user: User = Depends(require("lot.receive")), d
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This food is already past its expiry date. Reject the delivery instead of receiving it")
     limit = cold_chain_limits(db)[body.condition]
     too_warm = body.temp_c is not None and body.temp_c > Decimal(str(limit))
-    lot = Lot(code=new_code(db, item.food_group, timeutil.local_date(now, tz)), kind="received", food_item_id=item.id, food_group=item.food_group,
+    lot = Lot(code=received_code(db, body.supplier_lot), kind="received", food_item_id=item.id, food_group=item.food_group,
               condition=body.condition, supplier_id=body.supplier_id, supplier_lot=_clean(body.supplier_lot), produced_on=body.produced_on,
               expiry_on=body.expiry_on, use_by=use_by, temp_c=body.temp_c, qty=body.qty, unit=_clean(body.unit), pack_count=body.pack_count,
               tag_number=_clean(body.tag_number), location_id=body.location_id, note=_clean(body.note), created_by=user.id, created_at=now)
