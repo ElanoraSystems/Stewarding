@@ -1,6 +1,6 @@
 from sqlalchemy import select
 
-from app.models import Notification
+from app.models import Notification, ShiftAssignment
 
 from .helpers import MGR, SUP, loc_id
 from .test_absences import day_row, emp_id, record
@@ -74,4 +74,17 @@ def test_an_assignment_can_end_on_a_date_that_is_checked_listed_and_used_for_cla
     assert [a["valid_to"] for a in saturday] == ["2026-03-31"]
     assert assign(client, h, db, work, weekdays=(5,), valid_from="2026-03-20", valid_to="2026-04-10").status_code == 409
     assert assign(client, h, db, work, weekdays=(5,), valid_from="2026-04-01").status_code == 201
-    assert assign(client, h, db, work, weekdays=(5,), valid_from="2026-03-01", valid_to="2026-03-08").status_code == 201
+    assert assign(client, h, db, work, weekdays=(5,), valid_from="2026-03-03", valid_to="2026-03-08").status_code == 201
+
+
+def test_the_same_shift_cannot_be_assigned_over_days_it_is_still_active_and_today_lists_each_person_once(client, login, db, clock):
+    h = login(MGR)
+    sid = emp_id(client, h, "E004")
+    monday = next(a for a in client.get(f"/api/roster/assignments?employee_id={sid}", headers=h).json() if a["weekday"] == 0)
+    again = assign(client, h, db, monday["shift_id"], weekdays=(0,), valid_from="2026-03-02")
+    assert again.status_code == 409 and "already has" in again.json()["detail"]
+    assert assign(client, h, db, monday["shift_id"], weekdays=(0,), valid_from="2024-01-01", valid_to="2024-12-31").status_code == 201
+    db.add(ShiftAssignment(employee_id=sid, shift_id=monday["shift_id"], location_id=loc_id(db, "MK"), weekday=0, valid_from=clock.now.date()))
+    db.commit()
+    today = client.get(f"/api/roster/today?location_id={loc_id(db, 'MK')}", headers=h).json()
+    assert [p["employee_id"] for p in today].count(sid) == 1

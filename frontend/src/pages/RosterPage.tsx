@@ -89,7 +89,7 @@ export function RosterPage() {
           {today.data?.length === 0 ? <EmptyState title="Nobody is scheduled today" /> : (
             <ul className="divide-y divide-border">
               {today.data?.map((p) => (
-                <li key={p.employee_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <li key={`${p.employee_id}-${p.shift}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                   <span className="font-medium">{p.name}</span>
                   <span className="text-ink-muted">{p.day_type === 'week_off' ? p.shift : `${p.shift} from ${p.shift_start.slice(0, 5)}`}</span>
                   <span className="space-x-1">

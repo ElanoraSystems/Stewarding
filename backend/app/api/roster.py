@@ -138,6 +138,12 @@ def create_assignments(body: AssignmentIn, user: User = Depends(require("roster.
         EmployeeLocation.employee_id == body.employee_id, EmployeeLocation.location_id == body.location_id))
     if works_here is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Employee is not assigned to that location")
+    repeat = db.scalar(select(ShiftAssignment.id).where(
+        ShiftAssignment.employee_id == body.employee_id, ShiftAssignment.shift_id == body.shift_id, ShiftAssignment.location_id == body.location_id,
+        ShiftAssignment.weekday.in_(set(body.weekdays)), or_(ShiftAssignment.valid_to.is_(None), ShiftAssignment.valid_to >= body.valid_from),
+        ShiftAssignment.valid_from <= (body.valid_to or date.max)))
+    if repeat:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"The employee already has {shift.name} on one of those days; end it first")
     opposite = "work" if shift.kind == "weekoff" else "weekoff"
     clash = db.scalar(
         select(ShiftAssignment.id).join(Shift, Shift.id == ShiftAssignment.shift_id)
@@ -200,4 +206,4 @@ def today(location_id: int, user: User = Depends(require("roster.view")), db: Se
         "absence_type": absences[e.id].absence_type if e.id in absences else None,
         "checked_in": e.id in attended, "late_minutes": attended[e.id].late_minutes if e.id in attended else 0,
         "on_duty": e.id in attended and attended[e.id].check_out_at is None,
-    } for _, e, s in rows]
+    } for e, s in {(e.id, s.id): (e, s) for _, e, s in rows}.values()]

@@ -17,6 +17,9 @@ interface NetworkPrinter {
 
 const CHOICE = 'lot_label_printer'
 
+// the Zebra helper on this computer is looked for once per page load, not each time a label panel opens
+let helperSearch: Promise<LocalHelper | null> | undefined
+
 /** Prints the 75 x 50 mm labels for some lots: straight to a network Zebra, to a Zebra on this computer, or as a PDF or ZPL file. */
 export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies?: number }) {
   const toast = useToast()
@@ -38,7 +41,8 @@ export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies
 
   useEffect(() => {
     let live = true
-    findLocalZebra().then((found) => live && setLocal(found))
+    helperSearch ??= findLocalZebra()
+    helperSearch.then((found) => live && setLocal(found))
     return () => {
       live = false
     }
