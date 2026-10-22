@@ -118,12 +118,14 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const selected = equipment.find((e) => String(e.id) === equipmentId)
   const schedules = selected?.schedules.filter((s) => s.active) ?? []
   const schedule = schedules.find((s) => String(s.id) === scheduleId)
-  const cycle = schedule ? (prefill?.retestOf ? [schedule] : cycleOf(schedule, schedules)) : []
+  const fullCycle = schedule ? (prefill?.retestOf ? [schedule] : cycleOf(schedule, schedules)) : []
+  const outstanding = prefill?.retestOf || prefill?.startReadingId ? fullCycle : fullCycle.filter((s) => !doneSchedules?.has(s.id))
+  const cycle = outstanding.length > 0 ? outstanding : fullCycle
   const cycles = firstOfEachCycle(schedules)
   const results = cycle.map((s) => verdict(values[s.id] ?? '', s))
   const anyFail = results.includes('fail')
   const complete = cycle.length > 0 && cycle.every((s) => !s.required || (values[s.id] ?? '') !== '')
-  const title = (s: Schedule) => `${cycle.length > 1 && label(s.stage) !== s.parameter ? `${label(s.stage)}: ${s.parameter}` : s.parameter}${s.required ? '' : ' (optional)'}`
+  const title = (s: Schedule) => `${fullCycle.length > 1 && label(s.stage) !== s.parameter ? `${label(s.stage)}: ${s.parameter}` : s.parameter}${s.required ? '' : ' (optional)'}`
   const setBlob = (s: Schedule, blob: Blob | null) => {
     setBlobs((b) => ({ ...b, ...(blob ? { [s.id]: blob } : {}) }))
     setValues((v) => ({ ...v, [s.id]: blob ? 'file' : '' }))
@@ -235,7 +237,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
                 <Input required={s.required} maxLength={s.max_length ?? 200} className="w-72" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             ) : (
-              <Field label={`${cycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}${limitsText(s)}`}>
+              <Field label={`${fullCycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}${limitsText(s)}`}>
                 <Input required={s.required} type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             )}

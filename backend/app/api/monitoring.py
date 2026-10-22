@@ -259,16 +259,17 @@ def record_reading(body: ReadingIn, user: User = Depends(require("temp.record"))
 
 
 def _require_whole_cycle(db: Session, user: User, body: "BatchIn") -> None:
-    """Every required question of the form being filled in must be answered; optional ones may be left out."""
+    """Every required question of the form being filled in must be answered or already recorded for this time; optional ones may be left out."""
     eq = _equipment_for(db, user, body.equipment_id)
     sent = {r.schedule_id for r in body.readings}
     active = list(db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id, EquipmentSchedule.active.is_(True))))
+    now = timeutil.utc_now()
 
     def when(s: EquipmentSchedule) -> tuple:
         return (s.timing, s.time_of_day, s.interval_minutes, s.weekdays, s.day_of_month, s.phase)
 
     groups = {when(s) for s in active if s.id in sent}
-    missing = [s.stage for s in active if when(s) in groups and s.required and s.id not in sent]
+    missing = [s.stage for s in active if when(s) in groups and s.required and s.id not in sent and not already_recorded(db, eq, s, now)]
     if missing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Answer the required questions: {', '.join(missing)}")
 

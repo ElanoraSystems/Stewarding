@@ -277,3 +277,20 @@ def test_a_batch_saves_everything_or_nothing(client, login, db, clock):
 def test_batch_recording_needs_a_login(client):
     body = {"equipment_id": 1, "readings": [{"schedule_id": 1, "value": 1}]}
     assert client.post("/api/monitoring/readings/batch", json=body).status_code == 401
+
+
+def test_a_batch_may_leave_out_a_stage_that_is_already_recorded_for_this_time(client, login, clock):
+    h = login(STEWARD)
+    eq, wash = mk_stage(client, h)
+    _, rinse = mk_stage(client, h, "final_rinse")
+
+    def batch(*schedules):
+        readings = [{"schedule_id": s["id"], "value": 85 if s is rinse else 60} for s in schedules]
+        return client.post("/api/monitoring/readings/batch", json={"equipment_id": eq["id"], "readings": readings}, headers=h)
+
+    missing = batch(rinse)
+    assert missing.status_code == 400 and "wash" in missing.json()["detail"]
+    assert record(client, h, eq, wash, 60).status_code == 201
+    done = batch(rinse)
+    assert done.status_code == 201 and [r["stage"] for r in done.json()] == ["final_rinse"]
+    assert batch(rinse).status_code == 409
