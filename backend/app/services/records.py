@@ -269,6 +269,8 @@ def _chart_groups(db: Session, now: datetime, scope, f: Filters, day_from: date,
         by_template: dict[str, dict[tuple[int, str], dict]] = {}
         exceptions: list[dict] = []
         for inst, task, tpl, state in stats["rows"]:
+            if f.template_id is not None and tpl.id != f.template_id:
+                continue
             title = f"{tpl.name} ({tpl.frequency})"
             row = by_template.setdefault(title, {}).setdefault((task.id, task.description), {})
             row.setdefault(inst.local_date, []).append((inst, state))

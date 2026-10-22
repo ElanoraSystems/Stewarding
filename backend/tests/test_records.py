@@ -346,3 +346,17 @@ def test_the_checklist_record_filters_by_checklist(client, login, db, clock):
     assert len(everything) > len(only) >= 1
     assert all(daily["name"] in g["title"] for g in only)
     assert get(client, m, "checklists", template_id=999999).json()["groups"] == []
+
+
+def test_the_checklist_chart_filters_by_checklist(client, login, db, clock):
+    generate(client, login, db)
+    m = login(MGR)
+    templates = client.get(f"/api/checklists/templates?location_id={loc_id(db, 'MK')}", headers=m).json()
+    daily = next(t for t in templates if t["frequency"] == "daily")
+
+    def titles(**params):
+        return [g["title"] for g in get(client, m, "checklist_chart", location_id=loc_id(db, "MK"), **params).json()["groups"]]
+
+    everything, only = titles(), titles(template_id=daily["id"])
+    assert len(everything) > len(only) >= 1 and all(daily["name"] in t for t in only)
+    assert titles(template_id=999999) == []
