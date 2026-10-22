@@ -8,9 +8,6 @@ const CRITICAL = new Set(['overdue', 'failed', 'inactive', 'rejected', 'critical
 export function StatusBadge({ status }: { status: string }) {
   const tone = OK.has(status) ? 'ok' : WARN.has(status) ? 'warn' : CRITICAL.has(status) ? 'critical' : 'neutral'
   return (
-    <Badge tone={tone} className="gap-1.5">
-      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
-      {label(status)}
-    </Badge>
+    <Badge tone={tone}>{label(status)}</Badge>
   )
 }

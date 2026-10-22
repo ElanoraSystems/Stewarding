@@ -1,6 +1,6 @@
 import {
   ArrowLeftRight, Bell, CalendarDays, ChartColumn, ClipboardCheck, Clock, LayoutDashboard, Package,
-  LogOut, Menu, QrCode, ScrollText, Settings, Thermometer, TriangleAlert, Users, Wrench, X,
+  LogOut, Menu, Moon, QrCode, ScrollText, Settings, Sun, Thermometer, TriangleAlert, Users, Wrench, X,
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { APP_NAME } from '@/lib/brand'
 import { setDisplayTimeZone } from '@/lib/format'
+import { useTheme } from '@/lib/theme'
 import { useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
 
@@ -45,6 +46,7 @@ const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2)
 
 export function AppLayout() {
   const { me, logout } = useAuth()
+  const [theme, toggleTheme] = useTheme()
   const { pathname } = useLocation()
   const org = useApi<{ name: string; logo: string | null; timezone: string }>('/organization')
   const reloadOrg = org.reload
@@ -98,7 +100,7 @@ export function AppLayout() {
               >
                 {({ isActive }) => (
                   <>
-                    <span className={cn('flex h-7 w-7 items-center justify-center rounded-lg', isActive ? 'bg-brand text-white' : 'bg-white/8')}>
+                    <span className={cn('flex h-7 w-7 items-center justify-center rounded-lg', isActive ? 'bg-brand text-brand-ink' : 'bg-white/8')}>
                       <Icon className="h-4 w-4 shrink-0" aria-hidden />
                     </span>
                     {label}
@@ -134,6 +136,9 @@ export function AppLayout() {
             {APP_NAME} <span aria-hidden>/</span> <span className="font-medium text-ink">{current?.label ?? 'Home'}</span>
           </nav>
           <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" size="icon" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>
+              {theme === 'dark' ? <Sun className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
+            </Button>
             <NotificationBell />
           </div>
         </header>

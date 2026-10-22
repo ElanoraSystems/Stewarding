@@ -5,6 +5,7 @@
   --color-surface: #ffffff;
   --color-surface-muted: #f1eee7;
   --color-border: #e3ded2;
+  --color-border-strong: #858f89;
   --color-ink: #1b2420;
   --color-ink-muted: #5c6661;
   --color-brand: #0f6b5c;
@@ -13,12 +14,45 @@
   --color-brand-ink: #ffffff;
   --color-side: #10231f;
   --color-danger: #b42318;
+  --color-danger-ink: #ffffff;
   --color-danger-soft: #fdebe8;
   --color-warn: #9a5706;
   --color-warn-soft: #fdf0d9;
   --color-ok: #0f6a45;
   --color-ok-soft: #e1f3e8;
+  --color-hero-a: #0f6b5c;
+  --color-hero-b: #0a4d42;
+  --color-hero-alert: #b42318;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-page: #0e1613;
+  --color-surface: #16211d;
+  --color-surface-muted: #1d2a25;
+  --color-border: #2a3a34;
+  --color-border-strong: #71827a;
+  --color-ink: #e8f0ec;
+  --color-ink-muted: #a8b8b0;
+  --color-brand: #4cc0a8;
+  --color-brand-deep: #75d6c1;
+  --color-brand-soft: #143229;
+  --color-brand-ink: #06201a;
+  --color-side: #08110f;
+  --color-danger: #ff9d92;
+  --color-danger-ink: #2b0a06;
+  --color-danger-soft: #3a1814;
+  --color-warn: #f2b45e;
+  --color-warn-soft: #37270d;
+  --color-ok: #62d49c;
+  --color-ok-soft: #123222;
+  --color-hero-a: #17695a;
+  --color-hero-b: #0b3f35;
 }
 
 body {
@@ -37,6 +71,14 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
 }
 
 @keyframes toast-in {

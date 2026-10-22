@@ -70,7 +70,7 @@ export function LotPicker({ value, onChange, max = 20 }: Props) {
           {value.map((lot) => (
             <li key={lot.id} className="flex items-center gap-1 rounded-full bg-brand-soft py-1 pl-3 pr-1 text-sm font-medium text-brand">
               {lot.code}
-              <button type="button" aria-label={`Remove ${lot.code}`} className="rounded-full p-1 hover:bg-white/60" onClick={() => onChange(value.filter((v) => v.id !== lot.id))}>
+              <button type="button" aria-label={`Remove ${lot.code}`} className="rounded-full p-1 hover:bg-surface/60" onClick={() => onChange(value.filter((v) => v.id !== lot.id))}>
                 <X className="h-3.5 w-3.5" aria-hidden />
               </button>
             </li>

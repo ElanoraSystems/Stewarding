@@ -9,11 +9,11 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: 'bg-brand text-brand-ink shadow-sm hover:bg-brand-deep',
-        outline: 'border border-border bg-surface shadow-xs hover:border-ink-muted/40 hover:bg-surface-muted',
+        outline: 'border border-border-strong bg-surface shadow-xs hover:bg-surface-muted',
         ghost: 'hover:bg-surface-muted',
-        danger: 'bg-danger text-white shadow-sm hover:bg-danger/90',
+        danger: 'bg-danger text-danger-ink shadow-sm hover:bg-danger/90',
       },
-      size: { default: 'h-10 px-4', sm: 'h-8 px-3', icon: 'h-10 w-10' },
+      size: { default: 'h-10 px-4 pointer-coarse:h-11', sm: 'h-8 px-3 pointer-coarse:h-10', icon: 'h-10 w-10 pointer-coarse:h-11 pointer-coarse:w-11' },
     },
     defaultVariants: { variant: 'default', size: 'default' },
   },

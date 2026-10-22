@@ -17,10 +17,10 @@ export function NotificationBell() {
   const urgent = (data?.action_needed ?? 0) > 0
   return (
     <Link to="/tasks" aria-label={`Notifications, ${unread} unread${urgent ? ', action needed' : ''}`}
-      className="relative inline-flex h-10 w-10 items-center justify-center rounded-md border border-border hover:bg-surface-muted">
+      className="relative inline-flex h-10 w-10 items-center justify-center rounded-md border border-border-strong hover:bg-surface-muted">
       <Bell className="h-4 w-4" aria-hidden />
       {unread > 0 && (
-        <span className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs font-semibold text-white ${urgent ? 'bg-danger' : 'bg-brand'}`}>
+        <span className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs font-semibold ${urgent ? 'bg-danger text-danger-ink' : 'bg-brand text-brand-ink'}`}>
           {unread > 99 ? '99+' : unread}
         </span>
       )}
