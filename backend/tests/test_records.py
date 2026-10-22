@@ -10,6 +10,7 @@ from .test_approvals import SUP_RB, complete, verify
 from .test_checklists import MGR, STEWARD, SUP, find, generate
 from .test_monitoring import mk_stage, record
 from .test_traceability import food, receive
+from .test_two_step_logs import make
 
 URL = "/api/reports/records"
 
@@ -312,3 +313,36 @@ def test_the_lot_register_lists_received_lots_and_filters_by_group_supplier_and_
     assert rec(client, m, "lots", status="nonsense").status_code == 400
     assert rec(client, m, "receipts", status="active").status_code == 400
     assert b"B1" in client.get(f"{URL}/lots/export?fmt=csv&date_from=2026-03-02&date_to=2026-03-02", headers=m).content
+
+
+def test_the_monitoring_record_filters_by_point_type_and_one_point_across_locations(client, login, db, clock):
+    m = login(MGR)
+    make(client, m, db, "cooling")
+    make(client, m, db, "cooling", "BQ")
+    make(client, m, db, "defrosting")
+
+    def groups(**params):
+        return monitoring(client, m, **params).json()["groups"]
+
+    cooling = groups(equipment_kind="Cooling")
+    assert len(cooling) == 2 and {dict(g["meta"])["Type"] for g in cooling} == {"Cooling"}
+    assert {dict(g["meta"])["Location"] for g in cooling} == {"Main Kitchen", "Banquet Hall"}
+    assert {dict(g["meta"])["Type"] for g in groups(equipment_kind="Cooling", location_id=loc_id(db, "BQ"))} == {"Cooling"}
+    assert len(groups(equipment_kind="Cooling", location_id=loc_id(db, "BQ"))) == 1
+    assert groups(equipment_kind="Nothing like this") == []
+    point = next(e for e in client.get("/api/equipment", headers=m).json() if e["kind"] == "Defrosting")
+    only = groups(equipment_id=point["id"])
+    assert len(only) == 1 and dict(only[0]["meta"])["Monitoring point"].endswith(f"({point['code']})")
+    assert len(groups()) > 4
+
+
+def test_the_checklist_record_filters_by_checklist(client, login, db, clock):
+    generate(client, login, db)
+    m = login(MGR)
+    templates = client.get(f"/api/checklists/templates?location_id={loc_id(db, 'MK')}", headers=m).json()
+    daily = next(t for t in templates if t["frequency"] == "daily")
+    everything = get(client, m, "checklists", location_id=loc_id(db, "MK")).json()["groups"]
+    only = get(client, m, "checklists", location_id=loc_id(db, "MK"), template_id=daily["id"]).json()["groups"]
+    assert len(everything) > len(only) >= 1
+    assert all(daily["name"] in g["title"] for g in only)
+    assert get(client, m, "checklists", template_id=999999).json()["groups"] == []

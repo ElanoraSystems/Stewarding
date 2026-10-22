@@ -18,6 +18,8 @@ import { OperationsSummary } from '@/pages/OperationsSummary'
 import { ReportPreview, type RecordDoc } from '@/pages/ReportPreview'
 
 type Named = { id: number; name?: string; full_name?: string }
+type Point = { id: number; name: string; kind: string; location_id: number }
+type Template = { id: number; name: string; location_id: number; frequency: string }
 
 export function ReportsPage() {
   const { me } = useAuth()
@@ -32,17 +34,31 @@ export function ReportsPage() {
 
   const employees = useApi<{ items: Named[] }>(has('employee') ? '/employees?size=200' : null)
   const suppliers = useApi<Named[]>(has('supplier') ? '/suppliers' : null)
-  const points = useApi<Named[]>(has('monitoringPoint') && locationId ? `/equipment${qs({ location_id: locationId })}` : null)
+  const equipment = useApi<Point[]>(has('monitoringPoint') || has('monitoringType') ? '/equipment' : null)
+  const templates = useApi<Template[]>(has('checklist') ? '/checklists/templates' : null)
+  const place = (id: number) => me?.locations.find((l) => l.id === id)?.name ?? ''
+  const inPlace = (id: number) => locationId === null || id === locationId
+  const typeOptions = [...new Set((equipment.data ?? []).filter((e) => inPlace(e.location_id)).map((e) => e.kind))].sort()
+  const kindFilter = typeOptions.includes(extra.monitoringType ?? '') ? extra.monitoringType : ''
+  const pointOptions = (equipment.data ?? []).filter((e) => inPlace(e.location_id) && (!kindFilter || e.kind === kindFilter))
+  const point = pointOptions.some((e) => String(e.id) === extra.monitoringPoint) ? extra.monitoringPoint : ''
+  const checklistOptions = (templates.data ?? []).filter((t) => inPlace(t.location_id))
+  const checklist = checklistOptions.some((t) => String(t.id) === extra.checklist) ? extra.checklist : ''
   const { items } = useAllItems()
 
   const params = {
     date_from: range[0], date_to: range[1], location_id: locationId, employee_id: extra.employee, frequency: extra.frequency,
-    equipment_id: has('monitoringPoint') && locationId ? extra.monitoringPoint : '', supplier_id: extra.supplier,
+    equipment_id: point, equipment_kind: kindFilter, template_id: checklist, supplier_id: extra.supplier,
     movement: extra.movement, item_id: extra.item, status: extra.status, food_group: extra.foodGroup,
   }
   const preview = useApi<RecordDoc>(def.summary ? null : `/reports/records/${key}${qs(params)}`)
   const setFilter = (name: string, value: string) => setExtra((e) => ({ ...e, [name]: value }))
   const choose = (next: string) => { setKey(next); setExtra({}) }
+  const pickPoint = (value: string) => {
+    setFilter('monitoringPoint', value)
+    const picked = equipment.data?.find((e) => String(e.id) === value)
+    if (picked && locationId === null) setLocationId(picked.location_id)
+  }
   const activePreset = PRESETS.find((p) => p.range()[0] === range[0] && p.range()[1] === range[1])?.key
 
   async function download(fmt: string) {
@@ -92,7 +108,7 @@ export function ReportsPage() {
                 <div className="flex flex-wrap items-end gap-3">
                   <Field label="From"><Input type="date" value={range[0]} max={range[1] || undefined} onChange={(e) => setRange([e.target.value, range[1]])} /></Field>
                   <Field label="To"><Input type="date" value={range[1]} min={range[0]} onChange={(e) => setRange([range[0], e.target.value])} /></Field>
-                  <Field label="Location"><LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setFilter('monitoringPoint', '') }} /></Field>
+                  <Field label="Location"><LocationSelect allowAll value={locationId} onChange={setLocationId} /></Field>
                   {has('employee') && (
                     <Field label="Employee">
                       <Select value={extra.employee ?? ''} onChange={(e) => setFilter('employee', e.target.value)}>
@@ -101,8 +117,16 @@ export function ReportsPage() {
                       </Select>
                     </Field>
                   )}
-                  {has('frequency') && (
+                  {has('checklist') && (
                     <Field label="Checklist">
+                      <Select value={checklist} onChange={(e) => setFilter('checklist', e.target.value)}>
+                        <option value="">All checklists</option>
+                        {checklistOptions.map((t) => <option key={t.id} value={t.id}>{place(t.location_id)} - {t.name} ({t.frequency})</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                  {has('frequency') && (
+                    <Field label="Frequency">
                       <Select value={extra.frequency ?? ''} onChange={(e) => setFilter('frequency', e.target.value)}>
                         <option value="">Daily and weekly</option>
                         <option value="daily">Daily</option>
@@ -110,11 +134,19 @@ export function ReportsPage() {
                       </Select>
                     </Field>
                   )}
-                  {has('monitoringPoint') && locationId && (
+                  {has('monitoringType') && (
+                    <Field label="Type">
+                      <Select value={kindFilter ?? ''} onChange={(e) => setFilter('monitoringType', e.target.value)}>
+                        <option value="">All types</option>
+                        {typeOptions.map((k) => <option key={k} value={k}>{k}</option>)}
+                      </Select>
+                    </Field>
+                  )}
+                  {has('monitoringPoint') && (
                     <Field label="Monitoring point">
-                      <Select value={extra.monitoringPoint ?? ''} onChange={(e) => setFilter('monitoringPoint', e.target.value)}>
+                      <Select value={point} onChange={(e) => pickPoint(e.target.value)}>
                         <option value="">All points</option>
-                        {points.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        {pointOptions.map((p) => <option key={p.id} value={p.id}>{p.name.startsWith(place(p.location_id)) ? p.name : `${place(p.location_id)} - ${p.name}`}</option>)}
                       </Select>
                     </Field>
                   )}

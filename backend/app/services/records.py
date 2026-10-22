@@ -41,6 +41,8 @@ class Filters:
     frequency: str | None = None
     status: str | None = None
     food_group: str | None = None
+    equipment_kind: str | None = None
+    template_id: int | None = None
 
 
 def _local(dt: datetime | None, tz: str) -> str:
@@ -78,7 +80,7 @@ READING_STATUS = {"passed": lambda r: r.passed, "failed": lambda r: not r.passed
 
 
 def _monitoring_groups(db: Session, locations: list[Location], day_from: date, day_to: date, equipment_id: int | None,
-                       status: str | None = None) -> list[dict]:
+                       status: str | None = None, kind: str | None = None) -> list[dict]:
     """One table per monitoring point, including points with nothing recorded in the period."""
     names = _names(db)
     groups = []
@@ -87,6 +89,8 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
         stmt = select(Equipment).where(Equipment.location_id == loc.id)
         if equipment_id is not None:
             stmt = stmt.where(Equipment.id == equipment_id)
+        if kind:
+            stmt = stmt.where(Equipment.kind == kind)
         for eq in db.scalars(stmt.order_by(Equipment.code)):
             readings = list(db.scalars(select(TemperatureReading).where(
                 TemperatureReading.equipment_id == eq.id, TemperatureReading.recorded_at >= start,
@@ -195,7 +199,8 @@ def _category_group(title: str, meta: list, columns: list, lines: list[dict], to
 
 
 def _checklist_groups(db: Session, locations: list[Location], day_from: date, day_to: date,
-                      frequency: str | None = None, employee_id: int | None = None, status: str | None = None) -> list[dict]:
+                      frequency: str | None = None, employee_id: int | None = None, status: str | None = None,
+                      template_id: int | None = None) -> list[dict]:
     names = _names(db)
     groups = []
     for loc in locations:
@@ -210,6 +215,8 @@ def _checklist_groups(db: Session, locations: list[Location], day_from: date, da
             stmt = stmt.where(ChecklistTemplate.frequency == frequency)
         if status:
             stmt = stmt.where(ChecklistInstance.status == status)
+        if template_id is not None:
+            stmt = stmt.where(ChecklistTemplate.id == template_id)
         if employee_id is not None:
             emp_user = db.scalar(select(Employee.user_id).where(Employee.id == employee_id))
             stmt = stmt.where((ChecklistInstance.assigned_employee_id == employee_id) | (ChecklistInstance.completed_by == (emp_user or -1)))
@@ -506,11 +513,11 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
         raise ValueError("Unknown food group")
     locations = _locations(db, scope, f.location_id)
     if kind == "monitoring":
-        groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id, f.status)
+        groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id, f.status, f.equipment_kind)
     elif kind == "lots":
         groups = _lot_groups(db, locations, f, day_from, day_to)
     elif kind == "checklists":
-        groups = _checklist_groups(db, locations, day_from, day_to, f.frequency, f.employee_id, f.status)
+        groups = _checklist_groups(db, locations, day_from, day_to, f.frequency, f.employee_id, f.status, f.template_id)
     elif kind == "checklist_chart":
         groups = _chart_groups(db, now, scope, f, day_from, day_to)
     elif kind == "attendance":
