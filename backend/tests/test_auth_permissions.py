@@ -113,3 +113,26 @@ def test_seed_is_idempotent(db):
 
     seed(db, PASSWORD)
     assert len(db.scalars(select(User)).all()) == 6
+
+
+SIGNUP = {"full_name": "New Hire", "email": "new.hire@example.test", "password": "Fresh-Start-42"}
+
+
+def test_signup_stays_pending_until_a_manager_approves(client, login, db):
+    assert client.post("/api/auth/signup", json=SIGNUP).status_code == 202
+    emp = db.scalar(select(Employee).where(Employee.email == SIGNUP["email"]))
+    assert (emp.status, emp.user.active, emp.user.role.name) == ("pending", False, "steward")
+    r = client.post("/api/auth/login", json={"email": SIGNUP["email"], "password": SIGNUP["password"]})
+    assert r.status_code == 403 and "approve" in r.json()["detail"]
+    manager = login("manager@example.test")
+    assert client.post(f"/api/employees/{emp.id}/activate", headers=manager).status_code == 200
+    r = client.post("/api/auth/login", json={"email": SIGNUP["email"], "password": SIGNUP["password"]})
+    assert r.status_code == 200
+
+
+def test_signup_rejects_weak_password_and_hides_existing_email(client, db):
+    assert client.post("/api/auth/signup", json={**SIGNUP, "password": "short"}).status_code == 400
+    before = len(db.scalars(select(User)).all())
+    r = client.post("/api/auth/signup", json={**SIGNUP, "email": "manager@example.test"})
+    assert r.status_code == 202
+    assert len(db.scalars(select(User)).all()) == before

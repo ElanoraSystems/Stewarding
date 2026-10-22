@@ -120,6 +120,7 @@ export function EmployeesPage() {
         <Select aria-label="Status" className="w-auto" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
           <option value="">Any status</option>
           <option value="active">Active</option>
+          <option value="pending">Pending approval</option>
           <option value="inactive">Inactive</option>
         </Select>
         <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />

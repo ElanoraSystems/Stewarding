@@ -185,7 +185,7 @@ def _assignable_role(db: Session, actor: User, name: str) -> Role:
     return role
 
 
-def _next_code(db: Session) -> str:
+def next_code(db: Session) -> str:
     """E followed by the next number after the highest existing E-number, such as E007."""
     numbers = [int(code[1:]) for code in db.scalars(select(Employee.employee_code).where(Employee.employee_code.like("E%"))) if code[1:].isdigit()]
     return f"E{max(numbers, default=0) + 1:03d}"
@@ -201,7 +201,7 @@ def create_employee(body: EmployeeIn, user: User = Depends(require("employee.man
         db.add(account)
         db.flush()
         emp = Employee(
-            employee_code=body.employee_code or _next_code(db), user_id=account.id, full_name=body.full_name, job_title=body.job_title, company=body.company,
+            employee_code=body.employee_code or next_code(db), user_id=account.id, full_name=body.full_name, job_title=body.job_title, company=body.company,
             email=str(body.email).lower(), phone=body.phone, emergency_contact=body.emergency_contact,
             date_joined=body.date_joined, supervisor_id=body.supervisor_id, weekly_schedule=body.weekly_schedule)
         emp.locations = [EmployeeLocation(location_id=i) for i in set(body.location_ids)]
