@@ -1,11 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from '@/pages/SettingsPage'
-
-const screenSize = vi.hoisted(() => ({ desktop: true }))
-vi.mock('@/lib/useMediaQuery', () => ({ useMediaQuery: () => screenSize.desktop }))
 
 vi.mock('@/pages/settings/SettingsRules', () => ({ SettingsRules: ({ section }: { section: string }) => <p>Rules {section} page</p> }))
 vi.mock('@/pages/settings/SettingsInventoryLists', () => ({ SettingsInventoryLists: () => <p>Units page</p> }))
@@ -38,49 +35,35 @@ function visit(path: string) {
 const where = () => screen.getByTestId('where').textContent
 
 describe('SettingsPage', () => {
-  beforeEach(() => {
-    screenSize.desktop = true
+  it('opens the first section and shows the topics as tabs along the top', () => {
+    visit('/settings')
+    expect(where()).toBe('/settings/organization')
+    expect(screen.getByText('Organization page')).toBeTruthy()
+    const topics = screen.getByRole('navigation', { name: 'Settings topics' })
+    expect(Array.from(topics.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['Company', 'People', 'Food safety', 'Stock', 'Lists'])
+    expect(screen.getByRole('link', { name: 'Company' }).getAttribute('aria-current')).toBe('page')
+  })
+
+  it('shows the sections of the open topic as pills and marks the open one', () => {
+    visit('/settings/roles')
+    const pills = screen.getByRole('navigation', { name: 'Settings sections' })
+    expect(Array.from(pills.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['Attendance rules', 'Roles', 'Approvals and escalation'])
+    expect(screen.getByRole('link', { name: 'Roles' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'People' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.queryByRole('link', { name: 'Monitoring setup' })).toBeNull()
+    expect(screen.getByText('Roles page')).toBeTruthy()
+  })
+
+  it('takes a topic tab to the first section of that topic', () => {
+    visit('/settings/roles')
+    expect(screen.getByRole('link', { name: 'Food safety' }).getAttribute('href')).toBe('/settings/monitoring')
+    expect(screen.getByRole('link', { name: 'Stock' }).getAttribute('href')).toBe('/settings/items')
   })
 
   it('sends an old ?tab= link to the clean address of that section', () => {
     visit('/settings?tab=monitoring')
     expect(where()).toBe('/settings/monitoring')
     expect(screen.getByText('Monitoring page')).toBeTruthy()
-  })
-
-  it('opens the first section on a wide screen and lists the groups beside it', () => {
-    visit('/settings')
-    expect(where()).toBe('/settings/organization')
-    expect(screen.getByText('Organization page')).toBeTruthy()
-    for (const group of ['Company', 'People', 'Food safety', 'Stock', 'Lists']) expect(screen.getByRole('group', { name: group })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Monitoring setup' }).getAttribute('aria-current')).toBeNull()
-  })
-
-  it('marks the open section in the menu', () => {
-    visit('/settings/roles')
-    expect(screen.getByRole('link', { name: 'Roles' }).getAttribute('aria-current')).toBe('page')
-    expect(screen.getByText('Roles page')).toBeTruthy()
-  })
-
-  it('shows only the list of sections on a phone, and a way back once one is open', () => {
-    screenSize.desktop = false
-    visit('/settings')
-    expect(where()).toBe('/settings')
-    expect(screen.getByRole('link', { name: 'Suppliers' })).toBeTruthy()
-    expect(screen.queryByText('Organization page')).toBeNull()
-  })
-
-  it('offers All settings on a phone inside a section', () => {
-    screenSize.desktop = false
-    visit('/settings/suppliers')
-    expect(screen.getByText('Suppliers page')).toBeTruthy()
-    expect(screen.getByRole('link', { name: /All settings/ }).getAttribute('href')).toBe('/settings')
-  })
-
-  it('sends an unknown section or tab back to the settings list', () => {
-    screenSize.desktop = false
-    visit('/settings/nope')
-    expect(where()).toBe('/settings')
   })
 
   it('opens a rules topic as its own section', () => {
@@ -100,40 +83,33 @@ describe('SettingsPage', () => {
     expect(where()).toBe('/settings/attendance')
   })
 
+  it.each(['/settings/nope', '/settings?tab=nope', '/settings/constructor'])('opens the first section for %s', (path) => {
+    visit(path)
+    expect(where()).toBe('/settings/organization')
+  })
+
   it('finds a rule by its words and opens the page it lives on', async () => {
-    screenSize.desktop = false
     const user = userEvent.setup()
-    visit('/settings')
-    await user.type(screen.getByRole('searchbox', { name: 'Search settings' }), 'grace')
-    expect(screen.queryByRole('group', { name: 'Company' })).toBeNull()
+    visit('/settings/organization')
+    const box = screen.getByRole('searchbox', { name: 'Search settings' })
+    await user.type(box, 'grace')
     const hit = screen.getByRole('link', { name: /Grace period for a due check/ })
     expect(hit.textContent).toContain('Monitoring rules')
     await user.click(hit)
     expect(where()).toBe('/settings/monitoring-rules')
     expect((screen.getByRole('searchbox', { name: 'Search settings' }) as HTMLInputElement).value).toBe('')
+    expect(screen.queryByRole('link', { name: /Grace period for a due check/ })).toBeNull()
   })
 
   it('finds a section by its name and says so when nothing matches', async () => {
-    screenSize.desktop = false
     const user = userEvent.setup()
-    visit('/settings')
+    visit('/settings/organization')
     const box = screen.getByRole('searchbox', { name: 'Search settings' })
     await user.type(box, 'suppl')
-    expect(screen.getByRole('link', { name: /Suppliers/ }).getAttribute('href')).toBe('/settings/suppliers')
+    const hits = screen.getAllByRole('link', { name: /Suppliers/ })
+    expect(hits.some((a) => a.getAttribute('href') === '/settings/suppliers')).toBe(true)
     await user.clear(box)
     await user.type(box, 'zzzz')
     expect(screen.getByText('Nothing matches')).toBeTruthy()
-  })
-
-  it('does not mistake an object property name for a section', () => {
-    screenSize.desktop = false
-    visit('/settings/constructor')
-    expect(where()).toBe('/settings')
-  })
-
-  it('treats an unknown ?tab= as no section at all', () => {
-    screenSize.desktop = false
-    visit('/settings?tab=nope')
-    expect(where()).toBe('/settings')
   })
 })
