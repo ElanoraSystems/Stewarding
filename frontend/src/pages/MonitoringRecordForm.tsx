@@ -278,9 +278,11 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       <Field label="Photo evidence (optional)">
         <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </Field>
-      <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '') || (needsLots && lots.length === 0)}>
-        {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : cycle.length > 1 ? 'Record all' : 'Record check'}
-      </Button>
+      <div className="sticky -bottom-5 -mx-6 -mb-5 border-t border-border bg-surface px-6 py-4">
+        <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '') || (needsLots && lots.length === 0)}>
+          {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : cycle.length > 1 ? 'Record all' : 'Record check'}
+        </Button>
+      </div>
     </form>
   )
 }

@@ -1,5 +1,6 @@
 import { AlertTriangle } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -113,7 +114,8 @@ export function MonitoringPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Monitoring</h1>
         <div className="flex flex-wrap items-center gap-3">
-          {canRecord && <Button variant="outline" onClick={() => startRecording(null)}>Record another check</Button>}
+          {me?.permissions.includes('equipment.manage') && <Link to="/settings/monitoring" className="text-sm font-medium text-brand-deep underline-offset-4 hover:underline">Manage monitoring points</Link>}
+          {canRecord && <Button onClick={() => startRecording(null)}>Record a check</Button>}
           <LocationSelect value={locationId} onChange={setLocationId} />
         </div>
       </div>
@@ -178,7 +180,7 @@ export function MonitoringPage() {
         </Card>
       )}
 
-      <Modal open={canRecord && recording} title={prefill?.retestOf ? 'Record a retest' : prefill?.startReadingId ? 'Record the time out' : 'Record a check'} onClose={stopRecording}>
+      <Modal open={canRecord && recording} size="lg" title={prefill?.retestOf ? 'Record a retest' : prefill?.startReadingId ? 'Record the time out' : 'Record a check'} description="Pick the monitoring point; the checks that are open now appear together." onClose={stopRecording}>
         <MonitoringRecordForm equipment={items} prefill={prefill} doneSchedules={doneSchedules} closedSchedules={closedSchedules} onSaved={() => { refresh(); stopRecording() }} onClearRetest={stopRecording} />
       </Modal>
 
