@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import scheduler
 from .api import (absences, attendance, audit, auth, breakage, checklists, dashboard, employees, equipment, inventory,
                   label_printers, lookups, lots, notifications, organization, receipts, reports, roles, roster, settings as settings_api, stock, suppliers,
-                  monitoring, uploads)
+                  monitoring, profile, uploads)
 from .config import settings
 from .db import SessionLocal
 from .seed import sync_roles
@@ -32,7 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 for module in (auth, employees, attendance, roster, checklists, uploads, equipment, monitoring, inventory, stock,
-               breakage, notifications, dashboard, reports, settings_api, audit, suppliers, receipts, lookups, absences, organization, roles, label_printers, lots):
+               breakage, notifications, dashboard, reports, settings_api, audit, suppliers, receipts, lookups, absences, organization, roles, label_printers, lots, profile):
     app.include_router(module.router)
 
 

@@ -13,6 +13,7 @@ import { EmployeesPage } from '@/pages/EmployeesPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ModulePage } from '@/pages/ModulePage'
+import { ProfilePage } from '@/pages/ProfilePage'
 import { ReportsPage } from '@/pages/ReportsPage'
 import { RosterPage } from '@/pages/RosterPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -24,7 +25,7 @@ export default function App() {
   const { me, loading } = useAuth()
   if (loading) return <div className="p-8 text-sm text-ink-muted">Loading...</div>
   if (!me) return <LoginPage />
-  if (me.change_required) return <ChangePasswordPage forced />
+  if (me.change_required) return <ChangePasswordPage />
 
   return (
     <Routes>
@@ -49,7 +50,7 @@ export default function App() {
         <Route path="reports" element={<RequireModule module="reports"><ReportsPage /></RequireModule>} />
         <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
         <Route path="audit" element={<RequireModule module="audit"><AuditPage /></RequireModule>} />
-        <Route path="account" element={<ChangePasswordPage />} />
+        <Route path="account" element={<ProfilePage />} />
         <Route path=":key" element={<ModulePage />} />
       </Route>
     </Routes>

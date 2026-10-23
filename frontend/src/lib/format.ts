@@ -31,6 +31,9 @@ export function label(value: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
+/** Up to two capital letters from a person's name, for an avatar. */
+export const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')
+
 export function todayIso(): string {
   const now = new Date()
   const month = String(now.getMonth() + 1).padStart(2, '0')

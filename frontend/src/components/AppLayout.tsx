@@ -1,13 +1,14 @@
 import {
   ArrowLeftRight, Bell, CalendarDays, ChartColumn, ClipboardCheck, Clock, LayoutDashboard, Package,
-  LogOut, Menu, Moon, QrCode, ScrollText, Settings, Sun, Thermometer, TriangleAlert, Users, Wrench, X,
+  Menu, Moon, QrCode, ScrollText, Settings, Sun, Thermometer, TriangleAlert, Users, Wrench, X,
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { BrandMark } from '@/components/BrandMark'
 import { NotificationBell } from '@/components/NotificationBell'
 import { Button } from '@/components/ui/button'
+import { UserMenu } from '@/components/UserMenu'
 import { useAuth } from '@/lib/auth'
 import { APP_NAME } from '@/lib/brand'
 import { setDisplayTimeZone } from '@/lib/format'
@@ -45,10 +46,8 @@ const GROUPS: { title: string; keys: string[] }[] = [
 // monitoring setup is edited under Settings
 const IN_SETTINGS = ['equipment']
 
-const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')
-
 export function AppLayout() {
-  const { me, logout } = useAuth()
+  const { me } = useAuth()
   const [theme, toggleTheme] = useTheme()
   const { pathname } = useLocation()
   const org = useApi<{ name: string; logo: string | null; timezone: string }>('/organization')
@@ -64,7 +63,6 @@ export function AppLayout() {
   const [open, setOpen] = useState(false)
   if (!me) return null
 
-  const name = me.employee?.name ?? me.email
   const known = new Set([...GROUPS.flatMap((g) => g.keys), ...IN_SETTINGS])
   const groups = [...GROUPS, { title: 'More', keys: me.modules.map((m) => m.key).filter((k) => !known.has(k)) }]
     .map(({ title, keys }) => ({ title, modules: keys.flatMap((k) => me.modules.filter((m) => m.key === k)) }))
@@ -118,18 +116,7 @@ export function AppLayout() {
             </div>
           ))}
         </nav>
-        <div className="m-3 flex items-center gap-3 rounded-xl bg-white/8 p-3">
-          <Link to="/account" title="Change password" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-white">
-            <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold">{initials(name)}</span>
-            <span className="min-w-0 leading-tight">
-              <span className="block truncate text-sm font-medium">{name}</span>
-              <span className="block truncate text-xs text-white/60">{me.role_label}</span>
-            </span>
-          </Link>
-          <Button variant="ghost" size="icon" className="text-white hover:bg-white/10" aria-label="Sign out" onClick={logout}>
-            <LogOut className="h-4 w-4" />
-          </Button>
-        </div>
+        <UserMenu onNavigate={() => setOpen(false)} />
       </aside>
       {open && <div className="scrim fixed inset-0 z-20 lg:hidden" onClick={() => setOpen(false)} aria-hidden />}
 
@@ -139,7 +126,7 @@ export function AppLayout() {
             <Menu className="h-5 w-5" />
           </Button>
           <nav aria-label="Breadcrumb" className="hidden text-sm text-ink-muted sm:block">
-            {APP_NAME} <span aria-hidden>/</span> <span className="font-medium text-ink">{current?.label ?? 'Home'}</span>
+            {APP_NAME} <span aria-hidden>/</span> <span className="font-medium text-ink">{pathname.startsWith('/account') ? 'My profile' : current?.label ?? 'Home'}</span>
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="outline" size="icon" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>
