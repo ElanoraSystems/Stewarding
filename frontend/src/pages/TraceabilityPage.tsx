@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Button } from '@/components/ui/button'
+import { SectionTabs } from '@/components/SectionTabs'
 import { useAuth } from '@/lib/auth'
 import { FoodItemsTab } from '@/pages/trace/FoodItemsTab'
 import { LotsTab } from '@/pages/trace/LotsTab'
@@ -20,6 +20,11 @@ const TABS = [
 
 type Tab = (typeof TABS)[number][0]
 
+const GROUPS: { title: string; keys: Tab[] }[] = [
+  { title: 'Lots', keys: ['lots', 'receive', 'split'] },
+  { title: 'Setup', keys: ['rules', 'items', 'printers'] },
+]
+
 export function TraceabilityPage() {
   const { me } = useAuth()
   const [params, setParams] = useSearchParams()
@@ -28,17 +33,14 @@ export function TraceabilityPage() {
   const requested = params.get('tab')
   const tab: Tab = (allowed.find(([key]) => key === requested) ?? allowed[0])?.[0] ?? 'lots'
   const refresh = () => setVersion((v) => v + 1)
+  const groups = GROUPS
+    .map((g) => ({ title: g.title, items: allowed.filter(([key]) => g.keys.includes(key)).map(([key, label]) => ({ key, label })) }))
+    .filter((g) => g.items.length > 0)
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Food Traceability</h1>
-      </div>
-      <div role="tablist" aria-label="Traceability sections" className="flex gap-2 overflow-x-auto pb-1">
-        {allowed.map(([key, text]) => (
-          <Button key={key} role="tab" aria-selected={tab === key} size="sm" variant={tab === key ? 'default' : 'outline'} className="shrink-0" onClick={() => setParams({ tab: key })}>{text}</Button>
-        ))}
-      </div>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-semibold">Food Traceability</h1>
+      <SectionTabs label="Traceability" groups={groups} active={tab} onSelect={(key) => setParams({ tab: key })} />
       {tab === 'lots' && <LotsTab key={version} />}
       {tab === 'receive' && <ReceiveLotForm onSaved={refresh} />}
       {tab === 'split' && <SplitLotForm onSaved={refresh} />}

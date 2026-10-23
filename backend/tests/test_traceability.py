@@ -560,3 +560,17 @@ def test_the_lot_list_filters_by_food_group_and_supplier_and_a_viewer_can_list_s
     names = [s["name"] for s in client.get(f"{LOTS}/suppliers", headers=cook).json()]
     assert "Gulf Seafood" in names
     assert client.get(f"{LOTS}/suppliers", headers=login(STEWARD)).status_code == 403
+
+
+def test_a_food_item_is_deleted_unless_a_lot_was_received_of_it(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    spare = food(client, m, name="Spare food")
+    assert client.delete(f"{LOTS}/food-items/{spare}", headers=sup).status_code == 403
+    assert client.delete(f"{LOTS}/food-items/{spare}", headers=m).json() == {"deleted": spare}
+    assert all(i["id"] != spare for i in client.get(f"{LOTS}/food-items?include_inactive=true", headers=m).json())
+    assert db.scalars(select(AuditLog).where(AuditLog.action == "lot.food_item_delete")).one().before == {"name": "Spare food", "food_group": "poultry"}
+    used = food(client, m, name="Chicken thigh")
+    assert receive(client, sup, db, used).status_code == 201
+    r = client.delete(f"{LOTS}/food-items/{used}", headers=m)
+    assert r.status_code == 409 and "food lots" in r.json()["detail"] and "make it inactive instead" in r.json()["detail"]
+    assert client.delete(f"{LOTS}/food-items/99999", headers=m).status_code == 404

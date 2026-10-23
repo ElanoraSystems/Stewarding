@@ -95,15 +95,15 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
   }
 
   return (
-    <Modal wide open title={lot ? `Lot ${lot.code}` : 'Lot'} onClose={onClose}>
+    <Modal size="xl" open title={lot ? `Lot ${lot.code}` : 'Lot'} description={lot ? `${lot.item}, ${lot.location ?? ""}` : undefined} onClose={onClose}>
       {!lot || !data ? <Skeleton className="h-40 w-full" /> : (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={STATUS_TONE[lot.status]}>{STATUS_LABEL[lot.status]}</Badge>
             {lot.past_use_by && lot.status === 'active' && <Badge tone="critical">Past use-by</Badge>}
             <span className="text-lg font-semibold">{lot.item}</span>
           </div>
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
             <Fact label="Type">{lot.kind === 'portion' ? 'Portions' : 'Delivery'}</Fact>
             <Fact label="Storage">{lot.condition_label}{lot.thawed_at ? ` (thawed ${fmtDateTime(lot.thawed_at)})` : ''}</Fact>
             <Fact label="Supplier">{lot.supplier}</Fact>

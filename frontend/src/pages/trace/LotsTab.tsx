@@ -27,8 +27,8 @@ export function LotsTab() {
   const { data, loading, reload } = useApi<{ total: number; items: Lot[] }>(`/lots${qs({ q: search, status, food_group: group, supplier_id: supplier, expiring_hours: soon ? 48 : '', page, size: SIZE })}`)
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface p-4">
         <div className="relative min-w-52 flex-1">
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted" aria-hidden />
           <Input aria-label="Search lots" className="pl-9" placeholder="Lot code, food or supplier lot" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
@@ -51,11 +51,11 @@ export function LotsTab() {
           <input type="checkbox" checked={soon} onChange={(e) => { setSoon(e.target.checked); setPage(1) }} /> Use-by within 48 hours
         </label>
       </div>
-      <ul className="space-y-2 xl:hidden">
+      <ul className="space-y-3 xl:hidden">
         {loading && !data && <li><Skeleton className="h-24 w-full" /></li>}
         {data?.items.map((l) => (
           <li key={l.id}>
-            <button type="button" onClick={() => setOpen(l.id)} className="w-full space-y-1 rounded-xl border border-border bg-surface p-3 text-left active:bg-surface-muted">
+            <button type="button" onClick={() => setOpen(l.id)} className="w-full space-y-1.5 rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted">
               <span className="flex items-center justify-between gap-2">
                 <span className="break-all font-semibold">{l.code}</span>
                 <Badge tone={STATUS_TONE[l.status]}>{STATUS_LABEL[l.status]}</Badge>

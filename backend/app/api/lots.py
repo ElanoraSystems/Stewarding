@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..audit import audit
+from ..services.deletion import delete_if_unused
 from ..db import get_db
 from ..deps import check_location, current_user, permissions_of, require, scoped_locations
 from ..models import (Employee, Equipment, FoodItem, Location, Lot, LotEvent, LotLink, ReadingLot, Setting, ShelfLifeRule, Supplier,
@@ -591,3 +592,15 @@ def export_trace(lot_id: int, user: User = Depends(require("lot.view")), db: Ses
     audit(db, user, "lot.trace_export", "lot", lot.id, None, {"code": lot.code})
     db.commit()
     return Response(exporters.record_to_pdf(doc), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="trace-{lot.code}.pdf"'})
+
+
+@router.delete("/food-items/{item_id}")
+def delete_food_item(item_id: int, user: User = Depends(require("lot.manage")), db: Session = Depends(get_db)):
+    item = db.get(FoodItem, item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Food item not found")
+    before = {"name": item.name, "food_group": item.food_group}
+    delete_if_unused(db, item, item.name)
+    audit(db, user, "lot.food_item_delete", "food_item", item_id, before, None)
+    db.commit()
+    return {"deleted": item_id}
