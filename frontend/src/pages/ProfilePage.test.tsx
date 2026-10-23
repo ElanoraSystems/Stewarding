@@ -7,13 +7,14 @@ import { ProfilePage } from '@/pages/ProfilePage'
 const mocks = vi.hoisted(() => ({
   profile: null as unknown,
   reload: vi.fn(),
-  api: vi.fn(async () => ({})),
+  api: vi.fn(async () => ({ access_token: 'fresh-token' })),
+  setToken: vi.fn(),
 }))
 vi.mock('@/lib/auth', () => ({
   useAuth: () => ({ me: { modules: [{ key: 'dashboard', label: 'Dashboard' }, { key: 'roster', label: 'Roster' }] }, logout: vi.fn(), changePassword: vi.fn() }),
 }))
 vi.mock('@/lib/useApi', () => ({ useApi: () => ({ data: mocks.profile, reload: mocks.reload }) }))
-vi.mock('@/lib/api', () => ({ api: mocks.api }))
+vi.mock('@/lib/api', () => ({ api: mocks.api, tokenStore: { set: mocks.setToken } }))
 vi.mock('@/lib/toast', () => ({ useRun: () => async (action: () => Promise<unknown>) => (await action(), true) }))
 
 const employee = {
@@ -53,6 +54,23 @@ describe('ProfilePage', () => {
     await user.click(save)
     expect(mocks.api).toHaveBeenCalledWith('/profile', { method: 'PUT', body: { phone: '+965 5000 9999', emergency_contact: 'Sara' } })
     expect(mocks.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks before signing out other devices, then keeps this device signed in with a fresh token', async () => {
+    mocks.setToken.mockClear()
+    const user = show()
+    await user.click(screen.getByRole('button', { name: 'Sign out other devices' }))
+    expect(mocks.api).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Sign them out' }))
+    expect(mocks.api).toHaveBeenCalledWith('/auth/sign-out-others', { method: 'POST' })
+    expect(mocks.setToken).toHaveBeenCalledWith('fresh-token')
+  })
+
+  it('leaves other devices alone when the question is cancelled', async () => {
+    const user = show()
+    await user.click(screen.getByRole('button', { name: 'Sign out other devices' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(mocks.api).not.toHaveBeenCalled()
   })
 
   it('shows no details form for an account that has no employee record', () => {

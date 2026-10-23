@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -97,6 +98,31 @@ describe('SettingsPage', () => {
   it('sends the old ?tab=general link to Attendance rules', () => {
     visit('/settings?tab=general')
     expect(where()).toBe('/settings/attendance')
+  })
+
+  it('finds a rule by its words and opens the page it lives on', async () => {
+    screenSize.desktop = false
+    const user = userEvent.setup()
+    visit('/settings')
+    await user.type(screen.getByRole('searchbox', { name: 'Search settings' }), 'grace')
+    expect(screen.queryByRole('group', { name: 'Company' })).toBeNull()
+    const hit = screen.getByRole('link', { name: /Grace period for a due check/ })
+    expect(hit.textContent).toContain('Monitoring rules')
+    await user.click(hit)
+    expect(where()).toBe('/settings/monitoring-rules')
+    expect((screen.getByRole('searchbox', { name: 'Search settings' }) as HTMLInputElement).value).toBe('')
+  })
+
+  it('finds a section by its name and says so when nothing matches', async () => {
+    screenSize.desktop = false
+    const user = userEvent.setup()
+    visit('/settings')
+    const box = screen.getByRole('searchbox', { name: 'Search settings' })
+    await user.type(box, 'suppl')
+    expect(screen.getByRole('link', { name: /Suppliers/ }).getAttribute('href')).toBe('/settings/suppliers')
+    await user.clear(box)
+    await user.type(box, 'zzzz')
+    expect(screen.getByText('Nothing matches')).toBeTruthy()
   })
 
   it('does not mistake an object property name for a section', () => {

@@ -46,3 +46,16 @@ def test_an_account_without_an_employee_record_cannot_save(client, db):
     h = {"Authorization": f"Bearer {token}"}
     assert client.get("/api/profile", headers=h).json()["employee"] is None
     assert client.put("/api/profile", json={"phone": "+965 5000 1234"}, headers=h).status_code == 404
+
+
+def test_signing_out_other_devices_keeps_only_the_current_one(client, login, db):
+    other = login(STEWARD)
+    mine = login(STEWARD)
+    assert client.get("/api/auth/me", headers=other).status_code == 200
+    fresh = client.post("/api/auth/sign-out-others", headers=mine)
+    assert fresh.status_code == 200
+    assert client.get("/api/auth/me", headers=other).status_code == 401
+    assert client.get("/api/auth/me", headers=mine).status_code == 401
+    kept = {"Authorization": f"Bearer {fresh.json()['access_token']}"}
+    assert client.get("/api/auth/me", headers=kept).status_code == 200
+    assert db.scalars(select(AuditLog).where(AuditLog.action == "session.sign_out_others")).one().entity == "user"

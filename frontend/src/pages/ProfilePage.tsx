@@ -7,7 +7,8 @@ import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Skeleton } from '@/components/ui/table'
-import { api } from '@/lib/api'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { api, tokenStore } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDate, fmtDateTime, initials } from '@/lib/format'
 import { useRun } from '@/lib/toast'
@@ -91,10 +92,20 @@ export function ProfilePage() {
   const { me, logout } = useAuth()
   const { data, reload } = useApi<Profile>('/profile')
   const { hash } = useLocation()
+  const run = useRun()
+  const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
     if (data && hash === '#security') document.getElementById('security')?.scrollIntoView()
   }, [data, hash])
+
+  async function signOutOthers() {
+    const done = await run(async () => {
+      const { access_token } = await api<{ access_token: string }>('/auth/sign-out-others', { method: 'POST' })
+      tokenStore.set(access_token)
+    }, 'Signed out of your other devices')
+    if (done) setConfirming(false)
+  }
 
   if (!data || !me) return <Skeleton className="h-64 w-full" />
   const employee = data.employee
@@ -125,7 +136,12 @@ export function ProfilePage() {
         <div className="space-y-4">
           <Card id="security">
             <CardHeader><CardTitle>Security</CardTitle></CardHeader>
-            <CardContent><PasswordForm /></CardContent>
+            <CardContent>
+              <PasswordForm />
+              <div className="mt-5 border-t border-border pt-5">
+                <Button variant="outline" onClick={() => setConfirming(true)}>Sign out other devices</Button>
+              </div>
+            </CardContent>
           </Card>
           <Card>
             <CardHeader><CardTitle>My access</CardTitle></CardHeader>
@@ -135,6 +151,8 @@ export function ProfilePage() {
           </Card>
         </div>
       </div>
+      <ConfirmDialog open={confirming} title="Sign out other devices" confirmLabel="Sign them out" message="Every other phone or computer signed in as you will have to sign in again. This device stays signed in."
+        onConfirm={signOutOthers} onCancel={() => setConfirming(false)} />
     </div>
   )
 }

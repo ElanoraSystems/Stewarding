@@ -124,6 +124,15 @@ def change_password(body: ChangePasswordIn, user: User = Depends(current_user), 
     return {"access_token": create_token(user.id, user.token_version), "token_type": "bearer"}
 
 
+@router.post("/sign-out-others")
+def sign_out_others(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Ends every other session of the signed-in user and returns a fresh token for this one."""
+    user.token_version += 1
+    audit(db, user, "session.sign_out_others", "user", user.id)
+    db.commit()
+    return {"access_token": create_token(user.id, user.token_version), "token_type": "bearer"}
+
+
 @router.get("/me")
 def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     perms = permissions_of(user)
