@@ -1,6 +1,8 @@
 import { Clock, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { LocationSelect } from '@/components/LocationSelect'
+import { SectionTabs } from '@/components/SectionTabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
@@ -14,10 +16,9 @@ import { useAuth } from '@/lib/auth'
 import { fmtDate, fmtDateTime, fmtTime, hoursMinutes } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
-import { AbsencePanel } from '@/pages/AbsencePanel'
+import { AbsencePanel, MyLeave } from '@/pages/AbsencePanel'
 import { FaceSnapshotButton } from '@/pages/FaceSnapshotButton'
 import { ManualAttendanceModal } from '@/pages/ManualAttendanceModal'
-import { MyShiftCard } from '@/pages/MyShiftCard'
 
 interface Record {
   id: number
@@ -59,6 +60,7 @@ export function AttendancePage() {
   const [value, setValue] = useState('')
   const [reason, setReason] = useState('')
   const [adding, setAdding] = useState(false)
+  const [tab, setTab] = useState<'records' | 'leave'>('records')
 
   const path = canView
     ? `/attendance${qs({ location_id: locationId, date_from: from, date_to: to, page, size: SIZE })}`
@@ -117,11 +119,16 @@ export function AttendancePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Attendance</h1>
-      <MyShiftCard onChange={reload} />
-      {me?.permissions.includes('attendance.absence') && <AbsencePanel />}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Attendance</h1>
+        <Link to="/check-in" className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-brand-deep hover:underline">Check in or out</Link>
+      </div>
+      <SectionTabs label="Attendance" active={tab} onSelect={(key) => setTab(key as 'records' | 'leave')}
+        groups={[{ title: canView ? 'Everyone\'s records' : 'My records', items: [{ key: 'records', label: 'Records' }] }, { title: 'Leave and absences', items: [{ key: 'leave', label: 'Leave' }] }]} />
 
-      <section className="space-y-4" aria-label="Attendance records">
+      {tab === 'leave' && (canView ? <AbsencePanel canRecord={me?.permissions.includes('attendance.absence') ?? false} /> : <MyLeave />)}
+
+      {tab === 'records' && <section className="space-y-4" aria-label="Attendance records">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{canView ? 'Attendance records' : 'My attendance history'}</h2>
           {canCorrect && <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add missing attendance</Button>}
@@ -188,7 +195,7 @@ export function AttendancePage() {
         </div>
         {data?.items.length === 0 && <EmptyState title="No attendance records" />}
         {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
-      </section>
+      </section>}
 
       {adding && <ManualAttendanceModal onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload() }} />}
 

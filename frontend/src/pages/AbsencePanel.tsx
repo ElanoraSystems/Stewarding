@@ -28,7 +28,7 @@ interface Absence {
 
 const today = () => new Date().toISOString().slice(0, 10)
 
-export function AbsencePanel() {
+export function AbsencePanel({ canRecord = true }: { canRecord?: boolean }) {
   const run = useRun()
   const [open, setOpen] = useState(false)
   const [cancelling, setCancelling] = useState<Absence | null>(null)
@@ -66,7 +66,7 @@ export function AbsencePanel() {
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-3 p-6 pb-3">
         <CardTitle className="text-lg">Days off, absences and leave</CardTitle>
-        <Button onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Record</Button>
+        {canRecord && <Button onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Record</Button>}
       </CardHeader>
       <CardContent className="p-6 pt-2">
         {list.data?.items.length === 0 ? <EmptyState title="Nothing recorded" /> : (
@@ -79,7 +79,7 @@ export function AbsencePanel() {
                 </span>
                 <span className="flex items-center gap-2">
                   <Badge tone={a.absence_type === 'absent' ? 'critical' : 'neutral'}>{label(a.absence_type)}</Badge>
-                  {a.status === 'active' && <Button size="sm" variant="outline" onClick={() => { setCancelling(a); setCancelReason('') }}><Ban className="h-3.5 w-3.5" /> Cancel</Button>}
+                  {canRecord && a.status === 'active' && <Button size="sm" variant="outline" onClick={() => { setCancelling(a); setCancelReason('') }}><Ban className="h-3.5 w-3.5" /> Cancel</Button>}
                 </span>
               </li>
             ))}
@@ -132,6 +132,31 @@ export function AbsencePanel() {
           <Field label="Why is it being cancelled?"><Input required minLength={5} maxLength={500} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} /></Field>
         </form>
       </Modal>
+    </Card>
+  )
+}
+
+/** A person's own days off, absences and leave, for someone who cannot see everyone's. */
+export function MyLeave() {
+  const { data } = useApi<Absence[]>('/absences/mine')
+  return (
+    <Card>
+      <CardHeader className="p-6 pb-3"><CardTitle className="text-lg">My days off, absences and leave</CardTitle></CardHeader>
+      <CardContent className="p-6 pt-2">
+        {!data || data.length === 0 ? <EmptyState title="Nothing recorded for you" /> : (
+          <ul className="divide-y divide-border">
+            {data.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+                <span>
+                  <span className="block font-medium">{fmtDate(a.local_date)}</span>
+                  {a.note && <span className="text-ink-muted">{a.note}</span>}
+                </span>
+                <Badge tone={a.absence_type === 'absent' ? 'critical' : 'neutral'}>{label(a.absence_type)}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
     </Card>
   )
 }
