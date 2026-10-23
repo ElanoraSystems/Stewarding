@@ -79,65 +79,82 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
   }
 
   return (
-    <Modal open={open} title={editing ? 'Edit item' : 'Add item to the item master'} onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Name">
-          <Input required value={form.name} onChange={(e) => set('name', e.target.value)} />
-        </Field>
-        {exact && (
-          <div role="alert" className="rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-3 py-2 text-sm text-danger">
-            <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> This item already exists</p>
-            <p className="mt-1">{exact.code} - {exact.name}{!exact.active && ' (inactive, restore it from Settings, Item master)'}. Use the existing item instead of adding it again.</p>
-          </div>
-        )}
-        {!exact && shownSimilar.length > 0 && (
-          <div role="status" className="rounded-xl border border-warn/25 border-l-4 border-l-warn bg-warn-soft px-3 py-2 text-sm text-warn">
-            <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> Similar items already exist</p>
-            <ul className="mt-1 list-inside list-disc">{shownSimilar.map((s) => <li key={s.id}>{s.code} - {s.name}{!s.active && ' (inactive)'}</li>)}</ul>
-            <p className="mt-1">Use the existing item instead of adding a duplicate.</p>
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Category">
-            <Select required value={form.category_id} onChange={(e) => set('category_id', e.target.value)}>
-              <option value="">Select</option>
-              {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
+    <Modal
+      open={open}
+      size="lg"
+      title={editing ? 'Edit item' : 'Add item to the item master'}
+      description={editing ? item.code : 'Every item gets its own generated ID when it is saved.'}
+      onClose={onClose}
+      footer={<>
+        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button type="submit" form="item-form" disabled={!!exact}>{editing ? 'Save item' : 'Add item'}</Button>
+      </>}
+    >
+      <form id="item-form" onSubmit={submit} className="space-y-7">
+        <section className="space-y-4">
+          <h3 className="text-sm font-semibold">About the item</h3>
+          <Field label="Name">
+            <Input required value={form.name} onChange={(e) => set('name', e.target.value)} />
           </Field>
-          <Field label="Unit of measure">
-            <Select required value={form.unit_id} onChange={(e) => set('unit_id', e.target.value)}>
-              <option value="">Select</option>
-              {units.data?.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Supplier">
-            <Select value={form.supplier_id} onChange={(e) => set('supplier_id', e.target.value)}>
-              <option value="">None</option>
-              {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Unit cost"><Input type="number" step="0.01" min={0} value={form.unit_cost} onChange={(e) => set('unit_cost', e.target.value)} /></Field>
-          <Field label="Minimum level"><Input type="number" min={0} value={form.min_level} onChange={(e) => set('min_level', e.target.value)} /></Field>
-          <Field label="Target level"><Input type="number" min={0} value={form.target_level} onChange={(e) => set('target_level', e.target.value)} /></Field>
-        </div>
-        <Field label="Storage location"><Input value={form.storage_location} onChange={(e) => set('storage_location', e.target.value)} /></Field>
-        {!editing && (
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.is_tracked_asset} onChange={(e) => set('is_tracked_asset', e.target.checked)} /> Track individual assets</label>
-        )}
-        {!editing && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Opening stock"><Input type="number" min={0} value={form.opening_qty} onChange={(e) => set('opening_qty', e.target.value)} /></Field>
-            <Field label="Opening location">
-              <Select value={form.opening_location_id} onChange={(e) => set('opening_location_id', e.target.value)}>
-                {me?.locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          {exact && (
+            <div role="alert" className="rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-3 py-2 text-sm text-danger">
+              <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> This item already exists</p>
+              <p className="mt-1">{exact.code} - {exact.name}{!exact.active && ' (inactive, make it active again from Settings, Item master)'}. Use the existing item instead of adding it again.</p>
+            </div>
+          )}
+          {!exact && shownSimilar.length > 0 && (
+            <div role="status" className="rounded-xl border border-warn/25 border-l-4 border-l-warn bg-warn-soft px-3 py-2 text-sm text-warn">
+              <p className="flex items-center gap-1 font-medium"><AlertTriangle className="h-4 w-4" aria-hidden /> Similar items already exist</p>
+              <ul className="mt-1 list-inside list-disc">{shownSimilar.map((s) => <li key={s.id}>{s.code} - {s.name}{!s.active && ' (inactive)'}</li>)}</ul>
+              <p className="mt-1">Use the existing item instead of adding a duplicate.</p>
+            </div>
+          )}
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Category">
+              <Select required value={form.category_id} onChange={(e) => set('category_id', e.target.value)}>
+                <option value="">Select</option>
+                {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </Select>
             </Field>
+            <Field label="Unit of measure">
+              <Select required value={form.unit_id} onChange={(e) => set('unit_id', e.target.value)}>
+                <option value="">Select</option>
+                {units.data?.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Supplier">
+              <Select value={form.supplier_id} onChange={(e) => set('supplier_id', e.target.value)}>
+                <option value="">None</option>
+                {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Storage location"><Input value={form.storage_location} onChange={(e) => set('storage_location', e.target.value)} /></Field>
           </div>
+        </section>
+
+        <section className="space-y-4 border-t border-border pt-6">
+          <h3 className="text-sm font-semibold">Cost and stock levels</h3>
+          <div className="grid gap-5 sm:grid-cols-3">
+            <Field label="Unit cost"><Input type="number" step="0.01" min={0} value={form.unit_cost} onChange={(e) => set('unit_cost', e.target.value)} /></Field>
+            <Field label="Minimum level"><Input type="number" min={0} value={form.min_level} onChange={(e) => set('min_level', e.target.value)} /></Field>
+            <Field label="Target level"><Input type="number" min={0} value={form.target_level} onChange={(e) => set('target_level', e.target.value)} /></Field>
+          </div>
+        </section>
+
+        {!editing && (
+          <section className="space-y-4 border-t border-border pt-6">
+            <h3 className="text-sm font-semibold">Opening stock</h3>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field label="Quantity on hand"><Input type="number" min={0} value={form.opening_qty} onChange={(e) => set('opening_qty', e.target.value)} /></Field>
+              <Field label="Counted at">
+                <Select value={form.opening_location_id} onChange={(e) => set('opening_location_id', e.target.value)}>
+                  {me?.locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </Select>
+              </Field>
+            </div>
+            <label className="flex items-center gap-2.5 text-sm"><input type="checkbox" checked={form.is_tracked_asset} onChange={(e) => set('is_tracked_asset', e.target.checked)} /> Track individual assets of this item</label>
+          </section>
         )}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={!!exact}>Save</Button>
-        </div>
       </form>
     </Modal>
   )

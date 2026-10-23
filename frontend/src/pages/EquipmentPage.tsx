@@ -102,7 +102,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         {embedded ? <h2 className="text-lg font-semibold">Monitoring points and checks</h2> : <h1 className="text-2xl font-semibold">Monitoring Setup</h1>}
         <div className="flex flex-wrap gap-3">
@@ -124,7 +124,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
               {eq.needs_attention && <Badge tone="warn">Needs attention ({eq.recent_failures} recent failures)</Badge>}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-5 p-6 pt-3">
             {eq.maintenance_notes && <p className="text-sm text-ink-muted">{eq.maintenance_notes}</p>}
             {canManage && (
               <div className="flex flex-wrap gap-2">
@@ -171,8 +171,12 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
 
       {editing && <CheckFormModal equipmentId={editing.equipmentId} schedule={editing.schedule} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
 
-      <Modal open={presetOpen} title="Add from template" onClose={() => setPresetOpen(false)}>
-        <form onSubmit={addFromTemplate} className="space-y-3">
+      <Modal open={presetOpen} title="Add from template" description="A ready-made monitoring point with its checks and limits." onClose={() => setPresetOpen(false)}
+        footer={<>
+          <Button type="button" variant="outline" onClick={() => setPresetOpen(false)}>Cancel</Button>
+          <Button type="submit" form="template-form" disabled={!preset || !locationId}>Add monitoring point</Button>
+        </>}>
+        <form id="template-form" onSubmit={addFromTemplate} className="space-y-5">
           <Field label="Template">
             <Select required value={preset} onChange={(e) => setPreset(e.target.value)}>
               <option value="">Select</option>
@@ -187,20 +191,16 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
             </ul>
           )}
           <Field label="Name (optional)"><Input value={presetName} maxLength={120} onChange={(e) => setPresetName(e.target.value)} /></Field>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setPresetOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={!preset || !locationId}>Add</Button>
-          </div>
         </form>
       </Modal>
 
-      <Modal open={renaming !== null} title="Rename monitoring point" onClose={() => setRenaming(null)}>
-        <form onSubmit={rename} className="space-y-3">
+      <Modal open={renaming !== null} size="sm" title="Rename monitoring point" onClose={() => setRenaming(null)}
+        footer={<>
+          <Button type="button" variant="outline" onClick={() => setRenaming(null)}>Cancel</Button>
+          <Button type="submit" form="rename-form" disabled={!renaming || renaming.name.trim().length < 2}>Save name</Button>
+        </>}>
+        <form id="rename-form" onSubmit={rename} className="space-y-3">
           <Field label="Name"><Input required minLength={2} maxLength={120} value={renaming?.name ?? ''} onChange={(e) => setRenaming((r) => r && { ...r, name: e.target.value })} /></Field>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>Cancel</Button>
-            <Button type="submit" disabled={!renaming || renaming.name.trim().length < 2}>Save</Button>
-          </div>
         </form>
       </Modal>
 

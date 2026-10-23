@@ -29,15 +29,16 @@ function Lookup({ kind, title, placeholder }: (typeof LISTS)[number]) {
   }
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
+      <CardHeader className="p-6 pb-3">
+        <CardTitle className="text-lg">{title}</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-6 pt-3">
         <ManagedList
           entries={(data ?? []).map((r) => ({ id: r.id, name: r.value, active: r.active }))} placeholder={placeholder}
           onAdd={(value) => act(() => api('/lookups', { body: { kind, value } }), 'Added')}
           onRename={(id, value) => act(() => api(`/lookups/${id}`, { method: 'PUT', body: { value } }), 'Renamed')}
-          onToggle={(id, active) => act(() => api(`/lookups/${id}`, { method: 'PUT', body: { active } }), active ? 'Restored' : 'Retired')}
+          onToggle={(id, active) => act(() => api(`/lookups/${id}`, { method: 'PUT', body: { active } }), active ? 'Made active' : 'Made inactive')}
+          onDelete={(id) => act(() => api(`/lookups/${id}`, { method: 'DELETE' }), 'Deleted')} noun="value"
         />
       </CardContent>
     </Card>
@@ -46,8 +47,8 @@ function Lookup({ kind, title, placeholder }: (typeof LISTS)[number]) {
 
 export function SettingsLookups() {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-2">{LISTS.map((l) => <Lookup key={l.kind} {...l} />)}</div>
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-2">{LISTS.map((l) => <Lookup key={l.kind} {...l} />)}</div>
     </div>
   )
 }
