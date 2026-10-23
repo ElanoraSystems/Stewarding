@@ -27,6 +27,28 @@ DEFAULTS: dict[str, int | bool] = {
     "approval.checklists": 1,
 }
 
+# The smallest and largest value a manager may save for each setting; an on/off setting is 0 or 1.
+LIMITS: dict[str, tuple[int, int]] = {
+    "temp.due_grace_minutes": (0, 240),
+    "temp.retest_minutes": (0, 1440),
+    "temp.repeat_failure_count": (1, 50),
+    "temp.repeat_failure_days": (1, 365),
+    "temp.escalate_after_minutes": (0, 10080),
+    "reminder.lead_minutes": (0, 1440),
+    "escalation.supervisor_after_minutes": (0, 10080),
+    "escalation.manager_after_minutes": (0, 10080),
+    "breakage.approval_qty": (0, 100_000),
+    "breakage.approval_cost": (0, 100_000),
+    "attendance.missed_checkout_hours": (1, 72),
+    "attendance.max_accuracy_m": (0, 5000),
+    "temp.pending_alert_hours": (0, 168),
+    "attendance.face_required": (0, 1),
+    "attendance.face_liveness": (0, 1),
+    "attendance.snapshot_days": (0, 3650),
+    "attendance.face_match_max": (10, 80),
+    "approval.checklists": (0, 1),
+}
+
 
 def _stored(db: Session) -> dict:
     """Every stored setting, read once per transaction."""

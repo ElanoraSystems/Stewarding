@@ -1,9 +1,8 @@
 export const SECTION_GROUPS = [
   { title: 'Company', items: [['organization', 'Organization'], ['locations', 'Locations'], ['shifts', 'Shifts']] },
-  { title: 'People', items: [['roles', 'Roles']] },
-  { title: 'Rules', items: [['general', 'Rules & alerts']] },
-  { title: 'Food safety', items: [['monitoring', 'Monitoring setup']] },
-  { title: 'Stock', items: [['items', 'Item master'], ['inventory', 'Categories & units'], ['suppliers', 'Suppliers']] },
+  { title: 'People', items: [['attendance', 'Attendance rules'], ['roles', 'Roles'], ['approvals', 'Approvals and escalation']] },
+  { title: 'Food safety', items: [['monitoring', 'Monitoring setup'], ['monitoring-rules', 'Monitoring rules']] },
+  { title: 'Stock', items: [['items', 'Item master'], ['inventory', 'Categories & units'], ['suppliers', 'Suppliers'], ['breakage', 'Breakage approval']] },
   { title: 'Lists', items: [['lists', 'Dropdown lists']] },
 ] as const
 
@@ -11,5 +10,12 @@ export type SectionKey = (typeof SECTION_GROUPS)[number]['items'][number][0]
 
 export const FIRST_SECTION: SectionKey = 'organization'
 
+/** Addresses from before "Rules & alerts" was split by topic. */
+const RENAMED: Record<string, SectionKey> = { general: 'attendance' }
+
 export const isSection = (key: string | null | undefined): key is SectionKey =>
   SECTION_GROUPS.some((group) => group.items.some(([sectionKey]) => sectionKey === key))
+
+/** The section an address names, following a renamed one, or nothing when it names none. */
+export const resolveSection = (key: string | null | undefined): SectionKey | null =>
+  isSection(key) ? key : key && Object.hasOwn(RENAMED, key) ? RENAMED[key] : null

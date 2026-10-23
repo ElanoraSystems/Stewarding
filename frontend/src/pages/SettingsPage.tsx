@@ -2,7 +2,6 @@ import { ChevronLeft } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMediaQuery } from '@/lib/useMediaQuery'
-import { SettingsGeneral } from '@/pages/settings/SettingsGeneral'
 import { SettingsInventoryLists } from '@/pages/settings/SettingsInventoryLists'
 import { SettingsItems } from '@/pages/settings/SettingsItems'
 import { SettingsLocations } from '@/pages/settings/SettingsLocations'
@@ -11,13 +10,21 @@ import { SettingsMonitoring } from '@/pages/settings/SettingsMonitoring'
 import { SettingsNav } from '@/pages/settings/SettingsNav'
 import { SettingsOrganization } from '@/pages/settings/SettingsOrganization'
 import { SettingsRoles } from '@/pages/settings/SettingsRoles'
+import { SettingsRules } from '@/pages/settings/SettingsRules'
 import { SettingsShifts } from '@/pages/settings/SettingsShifts'
 import { SettingsSuppliers } from '@/pages/settings/SettingsSuppliers'
-import { FIRST_SECTION, isSection, type SectionKey } from '@/pages/settings/sections'
+import type { RulesSection } from '@/pages/settings/settingsRegistry'
+import { FIRST_SECTION, resolveSection, type SectionKey } from '@/pages/settings/sections'
+
+// each topic is its own component so a half-edited form never carries over to another topic
+const rules = (section: RulesSection): ComponentType => () => <SettingsRules section={section} />
 
 const PAGES: Record<SectionKey, ComponentType> = {
   organization: SettingsOrganization,
-  general: SettingsGeneral,
+  attendance: rules('attendance'),
+  'monitoring-rules': rules('monitoring-rules'),
+  approvals: rules('approvals'),
+  breakage: rules('breakage'),
   locations: SettingsLocations,
   shifts: SettingsShifts,
   monitoring: SettingsMonitoring,
@@ -34,11 +41,11 @@ export function SettingsPage() {
   const desktop = useMediaQuery('(min-width: 1024px)')
   const legacy = params.get('tab')
 
-  if (legacy) return <Navigate to={isSection(legacy) ? `/settings/${legacy}` : '/settings'} replace />
-  if (section && !isSection(section)) return <Navigate to="/settings" replace />
+  const wanted = resolveSection(legacy ?? section)
+  if (legacy || (section && wanted !== section)) return <Navigate to={wanted ? `/settings/${wanted}` : '/settings'} replace />
   if (!section && desktop) return <Navigate to={`/settings/${FIRST_SECTION}`} replace />
 
-  const Active = isSection(section) ? PAGES[section] : null
+  const Active = wanted ? PAGES[wanted] : null
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Settings</h1>

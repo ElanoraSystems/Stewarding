@@ -1,0 +1,40 @@
+export type RulesSection = 'attendance' | 'monitoring-rules' | 'approvals' | 'breakage'
+
+export interface SettingDef {
+  key: string
+  section: RulesSection
+  kind: 'toggle' | 'number'
+  label: string
+  unit?: string
+}
+
+export const SECTION_TITLES: Record<RulesSection, string> = {
+  attendance: 'Attendance rules',
+  'monitoring-rules': 'Monitoring rules',
+  approvals: 'Approvals and escalation',
+  breakage: 'Breakage approval',
+}
+
+export const SETTINGS: SettingDef[] = [
+  { key: 'attendance.face_required', section: 'attendance', kind: 'toggle', label: 'Require face verification to check in and out' },
+  { key: 'attendance.face_liveness', section: 'attendance', kind: 'toggle', label: 'Live head-turn check, with a snapshot kept' },
+  { key: 'attendance.missed_checkout_hours', section: 'attendance', kind: 'number', label: 'Missed check-out after', unit: 'hours' },
+  { key: 'attendance.max_accuracy_m', section: 'attendance', kind: 'number', label: 'Largest location error accepted', unit: 'metres' },
+  { key: 'attendance.snapshot_days', section: 'attendance', kind: 'number', label: 'Keep face snapshots for (0 = keep them)', unit: 'days' },
+  { key: 'attendance.face_match_max', section: 'attendance', kind: 'number', label: 'Face match limit (lower is stricter)', unit: '10 to 80' },
+
+  { key: 'temp.due_grace_minutes', section: 'monitoring-rules', kind: 'number', label: 'Grace period for a due check', unit: 'minutes' },
+  { key: 'temp.retest_minutes', section: 'monitoring-rules', kind: 'number', label: 'Retest due after corrective action', unit: 'minutes' },
+  { key: 'temp.escalate_after_minutes', section: 'monitoring-rules', kind: 'number', label: 'Escalate an unresolved failed check after', unit: 'minutes' },
+  { key: 'temp.pending_alert_hours', section: 'monitoring-rules', kind: 'number', label: 'Warn when a time out is missing after (0 = never)', unit: 'hours' },
+  { key: 'temp.repeat_failure_count', section: 'monitoring-rules', kind: 'number', label: 'Repeat-failure alert at', unit: 'failures' },
+  { key: 'temp.repeat_failure_days', section: 'monitoring-rules', kind: 'number', label: 'Repeat-failure window', unit: 'days' },
+
+  { key: 'approval.checklists', section: 'approvals', kind: 'toggle', label: 'Every completed checklist task needs approval' },
+  { key: 'reminder.lead_minutes', section: 'approvals', kind: 'number', label: 'Reminder before a deadline', unit: 'minutes' },
+  { key: 'escalation.supervisor_after_minutes', section: 'approvals', kind: 'number', label: 'Escalate to supervisor after', unit: 'minutes overdue' },
+  { key: 'escalation.manager_after_minutes', section: 'approvals', kind: 'number', label: 'Escalate to manager after', unit: 'minutes overdue' },
+
+  { key: 'breakage.approval_qty', section: 'breakage', kind: 'number', label: 'Approval needed from this quantity', unit: 'units' },
+  { key: 'breakage.approval_cost', section: 'breakage', kind: 'number', label: 'Approval needed from this estimated cost' },
+]

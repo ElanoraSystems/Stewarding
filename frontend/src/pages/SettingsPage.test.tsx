@@ -6,7 +6,7 @@ import { SettingsPage } from '@/pages/SettingsPage'
 const screenSize = vi.hoisted(() => ({ desktop: true }))
 vi.mock('@/lib/useMediaQuery', () => ({ useMediaQuery: () => screenSize.desktop }))
 
-vi.mock('@/pages/settings/SettingsGeneral', () => ({ SettingsGeneral: () => <p>Rules page</p> }))
+vi.mock('@/pages/settings/SettingsRules', () => ({ SettingsRules: ({ section }: { section: string }) => <p>Rules {section} page</p> }))
 vi.mock('@/pages/settings/SettingsInventoryLists', () => ({ SettingsInventoryLists: () => <p>Units page</p> }))
 vi.mock('@/pages/settings/SettingsItems', () => ({ SettingsItems: () => <p>Items page</p> }))
 vi.mock('@/pages/settings/SettingsLocations', () => ({ SettingsLocations: () => <p>Locations page</p> }))
@@ -79,6 +79,29 @@ describe('SettingsPage', () => {
   it('sends an unknown section or tab back to the settings list', () => {
     screenSize.desktop = false
     visit('/settings/nope')
+    expect(where()).toBe('/settings')
+  })
+
+  it('opens a rules topic as its own section', () => {
+    visit('/settings/monitoring-rules')
+    expect(screen.getByText('Rules monitoring-rules page')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Monitoring rules' }).getAttribute('aria-current')).toBe('page')
+  })
+
+  it('sends the old Rules & alerts address, as a path or a ?tab=, to Attendance rules', () => {
+    visit('/settings/general')
+    expect(where()).toBe('/settings/attendance')
+    expect(screen.getByText('Rules attendance page')).toBeTruthy()
+  })
+
+  it('sends the old ?tab=general link to Attendance rules', () => {
+    visit('/settings?tab=general')
+    expect(where()).toBe('/settings/attendance')
+  })
+
+  it('does not mistake an object property name for a section', () => {
+    screenSize.desktop = false
+    visit('/settings/constructor')
     expect(where()).toBe('/settings')
   })
 
