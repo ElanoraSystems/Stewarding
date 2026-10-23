@@ -170,13 +170,19 @@ export function ChecklistsPage() {
           ) : cards(items)}
         </>
       )}
-      <Modal open={waiving} title={`Waive ${selected.length} task${selected.length === 1 ? '' : 's'}`} onClose={() => setWaiving(false)}>
-        <Field label="Reason"><Input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></Field>
-        <div className="mt-4 flex justify-end gap-2">
+      <Modal
+        open={waiving}
+        size="md"
+        title={`Waive ${selected.length} task${selected.length === 1 ? '' : 's'}`}
+        description="Waived tasks count as done. The reason is kept with each one."
+        onClose={() => setWaiving(false)}
+        footer={<>
           <Button variant="outline" onClick={() => setWaiving(false)}>Cancel</Button>
           <Button variant="danger" disabled={reason.trim().length < 5}
             onClick={() => afterBulk('waive-many', { instance_ids: selected, reason: reason.trim() }, (r) => `${r.waived} waived${r.skipped ? `, ${r.skipped} skipped` : ''}`)}>Waive</Button>
-        </div>
+        </>}
+      >
+        <Field label="Reason"><Input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></Field>
       </Modal>
     </div>
   )

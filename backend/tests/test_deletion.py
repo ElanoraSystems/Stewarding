@@ -129,3 +129,27 @@ def test_nobody_deletes_their_own_account_and_only_managers_delete(client, login
     other = new_employee(client, m, db, "spare@example.com")
     assert client.delete(f"/api/employees/{other['id']}", headers=login(SUP)).status_code == 403
     assert client.delete("/api/employees/99999", headers=m).status_code == 404
+
+
+def test_a_checklist_nothing_was_recorded_against_is_deleted_with_its_tasks(client, login, db):
+    m = login(MGR)
+    body = {"name": "Spare checklist", "category": "General", "location_id": loc_id(db, "MK"), "frequency": "daily"}
+    made = client.post("/api/checklists/templates", json=body, headers=m).json()
+    task = client.post(f"/api/checklists/templates/{made['id']}/tasks", json={"description": "Wipe the pass"}, headers=m).json()
+    assert client.post(f"/api/checklists/tasks/{task['id']}/remove", headers=login(SUP)).status_code == 403
+    assert client.delete(f"/api/checklists/templates/{made['id']}", headers=login(STEWARD)).status_code == 403
+    assert client.delete(f"/api/checklists/templates/{made['id']}", headers=m).json() == {"deleted": made["id"]}
+    assert all(t["id"] != made["id"] for t in client.get("/api/checklists/templates", headers=m).json())
+    assert client.delete(f"/api/checklists/templates/{made['id']}", headers=m).status_code == 404
+
+
+def test_a_checklist_or_task_with_records_is_refused(client, login, db):
+    m = login(MGR)
+    body = {"name": "Used checklist", "category": "General", "location_id": loc_id(db, "MK"), "frequency": "daily"}
+    made = client.post("/api/checklists/templates", json=body, headers=m).json()
+    task = client.post(f"/api/checklists/templates/{made['id']}/tasks", json={"description": "Check the fridge"}, headers=m).json()
+    assert client.post("/api/checklists/generate", json={"location_id": loc_id(db, "MK")}, headers=m).status_code in (200, 201)
+    r = client.delete(f"/api/checklists/templates/{made['id']}", headers=m)
+    assert r.status_code == 409 and "make it inactive instead" in r.json()["detail"]
+    r = client.post(f"/api/checklists/tasks/{task['id']}/remove", headers=m)
+    assert r.status_code == 409 and "checklist records" in r.json()["detail"]

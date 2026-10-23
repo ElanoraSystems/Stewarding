@@ -16,6 +16,7 @@ from ..pagination import paginate, row
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services import checklists as engine
 from ..services.checklists import DONE, OPEN, effective_status
+from ..services.deletion import blockers
 from ..services.notify import notify, recipients
 from ..services.settings import get_setting
 from ..services.starter import apply_starter
@@ -472,3 +473,39 @@ def assign(instance_id: int, body: AssignIn, user: User = Depends(require("task.
                key=f"assign:{inst.id}:{emp.id}", location_id=inst.location_id, due_at=inst.due_at)
     db.commit()
     return _serialize(inst, task, template, timeutil.utc_now())
+
+
+@router.delete("/templates/{template_id}")
+def delete_template(template_id: int, user: User = Depends(require("checklist.configure")), db: Session = Depends(get_db)):
+    """Deletes a checklist and its tasks when nothing was ever recorded against them."""
+    template = _template_or_404(db, template_id)
+    check_location(user, db, template.location_id)
+    tasks = list(db.scalars(select(ChecklistTask).where(ChecklistTask.template_id == template.id)))
+    used = list(dict.fromkeys(name for task in tasks for name in blockers(db, task)))
+    if used:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{template.name} is used by {', '.join(used)}; make it inactive instead")
+    before = {"name": template.name, "category": template.category, "frequency": template.frequency, "tasks": len(tasks)}
+    for task in tasks:
+        db.delete(task)
+    db.flush()
+    db.delete(template)
+    audit(db, user, "checklist.template_delete", "checklist_template", template_id, before, None)
+    db.commit()
+    return {"deleted": template_id}
+
+
+@router.post("/tasks/{task_id}/remove")
+def remove_task(task_id: int, user: User = Depends(require("checklist.configure")), db: Session = Depends(get_db)):
+    """Deletes a task nothing was recorded against; one with records should be made inactive instead."""
+    task = db.get(ChecklistTask, task_id)
+    if not task:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
+    check_location(user, db, _template_or_404(db, task.template_id).location_id)
+    used = blockers(db, task)
+    if used:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"This task is used by {', '.join(used)}; make it inactive instead")
+    before = row(task, *TASK_FIELDS)
+    db.delete(task)
+    audit(db, user, "checklist.task_delete", "checklist_task", task_id, {k: str(v) for k, v in before.items()}, None)
+    db.commit()
+    return {"deleted": task_id}
