@@ -7,7 +7,8 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 # PORT is set by Render; BACKEND_ADDR is host:port of the private backend service.
-ENV PORT=10000 BACKEND_ADDR=backend:8000
+ENV PORT=10000 BACKEND_ADDR=backend:8000 NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+COPY --chmod=644 nginx.render.search-domain.sh /docker-entrypoint.d/18-backend-search-domain.sh
 COPY nginx.render.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 10000
