@@ -44,6 +44,7 @@ export interface EquipmentItem {
   kind: string
   location_id: number
   status: string
+  active: boolean
   supervisor_id: number | null
   procedure_reference: string | null
   maintenance_notes: string | null

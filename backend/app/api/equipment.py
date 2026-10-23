@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import Employee, Equipment, EquipmentSchedule, Location, Shift, User
+from ..models import Employee, Equipment, EquipmentSchedule, Location, Shift, TemperatureReading, User
 from ..pagination import row
 from ..services.settings import get_setting
 from ..services.monitoring import failure_count
@@ -106,7 +106,7 @@ class ScheduleIn(BaseModel):
 
 
 def _schedule_values(body: ScheduleIn) -> dict:
-    values = body.model_dump(exclude={"phase", "reference_label"} - body.model_fields_set)
+    values = body.model_dump(exclude={"phase", "reference_label", "active"} - body.model_fields_set)
     values["weekdays"] = ",".join(str(d) for d in sorted(set(body.weekdays))) if body.weekdays else None
     return values
 
@@ -216,6 +216,49 @@ def update_schedule(schedule_id: int, body: ScheduleIn, user: User = Depends(req
     audit(db, user, "equipment.schedule_update", "equipment_schedule", sched.id, before, _schedule_snapshot(sched))
     db.commit()
     return schedule_out(sched)
+
+
+class ActiveIn(BaseModel):
+    active: bool
+
+
+@router.put("/schedules/{schedule_id}/active")
+def set_schedule_active(schedule_id: int, body: ActiveIn, user: User = Depends(require("equipment.manage")),
+                        db: Session = Depends(get_db)):
+    sched = db.get(EquipmentSchedule, schedule_id)
+    if not sched:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Schedule not found")
+    _get(db, user, sched.equipment_id)
+    before = sched.active
+    sched.active = body.active
+    audit(db, user, "equipment.schedule_active", "equipment_schedule", sched.id, {"active": before}, {"active": body.active})
+    db.commit()
+    return schedule_out(sched)
+
+
+@router.delete("/schedules/{schedule_id}", status_code=204)
+def delete_schedule(schedule_id: int, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
+    sched = db.get(EquipmentSchedule, schedule_id)
+    if not sched:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Schedule not found")
+    _get(db, user, sched.equipment_id)
+    if db.scalar(select(TemperatureReading.id).where(TemperatureReading.schedule_id == sched.id).limit(1)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This check has recorded readings; make it inactive instead")
+    audit(db, user, "equipment.schedule_delete", "equipment_schedule", sched.id, _schedule_snapshot(sched), None)
+    db.delete(sched)
+    db.commit()
+
+
+@router.delete("/{equipment_id}", status_code=204)
+def delete_equipment(equipment_id: int, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
+    eq = _get(db, user, equipment_id)
+    if db.scalar(select(TemperatureReading.id).where(TemperatureReading.equipment_id == eq.id).limit(1)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This monitoring point has recorded readings; make it inactive instead")
+    audit(db, user, "equipment.delete", "equipment", eq.id, {k: getattr(eq, k) for k in EQUIPMENT_FIELDS}, None)
+    for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id)):
+        db.delete(sched)
+    db.delete(eq)
+    db.commit()
 
 
 class FromTemplateIn(BaseModel):
