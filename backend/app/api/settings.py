@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..audit import audit
+from ..services.deletion import delete_if_unused
 from ..db import get_db
 from ..deps import require
 from ..models import Location, Setting, User
@@ -122,3 +123,15 @@ def update_location(location_id: int, body: LocationUpdate, user: User = Depends
     audit(db, user, "location.update", "location", loc.id, before, data)
     db.commit()
     return _location(loc)
+
+
+@router.delete("/locations/{location_id}")
+def delete_location(location_id: int, user: User = Depends(require("settings.manage")), db: Session = Depends(get_db)):
+    loc = db.get(Location, location_id)
+    if not loc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Location not found")
+    before = {"code": loc.code, "name": loc.name}
+    delete_if_unused(db, loc, loc.name)
+    audit(db, user, "location.delete", "location", location_id, before, None)
+    db.commit()
+    return {"deleted": location_id}

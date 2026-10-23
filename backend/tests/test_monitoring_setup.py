@@ -17,8 +17,8 @@ def new_point(client, h):
 def test_unused_check_and_point_can_be_deleted(client, login):
     h = login(MGR)
     point, check = new_point(client, h)
-    assert client.delete(f"/api/equipment/schedules/{check['id']}", headers=h).status_code == 204
-    assert client.delete(f"/api/equipment/{point['id']}", headers=h).status_code == 204
+    assert client.delete(f"/api/equipment/schedules/{check['id']}", headers=h).status_code == 200
+    assert client.delete(f"/api/equipment/{point['id']}", headers=h).status_code == 200
     assert all(e["id"] != point["id"] for e in client.get("/api/equipment", headers=h).json())
 
 

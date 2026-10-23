@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..audit import audit
+from ..services.deletion import delete_if_unused
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
 from ..models import (AbsenceRecord, AttendanceRecord, Employee, EmployeeLocation, Location, Shift, ShiftAssignment,
@@ -226,3 +227,15 @@ def today(location_id: int, user: User = Depends(require("roster.view")), db: Se
         "checked_in": e.id in attended, "late_minutes": attended[e.id].late_minutes if e.id in attended else 0,
         "on_duty": e.id in attended and attended[e.id].check_out_at is None,
     } for e, s in {(e.id, s.id): (e, s) for _, e, s in rows}.values()]
+
+
+@router.delete("/shifts/{shift_id}")
+def delete_shift(shift_id: int, user: User = Depends(require("roster.manage")), db: Session = Depends(get_db)):
+    shift = db.get(Shift, shift_id)
+    if not shift:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Shift not found")
+    before = {"name": shift.name, "kind": shift.kind}
+    delete_if_unused(db, shift, shift.name)
+    audit(db, user, "shift.delete", "shift", shift_id, before, None)
+    db.commit()
+    return {"deleted": shift_id}

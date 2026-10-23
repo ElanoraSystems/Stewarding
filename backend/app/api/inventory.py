@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..audit import audit
+from ..services.deletion import delete_if_unused
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryLevel, InventoryUnit, Location,
@@ -544,3 +545,37 @@ def update_asset(asset_id: int, body: AssetUpdate, user: User = Depends(require(
     audit(db, user, "inventory.asset_update", "tracked_asset", asset.id, before, data)
     db.commit()
     return row(asset, "id", "item_id", "asset_tag", "location_id", "condition", "custodian_employee_id")
+
+
+@router.delete("/categories/{category_id}")
+def delete_category(category_id: int, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
+    category = db.get(InventoryCategory, category_id)
+    if not category:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
+    delete_if_unused(db, category, category.name)
+    audit(db, user, "inventory.category_delete", "inventory_category", category_id, {"name": category.name}, None)
+    db.commit()
+    return {"deleted": category_id}
+
+
+@router.delete("/units/{unit_id}")
+def delete_unit(unit_id: int, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
+    unit = db.get(InventoryUnit, unit_id)
+    if not unit:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unit not found")
+    delete_if_unused(db, unit, unit.name)
+    audit(db, user, "inventory.unit_delete", "inventory_unit", unit_id, {"name": unit.name}, None)
+    db.commit()
+    return {"deleted": unit_id}
+
+
+@router.delete("/items/{item_id}")
+def delete_item(item_id: int, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
+    item = db.get(InventoryItem, item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    before = {"code": item.code, "name": item.name}
+    delete_if_unused(db, item, item.name, cascade=frozenset({"inventory_level"}))
+    audit(db, user, "inventory.item_delete", "inventory_item", item_id, before, None)
+    db.commit()
+    return {"deleted": item_id}

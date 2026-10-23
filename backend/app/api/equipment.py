@@ -236,7 +236,7 @@ def set_schedule_active(schedule_id: int, body: ActiveIn, user: User = Depends(r
     return schedule_out(sched)
 
 
-@router.delete("/schedules/{schedule_id}", status_code=204)
+@router.delete("/schedules/{schedule_id}")
 def delete_schedule(schedule_id: int, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
     sched = db.get(EquipmentSchedule, schedule_id)
     if not sched:
@@ -247,9 +247,10 @@ def delete_schedule(schedule_id: int, user: User = Depends(require("equipment.ma
     audit(db, user, "equipment.schedule_delete", "equipment_schedule", sched.id, _schedule_snapshot(sched), None)
     db.delete(sched)
     db.commit()
+    return {"deleted": schedule_id}
 
 
-@router.delete("/{equipment_id}", status_code=204)
+@router.delete("/{equipment_id}")
 def delete_equipment(equipment_id: int, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
     eq = _get(db, user, equipment_id)
     if db.scalar(select(TemperatureReading.id).where(TemperatureReading.equipment_id == eq.id).limit(1)):
@@ -259,6 +260,7 @@ def delete_equipment(equipment_id: int, user: User = Depends(require("equipment.
         db.delete(sched)
     db.delete(eq)
     db.commit()
+    return {"deleted": equipment_id}
 
 
 class FromTemplateIn(BaseModel):

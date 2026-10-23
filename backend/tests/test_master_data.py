@@ -152,7 +152,7 @@ def test_every_role_can_read_the_managed_lists_but_only_managers_edit_them(clien
     assert post(client, login(STEWARD), "/api/lookups", {"kind": "job_title", "value": "Head Steward"}).status_code == 403
 
 
-def test_lookup_values_are_unique_editable_and_retire_instead_of_delete(client, login, db):
+def test_lookup_values_are_unique_editable_and_can_be_retired_or_deleted(client, login, db):
     m = login(MGR)
     dup = post(client, m, "/api/lookups", {"kind": "breakage_reason", "value": "  dropped WHILE carrying"})
     assert dup.status_code == 409
@@ -165,5 +165,6 @@ def test_lookup_values_are_unique_editable_and_retire_instead_of_delete(client, 
     assert "Tray overloaded" not in [v["value"] for v in reasons]
     assert "Tray overloaded" in [v["value"] for v in client.get("/api/lookups?kind=breakage_reason&include_inactive=true", headers=m).json()]
     assert post(client, m, "/api/lookups", {"kind": "colour", "value": "Blue"}).status_code == 422
-    assert client.delete(f"/api/lookups/{new.json()['id']}", headers=m).status_code in (404, 405)
+    assert client.delete(f"/api/lookups/{new.json()['id']}", headers=m).status_code == 200
+    assert "Tray overloaded" not in [v["value"] for v in client.get("/api/lookups?kind=breakage_reason&include_inactive=true", headers=m).json()]
     assert db.scalar(select(AuditLog.id).where(AuditLog.action == "lookup.create"))
