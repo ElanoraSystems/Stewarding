@@ -1,6 +1,6 @@
 export const SECTION_GROUPS = [
   { title: 'Company', items: [['organization', 'Organization'], ['locations', 'Locations'], ['shifts', 'Shifts']] },
-  { title: 'People', items: [['attendance', 'Attendance rules'], ['roles', 'Roles'], ['approvals', 'Approvals and escalation']] },
+  { title: 'People', items: [['attendance', 'Check-in and attendance rules'], ['roles', 'Roles'], ['approvals', 'Approvals and escalation']] },
   { title: 'Food safety', items: [['monitoring', 'Monitoring setup'], ['monitoring-rules', 'Monitoring rules']] },
   { title: 'Stock', items: [['items', 'Item master'], ['inventory', 'Categories & units'], ['suppliers', 'Suppliers'], ['breakage', 'Breakage approval']] },
   { title: 'Lists', items: [['lists', 'Dropdown lists']] },

@@ -24,7 +24,7 @@ describe('SettingsRules', () => {
 
   it('shows the switches and the numbers with their units for its own topic only', () => {
     render(<SettingsRules section="attendance" />)
-    expect(screen.getByRole('heading', { name: 'Attendance rules' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Check-in and attendance rules' })).toBeTruthy()
     expect(screen.getByRole('switch', { name: /Require face verification/ }).getAttribute('aria-checked')).toBe('false')
     expect(screen.getByRole('switch', { name: /Live head-turn/ }).getAttribute('aria-checked')).toBe('true')
     expect((screen.getByLabelText(/Missed check-out after/) as HTMLInputElement).value).toBe('16')

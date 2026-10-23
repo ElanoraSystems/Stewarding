@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState, Skeleton } from '@/components/ui/table'
+import { useAuth } from '@/lib/auth'
 import { fmtDate, fmtTime, hoursMinutes } from '@/lib/format'
 import { useApi } from '@/lib/useApi'
 import { MyShiftCard } from '@/pages/MyShiftCard'
@@ -31,6 +32,7 @@ function useNow() {
 /** The screen people open on their phone to check in and out, with their last few days beneath. */
 export function CheckInPage() {
   const now = useNow()
+  const { me } = useAuth()
   const recent = useApi<{ items: Day[] }>('/attendance/mine?size=7')
 
   return (
@@ -45,6 +47,12 @@ export function CheckInPage() {
       </header>
 
       <MyShiftCard onChange={recent.reload} />
+      {me?.permissions.includes('settings.manage') && (
+        <p className="text-sm">
+          <Link to="/settings/attendance" className="font-medium text-brand-deep hover:underline">Check-in rules</Link>
+          <span className="text-ink-muted"> - face check, location accuracy and missed check-out</span>
+        </p>
+      )}
 
       <section className="space-y-3" aria-label="Recent days">
         <div className="flex items-center justify-between gap-3">

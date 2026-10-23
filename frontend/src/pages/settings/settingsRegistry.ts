@@ -9,7 +9,7 @@ export interface SettingDef {
 }
 
 export const SECTION_TITLES: Record<RulesSection, string> = {
-  attendance: 'Attendance rules',
+  attendance: 'Check-in and attendance rules',
   'monitoring-rules': 'Monitoring rules',
   approvals: 'Approvals and escalation',
   breakage: 'Breakage approval',

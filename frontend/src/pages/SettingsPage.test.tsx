@@ -47,7 +47,7 @@ describe('SettingsPage', () => {
   it('shows the sections of the open topic as pills and marks the open one', () => {
     visit('/settings/roles')
     const pills = screen.getByRole('navigation', { name: 'Settings sections' })
-    expect(Array.from(pills.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['Attendance rules', 'Roles', 'Approvals and escalation'])
+    expect(Array.from(pills.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['Check-in and attendance rules', 'Roles', 'Approvals and escalation'])
     expect(screen.getByRole('link', { name: 'Roles' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: 'People' }).getAttribute('aria-current')).toBe('page')
     expect(screen.queryByRole('link', { name: 'Monitoring setup' })).toBeNull()
@@ -72,13 +72,13 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('link', { name: 'Monitoring rules' }).getAttribute('aria-current')).toBe('page')
   })
 
-  it('sends the old Rules & alerts address, as a path or a ?tab=, to Attendance rules', () => {
+  it('sends the old Rules & alerts address, as a path or a ?tab=, to the check-in and attendance rules', () => {
     visit('/settings/general')
     expect(where()).toBe('/settings/attendance')
     expect(screen.getByText('Rules attendance page')).toBeTruthy()
   })
 
-  it('sends the old ?tab=general link to Attendance rules', () => {
+  it('sends the old ?tab=general link to the check-in and attendance rules', () => {
     visit('/settings?tab=general')
     expect(where()).toBe('/settings/attendance')
   })
@@ -99,6 +99,17 @@ describe('SettingsPage', () => {
     expect(where()).toBe('/settings/monitoring-rules')
     expect((screen.getByRole('searchbox', { name: 'Search settings' }) as HTMLInputElement).value).toBe('')
     expect(screen.queryByRole('link', { name: /Grace period for a due check/ })).toBeNull()
+  })
+
+  it('finds the check-in rules however check in is written', async () => {
+    const user = userEvent.setup()
+    visit('/settings/organization')
+    const box = screen.getByRole('searchbox', { name: 'Search settings' })
+    for (const typed of ['check in', 'check-in', 'checkin', 'check out']) {
+      await user.clear(box)
+      await user.type(box, typed)
+      expect(screen.getAllByRole('link').some((a) => a.getAttribute('href') === '/settings/attendance' && /check-?in|check-?out/i.test(a.textContent ?? '')), typed).toBe(true)
+    }
   })
 
   it('finds a section by its name and says so when nothing matches', async () => {

@@ -5,13 +5,15 @@ import { Input } from '@/components/ui/input'
 import { SECTION_TITLES, SETTINGS } from '@/pages/settings/settingsRegistry'
 import { SECTION_GROUPS } from '@/pages/settings/sections'
 
-/** Section names and the rules on the rules pages that contain the words typed. */
+const plain = (text: string) => text.toLowerCase().replace(/[-\s]+/g, '')
+
+/** Section names and the rules on the rules pages that contain the words typed, ignoring spaces and hyphens so check in finds check-in. */
 function findSettings(query: string) {
-  const needle = query.trim().toLowerCase()
+  const needle = plain(query)
   if (!needle) return null
   const sections = SECTION_GROUPS.flatMap((group) =>
-    group.items.filter(([, text]) => text.toLowerCase().includes(needle)).map(([key, text]) => ({ key, title: text, where: group.title })))
-  const rules = SETTINGS.filter((s) => s.label.toLowerCase().includes(needle)).map((s) => ({ key: s.section, title: s.label, where: SECTION_TITLES[s.section] }))
+    group.items.filter(([, text]) => plain(text).includes(needle)).map(([key, text]) => ({ key, title: text, where: group.title })))
+  const rules = SETTINGS.filter((s) => plain(s.label).includes(needle)).map((s) => ({ key: s.section, title: s.label, where: SECTION_TITLES[s.section] }))
   return [...sections, ...rules]
 }
 
