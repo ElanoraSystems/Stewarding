@@ -10,7 +10,6 @@ import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { ChecklistsPage } from '@/pages/ChecklistsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { EmployeesPage } from '@/pages/EmployeesPage'
-import { EquipmentPage } from '@/pages/EquipmentPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ModulePage } from '@/pages/ModulePage'
@@ -39,7 +38,7 @@ export default function App() {
         <Route path="weekly-checklists" element={<Navigate to="/checklists" replace />} />
         <Route path="monitoring" element={<RequireModule module="monitoring"><MonitoringPage /></RequireModule>} />
         <Route path="temperature" element={<Navigate to="/monitoring" replace />} />
-        <Route path="equipment" element={<RequireModule module="equipment"><EquipmentPage /></RequireModule>} />
+        <Route path="equipment" element={<Navigate to="/settings?tab=monitoring" replace />} />
         <Route path="inventory" element={<RequireModule module="inventory"><InventoryPage /></RequireModule>} />
         <Route path="crockery" element={<Navigate to="/inventory" replace />} />
         <Route path="smallware" element={<Navigate to="/inventory" replace />} />

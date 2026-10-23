@@ -88,3 +88,16 @@ def test_the_same_shift_cannot_be_assigned_over_days_it_is_still_active_and_toda
     db.commit()
     today = client.get(f"/api/roster/today?location_id={loc_id(db, 'MK')}", headers=h).json()
     assert [p["employee_id"] for p in today].count(sid) == 1
+
+
+def test_a_whole_week_of_one_shift_is_ended_in_one_call(client, login, db, clock):
+    h = login(MGR)
+    morning = next(s["id"] for s in client.get("/api/roster/shifts", headers=h).json() if s["name"] == "Morning")
+    clear_days(client, h, weekdays=range(7))
+    ids = assign(client, h, db, morning, weekdays=range(7), valid_from="2026-03-03").json()["ids"]
+    assert len(ids) == 7
+    assert client.post("/api/roster/assignments/end", json={"ids": ids}, headers=login("steward.mk@example.test")).status_code == 403
+    assert client.post("/api/roster/assignments/end", json={"ids": [ids[0], 999999]}, headers=h).status_code == 404
+    assert client.post("/api/roster/assignments/end", json={"ids": ids}, headers=h).json() == {"ended": 7}
+    mine = [a for a in client.get(f"/api/roster/assignments?employee_id={emp_id(client, h, 'E004')}", headers=h).json() if a["id"] in ids]
+    assert len(mine) == 7 and {a["valid_to"] for a in mine} == {"2026-03-03"}

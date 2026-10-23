@@ -134,7 +134,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
                   <option value="out_of_service">Out of service</option>
                 </Select>
                 <Button size="sm" variant="outline" onClick={() => setRenaming({ id: eq.id, name: eq.name })}>Rename</Button>
-                <Button size="sm" variant="outline" onClick={() => setPointActive(eq)}>{eq.active ? 'Make inactive' : 'Make active'}</Button>
+                <Button size="sm" variant="outline" className="whitespace-nowrap" onClick={() => setPointActive(eq)}>{eq.active ? 'Make inactive' : 'Make active'}</Button>
                 <Button size="sm" variant="outline" onClick={() => setDeleting({ kind: 'point', id: eq.id, name: eq.name })}>Delete</Button>
               </div>
             )}
@@ -151,7 +151,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
                       <Td>
                         <div className="flex flex-wrap gap-2">
                           <Button size="sm" variant="outline" onClick={() => setEditing({ equipmentId: eq.id, schedule: s })}>Edit</Button>
-                          <Button size="sm" variant="outline" onClick={() => setCheckActive(s)}>{s.active ? 'Make inactive' : 'Make active'}</Button>
+                          <Button size="sm" variant="outline" className="whitespace-nowrap" onClick={() => setCheckActive(s)}>{s.active ? 'Make inactive' : 'Make active'}</Button>
                           <Button size="sm" variant="outline" onClick={() => setDeleting({ kind: 'check', id: s.id, name: s.stage })}>Delete</Button>
                         </div>
                       </Td>

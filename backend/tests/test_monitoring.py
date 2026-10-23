@@ -176,7 +176,7 @@ def test_due_checks_move_from_due_to_done_and_overdue(client, login, clock):
     assert rinse("10:00") == "upcoming"  # 14:00 slot
 
 
-def test_a_check_recorded_earlier_the_same_day_counts_for_the_first_slot_only(client, login, clock):
+def test_a_check_opens_a_grace_period_before_its_time(client, login, clock):
     h, mgr = login(STEWARD), login(MGR)
     eq, _ = mk_stage(client, h)
     daily = client.post(f"/api/equipment/{eq['id']}/schedules", headers=mgr, json={
@@ -189,10 +189,14 @@ def test_a_check_recorded_earlier_the_same_day_counts_for_the_first_slot_only(cl
                     if d["schedule_id"] == sched["id"] and d["slot_at"][11:16] == slot_utc)
 
     assert (status(daily, "05:00"), status(loop, "08:00")) == ("upcoming", "upcoming")          # it is 06:05 in Dubai
-    assert record(client, h, eq, daily, 50).status_code == 201 and record(client, h, eq, loop, 50).status_code == 201
-    assert (status(daily, "05:00"), status(loop, "08:00")) == ("done", "done")
-    assert (status(loop, "12:00"), status(loop, "16:00")) == ("upcoming", "upcoming")           # later slots still need their own reading
-    clock.advance(hours=2, minutes=55)                                                          # 09:00 in Dubai
+    assert next(d for d in client.get("/api/monitoring/due", headers=h).json() if d["schedule_id"] == daily["id"])["open"] is False
+    early = record(client, h, eq, daily, 50)
+    assert early.status_code == 409 and early.json()["detail"] == "oil opens at 08:30"
+    clock.advance(hours=2, minutes=25)                                                          # 08:30 in Dubai
+    assert record(client, h, eq, daily, 50).status_code == 201
+    assert status(daily, "05:00") == "done"
+    assert next(d for d in client.get("/api/monitoring/due", headers=h).json() if d["schedule_id"] == daily["id"])["open"] is True
+    assert record(client, h, eq, loop, 50).json()["detail"] == "loop opens at 11:30"
     assert record(client, h, eq, daily, 51).status_code == 409
 
 

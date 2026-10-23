@@ -9,7 +9,7 @@ import { Select } from '@/components/ui/select'
 import { EmptyState, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { label } from '@/lib/format'
+import { label, weekdaysText } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import type { EmployeeRow } from '@/pages/EmployeeForm'
@@ -44,6 +44,17 @@ interface Assignment {
 }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const PAGE = 25
+
+interface Group {
+  key: string
+  employee_id: number
+  shift_id: number
+  valid_from: string
+  valid_to: string | null
+  weekdays: number[]
+  ids: number[]
+}
 
 export function RosterPage() {
   const { me } = useAuth()
@@ -55,6 +66,9 @@ export function RosterPage() {
   const [weekdays, setWeekdays] = useState<number[]>([0, 1, 2, 3, 4])
   const [validFrom, setValidFrom] = useState('')
   const [validTo, setValidTo] = useState('')
+  const [search, setSearch] = useState('')
+  const [shiftFilter, setShiftFilter] = useState('')
+  const [shown, setShown] = useState(PAGE)
 
   const today = useApi<Today[]>(locationId ? `/roster/today${qs({ location_id: locationId })}` : null)
   const shifts = useApi<Shift[]>('/roster/shifts')
@@ -72,9 +86,27 @@ export function RosterPage() {
     if (ok) assignments.reload()
   }
 
-  async function end(id: number) {
-    if (await run(() => api(`/roster/assignments/${id}`, { method: 'DELETE' }), 'Assignment ended')) assignments.reload()
+  async function end(group: Group) {
+    if (await run(() => api('/roster/assignments/end', { body: { ids: group.ids } }), 'Assignment ended')) assignments.reload()
   }
+
+  // one row per employee, shift and period, however many weekdays it covers
+  const groups = (() => {
+    const out = new Map<string, Group>()
+    for (const a of assignments.data ?? []) {
+      const key = `${a.employee_id}|${a.shift_id}|${a.valid_from}|${a.valid_to ?? ''}`
+      const group = out.get(key)
+      if (group) {
+        group.weekdays.push(a.weekday)
+        group.ids.push(a.id)
+      } else out.set(key, { key, employee_id: a.employee_id, shift_id: a.shift_id, valid_from: a.valid_from, valid_to: a.valid_to, weekdays: [a.weekday], ids: [a.id] })
+    }
+    const needle = search.trim().toLowerCase()
+    return [...out.values()]
+      .map((g) => ({ ...g, weekdays: [...g.weekdays].sort((x, y) => x - y) }))
+      .filter((g) => (!shiftFilter || String(g.shift_id) === shiftFilter) && (!needle || (names.get(g.employee_id) ?? '').toLowerCase().includes(needle)))
+      .sort((x, y) => (names.get(x.employee_id) ?? '').localeCompare(names.get(y.employee_id) ?? '') || x.valid_from.localeCompare(y.valid_from))
+  })()
 
   return (
     <div className="space-y-4">
@@ -110,22 +142,31 @@ export function RosterPage() {
       <Card>
         <CardHeader><CardTitle>Weekly assignments</CardTitle></CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-3">
+            <Input aria-label="Search employees" className="max-w-56" placeholder="Search employee" value={search}
+              onChange={(e) => { setSearch(e.target.value); setShown(PAGE) }} />
+            <Select aria-label="Shift" className="w-auto" value={shiftFilter} onChange={(e) => { setShiftFilter(e.target.value); setShown(PAGE) }}>
+              <option value="">All shifts</option>
+              {shifts.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Select>
+          </div>
           <Table>
-            <thead><tr><Th>Employee</Th><Th>Day</Th><Th>Shift</Th><Th>From</Th><Th>Until</Th>{canManage && <Th />}</tr></thead>
+            <thead><tr><Th>Employee</Th><Th>Shift</Th><Th>Days</Th><Th>From</Th><Th>Until</Th>{canManage && <Th />}</tr></thead>
             <tbody>
-              {assignments.data?.map((a) => (
-                <tr key={a.id}>
-                  <Td>{names.get(a.employee_id) ?? a.employee_id}</Td>
-                  <Td>{DAYS[a.weekday]}</Td>
-                  <Td>{shiftNames.get(a.shift_id)}</Td>
-                  <Td>{a.valid_from}</Td>
-                  <Td>{a.valid_to ?? 'Ongoing'}</Td>
-                  {canManage && <Td><Button size="sm" variant="outline" onClick={() => end(a.id)}>End</Button></Td>}
+              {groups.slice(0, shown).map((g) => (
+                <tr key={g.key}>
+                  <Td>{names.get(g.employee_id) ?? g.employee_id}</Td>
+                  <Td>{shiftNames.get(g.shift_id)}</Td>
+                  <Td>{weekdaysText(g.weekdays)}</Td>
+                  <Td>{g.valid_from}</Td>
+                  <Td>{g.valid_to ?? 'Ongoing'}</Td>
+                  {canManage && <Td><Button size="sm" variant="outline" onClick={() => end(g)}>End</Button></Td>}
                 </tr>
               ))}
             </tbody>
           </Table>
-          {assignments.data?.length === 0 && <EmptyState title="No assignments at this location" />}
+          {groups.length > shown && <Button variant="outline" onClick={() => setShown((n) => n + PAGE)}>Show more ({groups.length - shown} left)</Button>}
+          {assignments.data && groups.length === 0 && <EmptyState title={assignments.data.length === 0 ? 'No assignments at this location' : 'No assignment matches'} />}
 
           {canManage && (
             <form onSubmit={assign} className="flex flex-wrap items-end gap-3 border-t border-border pt-4">

@@ -147,7 +147,7 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
                 upper = slots[i + 1] if i + 1 < len(slots) else end_of_day
                 out.append({"equipment_id": eq.id, "equipment": eq.name, "location_id": eq.location_id,
                             "schedule_id": sched.id, "stage": sched.stage,
-                            "slot_at": slot.isoformat() + "Z",
+                            "slot_at": slot.isoformat() + "Z", "opens_at": (slot - timedelta(minutes=grace)).isoformat() + "Z", "open": slot - timedelta(minutes=grace) <= now,
                             "status": slot_status(slot, upper, mine, now, grace, window_low(slot, i == 0, day_start, timedelta(minutes=grace)))})
     return out
 
@@ -170,6 +170,19 @@ def already_recorded(db: Session, eq: Equipment, sched: EquipmentSchedule, now: 
         TemperatureReading.schedule_id == sched.id, TemperatureReading.retest_of_id.is_(None), TemperatureReading.rejected_at.is_(None),
         TemperatureReading.recorded_at >= low, TemperatureReading.recorded_at < upper)))
     return has_reading(times, low, upper)
+
+
+def closed_until(db: Session, eq: Equipment, sched: EquipmentSchedule, now: datetime) -> datetime | None:
+    """When a scheduled check opens for recording, or none if it is open now, has no set time today or is a time in or out log."""
+    if sched.timing == "manual" or sched.phase:
+        return None
+    location = db.get(Location, eq.location_id)
+    day = timeutil.local_date(now, location.timezone)
+    slots = expected_slots(sched, db.get(Shift, sched.shift_id) if sched.shift_id else None, location.timezone, day)
+    opens = timedelta(minutes=get_setting(db, "temp.due_grace_minutes"))
+    if not slots or any(slot - opens <= now for slot in slots):
+        return None
+    return slots[0] - opens
 
 
 def pending_entries(db: Session, equipment: list[Equipment], now: datetime) -> list[dict]:

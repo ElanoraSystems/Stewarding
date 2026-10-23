@@ -169,6 +169,25 @@ def create_assignments(body: AssignmentIn, user: User = Depends(require("roster.
     return {"ids": created}
 
 
+class EndIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=7)
+
+
+@router.post("/assignments/end")
+def end_assignments(body: EndIn, user: User = Depends(require("roster.manage")), db: Session = Depends(get_db)):
+    """Ends every listed assignment today, or on its start date when it has not started yet."""
+    found = {a.id: a for a in db.scalars(select(ShiftAssignment).where(ShiftAssignment.id.in_(body.ids)))}
+    if len(found) != len(set(body.ids)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
+    today = timeutil.utc_now().date()
+    for a in found.values():
+        check_location(user, db, a.location_id)
+        a.valid_to = max(today, a.valid_from)
+    audit(db, user, "roster.end", "shift_assignment", min(found), None, {"ids": sorted(found), "valid_to": today.isoformat()})
+    db.commit()
+    return {"ended": len(found)}
+
+
 @router.delete("/assignments/{assignment_id}")
 def end_assignment(assignment_id: int, user: User = Depends(require("roster.manage")), db: Session = Depends(get_db)):
     a = db.get(ShiftAssignment, assignment_id)

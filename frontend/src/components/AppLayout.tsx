@@ -37,10 +37,13 @@ const GROUPS: { title: string; keys: string[] }[] = [
   { title: 'Overview', keys: ['dashboard', 'tasks'] },
   { title: 'People', keys: ['employees', 'attendance', 'roster'] },
   { title: 'Daily operations', keys: ['checklists'] },
-  { title: 'Food safety', keys: ['monitoring', 'equipment', 'traceability'] },
+  { title: 'Food safety', keys: ['monitoring', 'traceability'] },
   { title: 'Stock', keys: ['inventory', 'stock-movements', 'breakage'] },
   { title: 'Insights and admin', keys: ['reports', 'settings', 'audit'] },
 ]
+
+// monitoring setup is edited under Settings
+const IN_SETTINGS = ['equipment']
 
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')
 
@@ -62,7 +65,7 @@ export function AppLayout() {
   if (!me) return null
 
   const name = me.employee?.name ?? me.email
-  const known = new Set(GROUPS.flatMap((g) => g.keys))
+  const known = new Set([...GROUPS.flatMap((g) => g.keys), ...IN_SETTINGS])
   const groups = [...GROUPS, { title: 'More', keys: me.modules.map((m) => m.key).filter((k) => !known.has(k)) }]
     .map(({ title, keys }) => ({ title, modules: keys.flatMap((k) => me.modules.filter((m) => m.key === k)) }))
     .filter((g) => g.modules.length > 0)

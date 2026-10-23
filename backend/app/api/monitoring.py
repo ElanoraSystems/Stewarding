@@ -10,14 +10,14 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, EquipmentSchedule, Lot, Notification, ReadingLot,
+from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, EquipmentSchedule, Location, Lot, Notification, ReadingLot,
                       TemperatureReading, User)
 from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services.notify import notify, recipients
 from ..services.settings import get_setting
 from ..services.traceability import usable
-from ..services.monitoring import (CLOSED_ACTIONS, already_recorded, describe, due_checks, failure_count, judge, pending_entries,
+from ..services.monitoring import (CLOSED_ACTIONS, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
@@ -202,6 +202,9 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown check for this monitoring point")
     if sched.value_type in ("signature", "image") and not is_valid_evidence(body.answer):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{sched.stage}: add the {sched.value_type}")
+    opens = closed_until(db, eq, sched, timeutil.utc_now()) if body.retest_of_id is None else None
+    if opens:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{sched.stage} opens at {timeutil.to_local(opens, db.get(Location, eq.location_id).timezone):%H:%M}")
     if body.retest_of_id is None and already_recorded(db, eq, sched, timeutil.utc_now()):
         raise HTTPException(status.HTTP_409_CONFLICT, f"{sched.stage} is already recorded for this time")
     if sched.value_type == "number" and sched.min_value is None and sched.max_value is None:
@@ -303,7 +306,7 @@ def _open_failure(db: Session, user: User, eq: Equipment, reading: TemperatureRe
         notify(db, recipients(db, eq.location_id, MANAGER, SUPERVISOR), "equipment_maintenance",
                f"Repeated failures: {eq.name} needs review",
                key=f"maint:{eq.id}:{now.date().isoformat()}", priority="high", location_id=eq.location_id,
-               link="/equipment", requires_ack=True)
+               link="/settings?tab=monitoring", requires_ack=True)
 
 
 @router.get("/readings")

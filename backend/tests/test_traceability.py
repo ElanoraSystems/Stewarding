@@ -471,7 +471,7 @@ def test_a_lot_timeline_follows_it_through_thaw_defrost_cooling_and_reheating(cl
     clock.advance(hours=1)
     cooling = make(client, m, db, "cooling")
     assert finish(client, steward, cooling, record_in(cooling, 80)[0]["id"]).status_code == 201
-    clock.advance(hours=1)
+    clock.advance(hours=3)
     reheating = make(client, m, db, "reheating")
     done = client.post("/api/monitoring/readings", headers=steward, json={"equipment_id": reheating["id"], "schedule_id": reheating["schedules"][0]["id"], "value": 80, "lot_ids": [lot["id"]]})
     assert done.status_code == 201

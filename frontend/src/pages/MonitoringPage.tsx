@@ -20,6 +20,8 @@ interface Due {
   schedule_id: number
   stage: string
   slot_at: string
+  opens_at: string
+  open: boolean
   status: 'done' | 'due' | 'overdue' | 'upcoming'
 }
 
@@ -70,15 +72,22 @@ export function MonitoringPage() {
     return new Set([...latest.values()].filter((d) => d.status === 'done').map((d) => d.schedule_id))
   })()
 
+  // a scheduled check stays closed until its grace period before the due time begins
+  const closedSchedules = (() => {
+    const bySchedule = new Map<number, Due[]>()
+    for (const d of due.data ?? []) bySchedule.set(d.schedule_id, [...(bySchedule.get(d.schedule_id) ?? []), d])
+    return new Set([...bySchedule].filter(([, list]) => list.every((d) => d.status === 'upcoming' && !d.open)).map(([id]) => id))
+  })()
+
   // checks of one point due at the same time are shown, and recorded, as one card
   const cards = (() => {
-    const out = new Map<string, { first: Due; stages: string[]; status: Due['status'] }>()
+    const out = new Map<string, { first: Due; stages: string[]; status: Due['status']; closed: boolean }>()
     for (const d of due.data ?? []) {
       const sched = items.find((e) => e.id === d.equipment_id)?.schedules.find((s) => s.id === d.schedule_id)
       const group = sched ? cycleOf(sched, items.find((e) => e.id === d.equipment_id)!.schedules).map((s) => s.id).sort().join() : String(d.schedule_id)
       const key = `${d.equipment_id}|${d.slot_at}|${group}`
       const card = out.get(key)
-      if (!card) out.set(key, { first: d, stages: [d.stage], status: d.status })
+      if (!card) out.set(key, { first: d, stages: [d.stage], status: d.status, closed: closedSchedules.has(d.schedule_id) })
       else {
         card.stages.push(d.stage)
         if (RANK[d.status] > RANK[card.status]) card.status = d.status
@@ -122,13 +131,13 @@ export function MonitoringPage() {
             <EmptyState title="All of today's checks are recorded" />
           ) : (
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {todo.map(([key, { first: d, stages, status }]) => (
+              {todo.map(([key, { first: d, stages, status, closed }]) => (
                 <li key={key}>
-                  <button type="button" disabled={!canRecord}
+                  <button type="button" disabled={!canRecord || closed}
                     onClick={() => startRecording({ equipmentId: d.equipment_id, scheduleId: d.schedule_id })}
                     className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-surface-muted">
                     <span><span className="block font-medium">{d.equipment}</span><span className="text-ink-muted">{stages.map(label).join(' and ')} at {fmtTime(d.slot_at, timezone)}</span></span>
-                    <Badge tone={TONE[status]}>{label(status)}</Badge>
+                    <Badge tone={TONE[status]}>{closed ? `Opens ${fmtTime(d.opens_at, timezone)}` : label(status)}</Badge>
                   </button>
                 </li>
               ))}
@@ -170,7 +179,7 @@ export function MonitoringPage() {
       )}
 
       <Modal open={canRecord && recording} title={prefill?.retestOf ? 'Record a retest' : prefill?.startReadingId ? 'Record the time out' : 'Record a check'} onClose={stopRecording}>
-        <MonitoringRecordForm equipment={items} prefill={prefill} doneSchedules={doneSchedules} onSaved={() => { refresh(); stopRecording() }} onClearRetest={stopRecording} />
+        <MonitoringRecordForm equipment={items} prefill={prefill} doneSchedules={doneSchedules} closedSchedules={closedSchedules} onSaved={() => { refresh(); stopRecording() }} onClearRetest={stopRecording} />
       </Modal>
 
       <CorrectiveActionsPanel locationId={locationId} equipment={items} refreshKey={refreshKey} onRetest={retest} onChanged={refresh} />

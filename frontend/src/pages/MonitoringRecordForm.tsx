@@ -67,6 +67,7 @@ interface RecordFormProps {
   onSaved: () => void
   onClearRetest: () => void
   doneSchedules?: Set<number>
+  closedSchedules?: Set<number>
 }
 
 const num = (v: number | string | null) => (v === null ? null : Number(v))
@@ -95,7 +96,7 @@ function firstOfEachCycle(schedules: Schedule[]): Schedule[] {
 const limitsText = (s: { min_value?: string | number | null; max_value?: string | number | null }) =>
   s.min_value != null && s.max_value != null ? ` ${s.min_value}-${s.max_value}` : s.max_value != null ? ` max ${s.max_value}` : s.min_value != null ? ` min ${s.min_value}` : ''
 
-export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest, doneSchedules }: RecordFormProps) {
+export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest, doneSchedules, closedSchedules }: RecordFormProps) {
   const run = useRun()
   const standardActions = useLookup('corrective_action')
   const [equipmentId, setEquipmentId] = useState('')
@@ -122,7 +123,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const fullCycle = schedule ? (prefill?.retestOf ? [schedule] : cycleOf(schedule, schedules)) : []
   const outstanding = prefill?.retestOf || prefill?.startReadingId ? fullCycle : fullCycle.filter((s) => !doneSchedules?.has(s.id))
   const cycle = outstanding.length > 0 ? outstanding : fullCycle
-  const cycles = firstOfEachCycle(schedules)
+  const cycles = availableCycles(schedules)
   const results = cycle.map((s) => verdict(values[s.id] ?? '', s))
   const anyFail = results.includes('fail')
   const complete = cycle.length > 0 && cycle.every((s) => !s.required || (values[s.id] ?? '') !== '')
@@ -135,9 +136,16 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const needsLots = !prefill?.startReadingId && !prefill?.retestOf && cycle.some((s) => s.trace_lots)
   const alreadyDone = !prefill?.retestOf && cycle.length > 0 && cycle.every((s) => doneSchedules?.has(s.id))
 
+  function availableCycles(list: Schedule[]): Schedule[] {
+    return firstOfEachCycle(list).filter((c) => {
+      const group = cycleOf(c, list)
+      return !group.every((s) => closedSchedules?.has(s.id)) && !group.every((s) => doneSchedules?.has(s.id))
+    })
+  }
+
   function pickPoint(id: string) {
     const list = equipment.find((e) => String(e.id) === id)?.schedules.filter((s) => s.active) ?? []
-    const only = firstOfEachCycle(list)
+    const only = availableCycles(list)
     setEquipmentId(id)
     setScheduleId(only.length === 1 ? String(only[0].id) : '')
     setValues({})
@@ -203,6 +211,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
           </Field>
         )}
       </div>
+      {selected && !prefill?.retestOf && cycles.length === 0 && <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">Nothing is open for this point right now. Checks open shortly before they are due.</p>}
       {prefill?.startReadingId && <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">Time out for <span className="font-medium">{prefill.item ?? 'this entry'}</span>. The time out is stamped when you save.</p>}
       {alreadyDone && <p role="alert" className="rounded-md bg-ok-soft px-3 py-2 text-sm text-ok">This check is already recorded for this time. It is due again at the next scheduled time.</p>}
       <div className="space-y-3">
