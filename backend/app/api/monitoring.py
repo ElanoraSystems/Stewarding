@@ -306,7 +306,7 @@ def _open_failure(db: Session, user: User, eq: Equipment, reading: TemperatureRe
         notify(db, recipients(db, eq.location_id, MANAGER, SUPERVISOR), "equipment_maintenance",
                f"Repeated failures: {eq.name} needs review",
                key=f"maint:{eq.id}:{now.date().isoformat()}", priority="high", location_id=eq.location_id,
-               link="/settings?tab=monitoring", requires_ack=True)
+               link="/settings/monitoring", requires_ack=True)
 
 
 @router.get("/readings")

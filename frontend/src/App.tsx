@@ -39,7 +39,7 @@ export default function App() {
         <Route path="weekly-checklists" element={<Navigate to="/checklists" replace />} />
         <Route path="monitoring" element={<RequireModule module="monitoring"><MonitoringPage /></RequireModule>} />
         <Route path="temperature" element={<Navigate to="/monitoring" replace />} />
-        <Route path="equipment" element={<Navigate to="/settings?tab=monitoring" replace />} />
+        <Route path="equipment" element={<Navigate to="/settings/monitoring" replace />} />
         <Route path="inventory" element={<RequireModule module="inventory"><InventoryPage /></RequireModule>} />
         <Route path="crockery" element={<Navigate to="/inventory" replace />} />
         <Route path="smallware" element={<Navigate to="/inventory" replace />} />
@@ -49,6 +49,7 @@ export default function App() {
         <Route path="tasks" element={<RequireModule module="tasks"><TasksPage /></RequireModule>} />
         <Route path="reports" element={<RequireModule module="reports"><ReportsPage /></RequireModule>} />
         <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
+        <Route path="settings/:section" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
         <Route path="audit" element={<RequireModule module="audit"><AuditPage /></RequireModule>} />
         <Route path="account" element={<ProfilePage />} />
         <Route path=":key" element={<ModulePage />} />
