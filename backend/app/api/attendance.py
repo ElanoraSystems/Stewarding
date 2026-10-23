@@ -23,6 +23,7 @@ from ..models import (AbsenceRecord, AttendanceCorrection, AttendanceRecord, Che
                       EmployeeLocation, FaceChallenge, Location, Shift, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
 from ..services.checklists import DONE
+from ..services.deletion import blockers
 from ..services.settings import get_setting
 from ..services.notify import notify
 
@@ -485,3 +486,26 @@ def correct(attendance_id: int, body: CorrectionIn, user: User = Depends(require
           {body.field: iso(old_value)}, {body.field: iso(new_value), "reason": body.reason})
     db.commit()
     return _serialize(record, timeutil.utc_now())
+
+
+class RemoveIn(BaseModel):
+    reason: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/{attendance_id}/remove")
+def remove(attendance_id: int, body: RemoveIn, user: User = Depends(require("attendance.correct")), db: Session = Depends(get_db)):
+    """Deletes a record entered in error; its values and the reason stay in the audit log."""
+    record = db.get(AttendanceRecord, attendance_id)
+    if not record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attendance record not found")
+    check_location(user, db, record.location_id)
+    used = blockers(db, record, frozenset({"attendance_correction"}))
+    if used:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"This record is used by {', '.join(used)}")
+    before = {"employee_id": record.employee_id, "location_id": record.location_id, "date": record.local_date.isoformat(),
+              "check_in": iso(record.check_in_at), "check_out": iso(record.check_out_at), "note": record.exception_reason}
+    db.execute(delete(AttendanceCorrection).where(AttendanceCorrection.attendance_id == record.id))
+    db.delete(record)
+    audit(db, user, "attendance.delete", "attendance_record", attendance_id, before, {"reason": " ".join(body.reason.split())})
+    db.commit()
+    return {"deleted": attendance_id}

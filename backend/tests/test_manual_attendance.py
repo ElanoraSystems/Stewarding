@@ -71,3 +71,18 @@ def test_an_absence_must_be_cancelled_before_attendance_is_entered(client, login
     assert manual(client, mgr, db).status_code == 409
     client.post(f"/api/absences/{absence['id']}/void", json={"reason": "Worked after all"}, headers=mgr)
     assert manual(client, mgr, db).status_code == 201
+
+
+def test_a_record_entered_in_error_is_removed_with_a_reason_and_kept_in_the_audit_log(client, login, db, clock):
+    mgr = login(MGR)
+    rec = manual(client, mgr, db).json()
+    url = f"/api/attendance/{rec['id']}/remove"
+    assert client.post(url, json={"reason": "oops"}, headers=mgr).status_code == 422
+    assert client.post(url, json={"reason": "Entered for the wrong day"}, headers=login(SUP)).status_code == 403
+    assert client.post(url, json={"reason": "Entered for the wrong day"}, headers=login(STEWARD)).status_code == 403
+    assert client.post(url, json={"reason": "Entered for the wrong day"}, headers=mgr).json() == {"deleted": rec["id"]}
+    assert client.get("/api/attendance?employee_id=%d" % rec["employee_id"], headers=mgr).json()["items"] == []
+    assert not db.scalars(select(AttendanceCorrection).where(AttendanceCorrection.attendance_id == rec["id"])).all()
+    entry = db.scalars(select(AuditLog).where(AuditLog.action == "attendance.delete")).one()
+    assert entry.before["date"] == "2026-02-27" and entry.after == {"reason": "Entered for the wrong day"}
+    assert client.post(url, json={"reason": "Entered for the wrong day"}, headers=mgr).status_code == 404
