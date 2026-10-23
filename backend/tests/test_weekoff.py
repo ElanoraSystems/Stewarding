@@ -101,3 +101,35 @@ def test_a_whole_week_of_one_shift_is_ended_in_one_call(client, login, db, clock
     assert client.post("/api/roster/assignments/end", json={"ids": ids}, headers=h).json() == {"ended": 7}
     mine = [a for a in client.get(f"/api/roster/assignments?employee_id={emp_id(client, h, 'E004')}", headers=h).json() if a["id"] in ids]
     assert len(mine) == 7 and {a["valid_to"] for a in mine} == {"2026-03-03"}
+
+
+def test_a_group_of_assignments_is_edited_in_one_call_and_checked_like_a_new_one(client, login, db, clock):
+    h = login(MGR)
+    shifts = {s["name"]: s["id"] for s in client.get("/api/roster/shifts", headers=h).json()}
+    clear_days(client, h, weekdays=range(7))
+    ids = assign(client, h, db, shifts["Morning"], weekdays=(0, 1, 2), valid_from="2026-03-03").json()["ids"]
+    mine = emp_id(client, h, "E004")
+    changed = client.put("/api/roster/assignments", headers=h, json={
+        "ids": ids, "shift_id": shifts["Evening"], "weekdays": [0, 4], "valid_from": "2026-03-03"})
+    assert changed.status_code == 200 and len(changed.json()["ids"]) == 2
+    rows = [a for a in client.get(f"/api/roster/assignments?employee_id={mine}", headers=h).json() if a["id"] in changed.json()["ids"]]
+    assert sorted(a["weekday"] for a in rows) == [0, 4] and {a["shift_id"] for a in rows} == {shifts["Evening"]}
+    started = [a for a in client.get(f"/api/roster/assignments?employee_id={mine}", headers=h).json() if a["valid_from"] == "2026-03-03"]
+    assert sorted(a["weekday"] for a in started) == [0, 4]
+    off = weekoff_shift(client, h).json()["id"]
+    assert assign(client, h, db, off, weekdays=(4,), valid_from="2026-03-03").status_code == 409
+    again = client.put("/api/roster/assignments", headers=h, json={"ids": changed.json()["ids"], "shift_id": shifts["Evening"], "weekdays": [4], "valid_from": "2026-03-03"})
+    assert again.status_code == 200
+    assert client.put("/api/roster/assignments", headers=login("steward.mk@example.test"), json={"ids": again.json()["ids"], "shift_id": shifts["Evening"], "weekdays": [4], "valid_from": "2026-03-03"}).status_code == 403
+    assert client.put("/api/roster/assignments", headers=h, json={"ids": [999999], "shift_id": shifts["Evening"], "weekdays": [4], "valid_from": "2026-03-03"}).status_code == 404
+
+
+def test_a_group_of_assignments_can_be_removed_entirely(client, login, db, clock):
+    h = login(MGR)
+    morning = next(s["id"] for s in client.get("/api/roster/shifts", headers=h).json() if s["name"] == "Morning")
+    clear_days(client, h, weekdays=range(7))
+    ids = assign(client, h, db, morning, weekdays=(1, 2), valid_from="2026-03-03").json()["ids"]
+    assert client.post("/api/roster/assignments/remove", json={"ids": ids}, headers=login("steward.mk@example.test")).status_code == 403
+    assert client.post("/api/roster/assignments/remove", json={"ids": ids}, headers=h).json() == {"removed": 2}
+    assert not [a for a in client.get(f"/api/roster/assignments?employee_id={emp_id(client, h, 'E004')}", headers=h).json() if a["valid_from"] == "2026-03-03"]
+    assert client.post("/api/roster/assignments/remove", json={"ids": ids}, headers=h).status_code == 404

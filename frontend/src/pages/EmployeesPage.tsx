@@ -47,6 +47,7 @@ export function EmployeesPage() {
   const [editing, setEditing] = useState<EmployeeRow | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [toggling, setToggling] = useState<EmployeeRow | null>(null)
+  const [removing, setRemoving] = useState<EmployeeRow | null>(null)
   const [resetting, setResetting] = useState<EmployeeRow | null>(null)
   const [enrolling, setEnrolling] = useState<EmployeeRow | null>(null)
   const toast = useToast()
@@ -90,6 +91,13 @@ export function EmployeesPage() {
   }
 
 
+  async function confirmRemove() {
+    if (!removing) return
+    const done = await run(() => api(`/employees/${removing.id}`, { method: 'DELETE' }), 'Employee deleted')
+    setRemoving(null)
+    if (done) reload()
+  }
+
   const rowActions = (e: EmployeeRow) => (
     <>
       <Button size="sm" variant="outline" onClick={() => { setEditing(e); setFormOpen(true) }}>Edit</Button>
@@ -98,6 +106,7 @@ export function EmployeesPage() {
       <Button size="sm" variant={e.status === 'active' ? 'danger' : 'outline'} onClick={() => setToggling(e)}>
         {e.status === 'active' ? 'Deactivate' : 'Activate'}
       </Button>
+      {e.id !== me?.employee?.id && <Button size="sm" variant="outline" className="border-danger/40 text-danger hover:bg-danger-soft" onClick={() => setRemoving(e)}>Delete</Button>}
     </>
   )
   return (
@@ -129,9 +138,9 @@ export function EmployeesPage() {
         </Select>
       </div>
 
-      <ul className="space-y-2 xl:hidden">
+      <ul className="space-y-3 xl:hidden">
         {loading && !data ? <li><Skeleton className="h-24 w-full" /></li> : data?.items.map((e) => (
-          <li key={e.id} className="space-y-2 rounded-xl border border-border bg-surface p-3">
+          <li key={e.id} className="space-y-3 rounded-xl border border-border bg-surface p-4">
             <div className="flex items-start justify-between gap-2">
               <span className="flex min-w-0 items-center gap-3">
                 <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand">{initials(e.full_name)}</span>
@@ -209,6 +218,9 @@ export function EmployeesPage() {
         {enrolling && <FaceCapture onCapture={enroll} />}
         {enrolling?.face_enrolled && <div className="mt-3 text-right"><Button size="sm" variant="outline" onClick={removeFace}>Remove the face on file</Button></div>}
       </Modal>
+      <ConfirmDialog open={removing !== null} title="Delete employee" confirmLabel="Delete employee"
+        message={`Delete ${removing?.full_name ?? 'this employee'} and their sign-in? This cannot be undone. Anyone with attendance, checklist, stock or other history cannot be deleted; deactivate them instead.`}
+        onConfirm={confirmRemove} onCancel={() => setRemoving(null)} />
       {resetting && <ResetPasswordModal employee={resetting} onClose={() => setResetting(null)} onDone={reload} />}
       <ConfirmDialog open={toggling !== null} title={toggling?.status === 'active' ? 'Deactivate employee' : 'Activate employee'}
         message={toggling?.status === 'active'

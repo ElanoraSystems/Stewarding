@@ -13,6 +13,9 @@ USED_BY = {
     "checklist_template": "checklists", "checklist_task": "checklist tasks", "checklist_instance": "checklist records",
     "equipment": "monitoring points", "equipment_schedule": "monitoring checks", "temperature_reading": "monitoring readings",
     "lot": "food lots", "inventory_item": "items", "inventory_count_line": "stock counts",
+    "employee": "people who report to them", "audit_log": "history in the audit log", "task_completion": "completed tasks",
+    "task_assignment": "task assignments", "face_challenge": "face checks", "attendance_correction": "attendance corrections",
+    "approval_record": "approvals", "corrective_action": "corrective actions", "lot_event": "food lot history",
 }
 
 

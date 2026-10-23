@@ -83,3 +83,49 @@ def test_an_item_with_no_history_is_deleted_but_one_with_stock_is_not(client, lo
     assert client.delete(f"/api/inventory/items/{fresh['id']}", headers=m).status_code == 200
     r = client.delete(f"/api/inventory/items/{item.id}", headers=m)
     assert r.status_code == 409 and "make it inactive instead" in r.json()["detail"]
+
+
+def new_employee(client, h, db, email, code=None):
+    body = {"full_name": "Temp Person", "job_title": "Steward", "email": email, "password": "Temp-Pass-4242", "role": "steward",
+            "location_ids": [loc_id(db, "MK")], **({"employee_code": code} if code else {})}
+    made = client.post("/api/employees", json=body, headers=h)
+    assert made.status_code == 201, made.text
+    return made.json()
+
+
+def test_an_employee_added_by_mistake_is_deleted_with_their_account(client, login, db):
+    from app.models import Employee, User
+
+    m = login(MGR)
+    made = new_employee(client, m, db, "mistake@example.com")
+    assert client.delete(f"/api/employees/{made['id']}", headers=m).status_code == 200
+    assert db.scalar(select(Employee.id).where(Employee.id == made["id"])) is None
+    assert db.scalar(select(User.id).where(User.email == "mistake@example.com")) is None
+    assert db.scalars(select(AuditLog).where(AuditLog.action == "employee.delete")).one().before["email"] == "mistake@example.com"
+
+
+def test_an_employee_with_history_is_refused_and_should_be_deactivated(client, login, db):
+    m = login(MGR)
+    made = new_employee(client, m, db, "worked@example.com")
+    token = client.post("/api/auth/login", json={"email": "worked@example.com", "password": "Temp-Pass-4242"}).json()["access_token"]
+    assert token
+    r = client.delete(f"/api/employees/{made['id']}", headers=m)
+    assert r.status_code == 409 and "deactivate them instead" in r.json()["detail"]
+
+
+def test_an_employee_who_others_report_to_is_refused(client, login, db):
+    m = login(MGR)
+    boss = new_employee(client, m, db, "boss@example.com")
+    report = new_employee(client, m, db, "report@example.com")
+    assert client.put(f"/api/employees/{report['id']}", json={"supervisor_id": boss["id"]}, headers=m).status_code == 200
+    r = client.delete(f"/api/employees/{boss['id']}", headers=m)
+    assert r.status_code == 409 and "people who report to them" in r.json()["detail"]
+
+
+def test_nobody_deletes_their_own_account_and_only_managers_delete(client, login, db):
+    m = login(MGR)
+    me = client.get("/api/auth/me", headers=m).json()["employee"]["id"]
+    assert client.delete(f"/api/employees/{me}", headers=m).status_code == 400
+    other = new_employee(client, m, db, "spare@example.com")
+    assert client.delete(f"/api/employees/{other['id']}", headers=login(SUP)).status_code == 403
+    assert client.delete("/api/employees/99999", headers=m).status_code == 404

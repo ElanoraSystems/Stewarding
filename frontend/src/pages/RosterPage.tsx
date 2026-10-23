@@ -1,15 +1,19 @@
+import { CalendarOff, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Modal } from '@/components/ui/modal'
+import { CardGrid, RecordCard } from '@/components/ui/record-card'
 import { Select } from '@/components/ui/select'
-import { EmptyState, Table, Td, Th } from '@/components/ui/table'
+import { EmptyState } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { label, weekdaysText } from '@/lib/format'
+import { fmtDate, label, weekdaysText } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import type { EmployeeRow } from '@/pages/EmployeeForm'
@@ -42,10 +46,6 @@ interface Assignment {
   valid_from: string
   valid_to: string | null
 }
-
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const PAGE = 25
-
 interface Group {
   key: string
   employee_id: number
@@ -55,17 +55,26 @@ interface Group {
   weekdays: number[]
   ids: number[]
 }
+interface Draft {
+  ids: number[] | null
+  employee_id: string
+  shift_id: string
+  weekdays: number[]
+  valid_from: string
+  valid_to: string
+}
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const PAGE = 12
+const BLANK: Draft = { ids: null, employee_id: '', shift_id: '', weekdays: [0, 1, 2, 3, 4], valid_from: '', valid_to: '' }
 
 export function RosterPage() {
   const { me } = useAuth()
   const run = useRun()
   const canManage = me?.permissions.includes('roster.manage') ?? false
   const [locationId, setLocationId] = useState<number | null>(null)
-  const [employeeId, setEmployeeId] = useState('')
-  const [shiftId, setShiftId] = useState('')
-  const [weekdays, setWeekdays] = useState<number[]>([0, 1, 2, 3, 4])
-  const [validFrom, setValidFrom] = useState('')
-  const [validTo, setValidTo] = useState('')
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const [removing, setRemoving] = useState<Group | null>(null)
   const [search, setSearch] = useState('')
   const [shiftFilter, setShiftFilter] = useState('')
   const [shown, setShown] = useState(PAGE)
@@ -75,22 +84,36 @@ export function RosterPage() {
   const assignments = useApi<Assignment[]>(locationId ? `/roster/assignments${qs({ location_id: locationId })}` : null)
   const people = useApi<{ items: EmployeeRow[] }>(locationId ? `/employees${qs({ location_id: locationId, status: 'active', size: 200 })}` : null)
   const names = new Map(people.data?.items.map((e) => [e.id, e.full_name]))
-  const shiftNames = new Map(shifts.data?.map((s) => [s.id, s.name]))
+  const shiftById = new Map(shifts.data?.map((s) => [s.id, s]))
 
-  async function assign(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
+    if (!draft) return
+    const shared = { shift_id: Number(draft.shift_id), weekdays: draft.weekdays, valid_from: draft.valid_from, valid_to: draft.valid_to || null }
     const ok = await run(
-      () => api('/roster/assignments', { body: { employee_id: Number(employeeId), shift_id: Number(shiftId), location_id: locationId, weekdays, valid_from: validFrom, valid_to: validTo || null } }),
-      'Shift assigned',
+      () => draft.ids
+        ? api('/roster/assignments', { method: 'PUT', body: { ids: draft.ids, ...shared } })
+        : api('/roster/assignments', { body: { employee_id: Number(draft.employee_id), location_id: locationId, ...shared } }),
+      draft.ids ? 'Assignment updated' : 'Shift assigned',
     )
-    if (ok) assignments.reload()
+    if (ok) {
+      setDraft(null)
+      assignments.reload()
+    }
   }
 
   async function end(group: Group) {
     if (await run(() => api('/roster/assignments/end', { body: { ids: group.ids } }), 'Assignment ended')) assignments.reload()
   }
 
-  // one row per employee, shift and period, however many weekdays it covers
+  async function remove() {
+    if (!removing) return
+    const done = await run(() => api('/roster/assignments/remove', { body: { ids: removing.ids } }), 'Assignment deleted')
+    setRemoving(null)
+    if (done) assignments.reload()
+  }
+
+  // one card per employee, shift and period, however many weekdays it covers
   const groups = (() => {
     const out = new Map<string, Group>()
     for (const a of assignments.data ?? []) {
@@ -108,23 +131,29 @@ export function RosterPage() {
       .sort((x, y) => (names.get(x.employee_id) ?? '').localeCompare(names.get(y.employee_id) ?? '') || x.valid_from.localeCompare(y.valid_from))
   })()
 
+  const editing = draft?.ids != null
+  const toggleDay = (day: number) => setDraft((d) => d && { ...d, weekdays: d.weekdays.includes(day) ? d.weekdays.filter((x) => x !== day) : [...d.weekdays, day].sort() })
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Shift &amp; Duty Roster</h1>
-        <LocationSelect value={locationId} onChange={setLocationId} />
+        <div className="flex flex-wrap items-center gap-3">
+          <LocationSelect value={locationId} onChange={setLocationId} />
+          {canManage && <Button disabled={!locationId} onClick={() => setDraft({ ...BLANK })}><Plus className="h-4 w-4" /> Assign shift</Button>}
+        </div>
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Scheduled today</CardTitle></CardHeader>
-        <CardContent>
+        <CardHeader className="p-6 pb-3"><CardTitle className="text-lg">Scheduled today</CardTitle></CardHeader>
+        <CardContent className="p-6 pt-2">
           {today.data?.length === 0 ? <EmptyState title="Nobody is scheduled today" /> : (
             <ul className="divide-y divide-border">
               {today.data?.map((p) => (
-                <li key={`${p.employee_id}-${p.shift}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <li key={`${p.employee_id}-${p.shift}`} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
                   <span className="font-medium">{p.name}</span>
                   <span className="text-ink-muted">{p.day_type === 'week_off' ? p.shift : `${p.shift} from ${p.shift_start.slice(0, 5)}`}</span>
-                  <span className="space-x-1">
+                  <span className="flex flex-wrap gap-1.5">
                     {p.day_type === 'work' ? (
                       <Badge tone={p.on_duty ? 'ok' : p.checked_in ? 'neutral' : 'warn'}>
                         {p.on_duty ? 'On duty' : p.checked_in ? 'Checked out' : 'Not checked in'}
@@ -139,66 +168,97 @@ export function RosterPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>Weekly assignments</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-3">
-            <Input aria-label="Search employees" className="max-w-56" placeholder="Search employee" value={search}
-              onChange={(e) => { setSearch(e.target.value); setShown(PAGE) }} />
-            <Select aria-label="Shift" className="w-auto" value={shiftFilter} onChange={(e) => { setShiftFilter(e.target.value); setShown(PAGE) }}>
-              <option value="">All shifts</option>
-              {shifts.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-          </div>
-          <Table>
-            <thead><tr><Th>Employee</Th><Th>Shift</Th><Th>Days</Th><Th>From</Th><Th>Until</Th>{canManage && <Th />}</tr></thead>
-            <tbody>
-              {groups.slice(0, shown).map((g) => (
-                <tr key={g.key}>
-                  <Td>{names.get(g.employee_id) ?? g.employee_id}</Td>
-                  <Td>{shiftNames.get(g.shift_id)}</Td>
-                  <Td>{weekdaysText(g.weekdays)}</Td>
-                  <Td>{g.valid_from}</Td>
-                  <Td>{g.valid_to ?? 'Ongoing'}</Td>
-                  {canManage && <Td><Button size="sm" variant="outline" onClick={() => end(g)}>End</Button></Td>}
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-          {groups.length > shown && <Button variant="outline" onClick={() => setShown((n) => n + PAGE)}>Show more ({groups.length - shown} left)</Button>}
-          {assignments.data && groups.length === 0 && <EmptyState title={assignments.data.length === 0 ? 'No assignments at this location' : 'No assignment matches'} />}
+      <section className="space-y-4" aria-label="Weekly assignments">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="mr-auto text-lg font-semibold">Weekly assignments</h2>
+          <Input aria-label="Search employees" className="max-w-56" placeholder="Search employee" value={search}
+            onChange={(e) => { setSearch(e.target.value); setShown(PAGE) }} />
+          <Select aria-label="Shift" className="w-auto" value={shiftFilter} onChange={(e) => { setShiftFilter(e.target.value); setShown(PAGE) }}>
+            <option value="">All shifts</option>
+            {shifts.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </Select>
+        </div>
 
-          {canManage && (
-            <form onSubmit={assign} className="flex flex-wrap items-end gap-3 border-t border-border pt-4">
+        {groups.length > 0 && (
+          <CardGrid>
+            {groups.slice(0, shown).map((g) => {
+              const shift = shiftById.get(g.shift_id)
+              return (
+                <RecordCard
+                  key={g.key}
+                  title={names.get(g.employee_id) ?? `Employee ${g.employee_id}`}
+                  subtitle={shift ? (shift.kind === 'weekoff' ? `${shift.name} (week off)` : `${shift.name}, ${shift.start_time.slice(0, 5)} to ${shift.end_time.slice(0, 5)}`) : undefined}
+                  badges={shift?.kind === 'weekoff' ? <Badge>Week off</Badge> : g.valid_to ? <Badge tone="warn">Ends {fmtDate(g.valid_to)}</Badge> : <Badge tone="ok">Ongoing</Badge>}
+                  facts={[
+                    { label: 'Days', value: weekdaysText(g.weekdays) },
+                    { label: 'From', value: fmtDate(g.valid_from) },
+                  ]}
+                  actions={canManage ? [
+                    { label: 'Edit', icon: Pencil, onClick: () => setDraft({ ids: g.ids, employee_id: String(g.employee_id), shift_id: String(g.shift_id), weekdays: g.weekdays, valid_from: g.valid_from, valid_to: g.valid_to ?? '' }) },
+                    { label: 'End', icon: CalendarOff, onClick: () => end(g), disabled: g.valid_to !== null, title: g.valid_to ? 'Already ends on a set date' : 'Stop this assignment from today' },
+                    { label: 'Delete', icon: Trash2, tone: 'danger', onClick: () => setRemoving(g) },
+                  ] : []}
+                />
+              )
+            })}
+          </CardGrid>
+        )}
+        {groups.length > shown && <Button variant="outline" onClick={() => setShown((n) => n + PAGE)}>Show more ({groups.length - shown} left)</Button>}
+        {assignments.data && groups.length === 0 && <EmptyState title={assignments.data.length === 0 ? 'No assignments at this location' : 'No assignment matches'} />}
+      </section>
+
+      <Modal
+        open={draft !== null}
+        size="lg"
+        title={editing ? 'Edit assignment' : 'Assign shift'}
+        description={editing ? 'Change the shift, days or dates. The change is checked like a new assignment.' : 'Roster someone on a shift for the days they work.'}
+        onClose={() => setDraft(null)}
+        footer={<>
+          {draft && draft.weekdays.length === 0 && <span className="mr-auto text-sm text-warn">Choose at least one day.</span>}
+          <Button type="button" variant="outline" onClick={() => setDraft(null)}>Cancel</Button>
+          <Button type="submit" form="assign-form" disabled={!draft || draft.weekdays.length === 0}>{editing ? 'Save changes' : 'Assign shift'}</Button>
+        </>}
+      >
+        {draft && (
+          <form id="assign-form" onSubmit={save} className="space-y-6">
+            <div className="grid gap-5 sm:grid-cols-2">
               <Field label="Employee">
-                <Select required value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+                <Select required disabled={editing} value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })}>
                   <option value="">{people.data?.items.length === 0 ? 'No employees at this location' : 'Select'}</option>
                   {people.data?.items.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
                 </Select>
               </Field>
               <Field label="Shift">
-                <Select required value={shiftId} onChange={(e) => setShiftId(e.target.value)}>
+                <Select required value={draft.shift_id} onChange={(e) => setDraft({ ...draft, shift_id: e.target.value })}>
                   <option value="">Select</option>
                   {shifts.data?.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.kind === 'weekoff' ? `${s.name} (week off)` : `${s.name} (${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)})`}</option>)}
                 </Select>
               </Field>
-              <Field label="Valid from"><Input required type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></Field>
-              <Field label="Valid until (optional)"><Input type="date" min={validFrom || undefined} value={validTo} onChange={(e) => setValidTo(e.target.value)} /></Field>
-              <fieldset className="flex gap-2 text-sm">
-                <legend className="mb-1 font-medium">Days</legend>
+              <Field label="Valid from"><Input required type="date" value={draft.valid_from} onChange={(e) => setDraft({ ...draft, valid_from: e.target.value })} /></Field>
+              <Field label="Valid until (optional)"><Input type="date" min={draft.valid_from || undefined} value={draft.valid_to} onChange={(e) => setDraft({ ...draft, valid_to: e.target.value })} /></Field>
+            </div>
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium">Days</legend>
+              <div className="flex flex-wrap gap-2">
                 {DAYS.map((d, i) => (
-                  <label key={d} className="flex items-center gap-1">
-                    <input type="checkbox" checked={weekdays.includes(i)}
-                      onChange={() => setWeekdays((w) => (w.includes(i) ? w.filter((x) => x !== i) : [...w, i]))} />
-                    {d}
+                  <label key={d} className={`cursor-pointer rounded-full border px-4 py-1.5 text-sm transition-colors ${draft.weekdays.includes(i) ? 'border-brand bg-brand-soft font-semibold text-brand-deep' : 'border-border hover:bg-surface-muted'}`}>
+                    <input type="checkbox" className="sr-only" checked={draft.weekdays.includes(i)} onChange={() => toggleDay(i)} /> {d}
                   </label>
                 ))}
-              </fieldset>
-              <Button type="submit" disabled={weekdays.length === 0} title={weekdays.length === 0 ? 'Choose at least one day' : undefined}>Assign</Button>
-            </form>
-          )}
-        </CardContent>
-      </Card>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({ ...draft, weekdays: [0, 1, 2, 3, 4] })}>Weekdays</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({ ...draft, weekdays: [0, 1, 2, 3, 4, 5, 6] })}>Every day</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({ ...draft, weekdays: [] })}>Clear</Button>
+              </div>
+            </fieldset>
+          </form>
+        )}
+      </Modal>
+
+      <ConfirmDialog open={removing !== null} title="Delete assignment" confirmLabel="Delete assignment"
+        message={`Delete the ${removing ? shiftById.get(removing.shift_id)?.name ?? 'shift' : 'shift'} assignment for ${removing ? names.get(removing.employee_id) ?? 'this employee' : 'this employee'}? It is removed completely, as if it had never been made. To stop it from today and keep the record, use End instead.`}
+        onConfirm={remove} onCancel={() => setRemoving(null)} />
     </div>
   )
 }
