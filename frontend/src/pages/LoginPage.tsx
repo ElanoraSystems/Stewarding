@@ -51,16 +51,16 @@ export function LoginPage() {
         <CardContent>
           <form onSubmit={submit} className="space-y-4">
             {signingUp && (
-              <label className="block space-y-1 text-sm font-medium">
+              <label className="block space-y-1.5 text-sm font-medium">
                 Full name
                 <Input autoComplete="name" required minLength={2} value={fullName} onChange={(e) => setFullName(e.target.value)} />
               </label>
             )}
-            <label className="block space-y-1 text-sm font-medium">
+            <label className="block space-y-1.5 text-sm font-medium">
               Email
               <Input type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
             </label>
-            <label className="block space-y-1 text-sm font-medium">
+            <label className="block space-y-1.5 text-sm font-medium">
               Password
               <PasswordInput
                 autoComplete={signingUp ? 'new-password' : 'current-password'}

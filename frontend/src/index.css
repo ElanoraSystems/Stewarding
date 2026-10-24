@@ -73,6 +73,13 @@ body {
   outline-offset: 2px;
 }
 
+/* the ring of a text field sits inside its border, so it never covers the label above it */
+input:not([type='checkbox'], [type='radio'], [type='file']):focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-offset: -2px;
+}
+
 @media (pointer: coarse) {
   input[type='checkbox'],
   input[type='radio'] {
