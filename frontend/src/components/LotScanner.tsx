@@ -10,10 +10,12 @@ interface Props {
   open: boolean
   onClose: () => void
   onScan: (code: string) => void
+  title?: string
+  what?: string
 }
 
 /** The camera view; mounted only while the dialog is open, so every scan starts fresh and the camera is released on close. */
-function Camera({ onScan }: { onScan: (code: string) => void }) {
+function Camera({ onScan, what }: { onScan: (code: string) => void; what: string }) {
   const video = useRef<HTMLVideoElement>(null)
   const found = useRef(onScan)
   const [message, setMessage] = useState('Starting the camera')
@@ -36,7 +38,7 @@ function Camera({ onScan }: { onScan: (code: string) => void }) {
         }
         video.current.srcObject = stream
         await video.current.play()
-        setMessage('Point the camera at the QR code on the label')
+        setMessage('Point the camera at the QR code')
         const Native = (window as unknown as { BarcodeDetector?: new (options: { formats: string[] }) => Detector }).BarcodeDetector
         let detector: Detector | null = null
         try {
@@ -67,9 +69,9 @@ function Camera({ onScan }: { onScan: (code: string) => void }) {
         void look()
       } catch (err) {
         const denied = err instanceof DOMException && err.name === 'NotAllowedError'
-        setMessage(denied ? 'Allow camera access in your browser, or type the lot code instead'
-          : err instanceof Error && err.message === 'camera-unavailable' ? 'Camera access needs a secure (https) page. Type the lot code instead'
-            : 'The camera could not start. Type the lot code instead')
+        setMessage(denied ? `Allow camera access in your browser, or type the ${what} instead`
+          : err instanceof Error && err.message === 'camera-unavailable' ? `Camera access needs a secure (https) page. Type the ${what} instead`
+            : `The camera could not start. Type the ${what} instead`)
       }
     }
 
@@ -79,7 +81,7 @@ function Camera({ onScan }: { onScan: (code: string) => void }) {
       clearTimeout(timer)
       stream?.getTracks().forEach((t) => t.stop())
     }
-  }, [])
+  }, [what])
 
   return (
     <>
@@ -93,10 +95,10 @@ function Camera({ onScan }: { onScan: (code: string) => void }) {
 }
 
 /** Reads a QR label with the back camera: the browser's own detector where there is one, otherwise a small decoder. */
-export function LotScanner({ open, onClose, onScan }: Props) {
+export function LotScanner({ open, onClose, onScan, title = 'Scan a lot label', what = 'lot code' }: Props) {
   return (
-    <Modal open={open} title="Scan a lot label" onClose={onClose}>
-      {open && <Camera onScan={onScan} />}
+    <Modal open={open} title={title} onClose={onClose}>
+      {open && <Camera onScan={onScan} what={what} />}
     </Modal>
   )
 }

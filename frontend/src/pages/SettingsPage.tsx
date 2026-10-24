@@ -7,6 +7,7 @@ import { SettingsLocations } from '@/pages/settings/SettingsLocations'
 import { SettingsLookups } from '@/pages/settings/SettingsLookups'
 import { SettingsMonitoring } from '@/pages/settings/SettingsMonitoring'
 import { SettingsOrganization } from '@/pages/settings/SettingsOrganization'
+import { SettingsQrCodes } from '@/pages/settings/SettingsQrCodes'
 import { SettingsRoles } from '@/pages/settings/SettingsRoles'
 import { SettingsRules } from '@/pages/settings/SettingsRules'
 import { SettingsSearch } from '@/pages/settings/SettingsSearch'
@@ -22,6 +23,7 @@ const PAGES: Record<SectionKey, ComponentType> = {
   organization: SettingsOrganization,
   attendance: rules('attendance'),
   'monitoring-rules': rules('monitoring-rules'),
+  'qr-codes': SettingsQrCodes,
   approvals: rules('approvals'),
   breakage: rules('breakage'),
   locations: SettingsLocations,

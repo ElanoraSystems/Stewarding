@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
+import { ScanButton } from '@/components/ScanButton'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
@@ -22,7 +24,8 @@ export function ChecklistsPage() {
   const { me } = useAuth()
   const run = useRun()
   const toast = useToast()
-  const [locationId, setLocationId] = useState<number | null>(null)
+  const arrived = useLocation().state as { locationId?: number } | null
+  const [locationId, setLocationId] = useState<number | null>(arrived?.locationId ?? null)
   const [day, setDay] = useState(todayIso())
   const [view, setView] = useState<'day' | 'week'>('day')
   const [status, setStatus] = useState('')
@@ -87,7 +90,10 @@ export function ChecklistsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Checklists</h1>
-        {canConfigure && <Button variant="outline" onClick={() => setConfiguring((c) => !c)}>{configuring ? 'Back to tasks' : 'Configure'}</Button>}
+        <div className="flex flex-wrap items-center gap-3">
+          {me?.permissions.includes('checklist.complete') && <ScanButton />}
+          {canConfigure && <Button variant="outline" onClick={() => setConfiguring((c) => !c)}>{configuring ? 'Back to tasks' : 'Configure'}</Button>}
+        </div>
       </div>
 
       {configuring ? <ChecklistConfig locationId={locationId} onLocation={setLocationId} /> : (

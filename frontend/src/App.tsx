@@ -14,6 +14,7 @@ import { EmployeesPage } from '@/pages/EmployeesPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ModulePage } from '@/pages/ModulePage'
+import { ScanPage } from '@/pages/ScanPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { ReportsPage } from '@/pages/ReportsPage'
 import { RosterPage } from '@/pages/RosterPage'
@@ -53,6 +54,7 @@ export default function App() {
         <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
         <Route path="settings/:section" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />
         <Route path="audit" element={<RequireModule module="audit"><AuditPage /></RequireModule>} />
+        <Route path="scan/:token" element={<ScanPage />} />
         <Route path="account" element={<ProfilePage />} />
         <Route path=":key" element={<ModulePage />} />
       </Route>

@@ -25,6 +25,9 @@ DEFAULTS: dict[str, int | bool] = {
     "attendance.snapshot_days": 90,
     "attendance.face_match_max": 45,
     "approval.checklists": 1,
+    "scan.monitoring_required": 0,
+    "scan.checklists_required": 0,
+    "scan.valid_minutes": 30,
 }
 
 # The smallest and largest value a manager may save for each setting; an on/off setting is 0 or 1.
@@ -47,6 +50,9 @@ LIMITS: dict[str, tuple[int, int]] = {
     "attendance.snapshot_days": (0, 3650),
     "attendance.face_match_max": (10, 80),
     "approval.checklists": (0, 1),
+    "scan.monitoring_required": (0, 1),
+    "scan.checklists_required": (0, 1),
+    "scan.valid_minutes": (1, 720),
 }
 
 

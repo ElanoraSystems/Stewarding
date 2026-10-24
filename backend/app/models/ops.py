@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -104,3 +104,15 @@ class Organization(Base):
     report_footer: Mapped[str | None] = mapped_column(String(300))
     logo: Mapped[str | None] = mapped_column(String(60))
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kuwait")  # shown on reports and used for new locations
+
+
+class ScanEvent(Base):
+    """A person scanning the QR code of a monitoring point or a location; recording there can require a recent scan."""
+
+    __tablename__ = "scan_event"
+    __table_args__ = (Index("ix_scan_event_lookup", "user_id", "kind", "target_id", "created_at"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    kind: Mapped[str] = mapped_column(String(12))  # equipment | location
+    target_id: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = ts()

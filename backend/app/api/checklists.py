@@ -18,6 +18,7 @@ from ..services import checklists as engine
 from ..services.checklists import DONE, OPEN, effective_status
 from ..services.deletion import blockers
 from ..services.notify import notify, recipients
+from ..services.scan import require_scan
 from ..services.settings import get_setting
 from ..services.starter import apply_starter
 from .uploads import is_valid_evidence
@@ -321,6 +322,7 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
         raise HTTPException(status.HTTP_409_CONFLICT, f"Task is already {inst.status}")
     now = timeutil.utc_now()
     location = db.get(Location, inst.location_id)
+    require_scan(db, user, "location", location.id, "scan.checklists_required", location.name)
     if inst.local_date > timeutil.local_date(now, location.timezone):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This task is scheduled for a future date")
     if task.requires_reading and body.reading is None:

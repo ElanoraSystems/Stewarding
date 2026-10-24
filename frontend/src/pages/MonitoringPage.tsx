@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react'
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { ScanButton } from '@/components/ScanButton'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -40,7 +41,9 @@ const TONE = { done: 'ok', due: 'warn', overdue: 'critical', upcoming: 'neutral'
 
 export function MonitoringPage() {
   const { me } = useAuth()
-  const [locationId, setLocationId] = useState<number | null>(null)
+  const arrived = useLocation().state as { locationId?: number; equipmentId?: number } | null
+  const [locationId, setLocationId] = useState<number | null>(arrived?.locationId ?? null)
+  const opened = useRef(false)
   const [prefill, setPrefill] = useState<Prefill | null>(null)
   const [recording, setRecording] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -99,6 +102,14 @@ export function MonitoringPage() {
   const todo = cards.filter(([, card]) => card.status !== 'done')
   const finished = cards.filter(([, card]) => card.status === 'done')
 
+  // arriving from a scanned code opens the first check that is due at that point
+  useEffect(() => {
+    if (opened.current || !arrived?.equipmentId || !due.data) return
+    opened.current = true
+    const next = todo.find(([, card]) => card.first.equipment_id === arrived.equipmentId && !card.closed)
+    if (next) startRecording({ equipmentId: arrived.equipmentId, scheduleId: next[1].first.schedule_id })
+  })
+
   function timeOut(p: Pending) {
     const finish = items.find((e) => e.id === p.equipment_id)?.schedules.find((s) => s.active && s.phase === 'finish')
     if (finish) startRecording({ equipmentId: p.equipment_id, scheduleId: finish.id, startReadingId: p.start_reading_id, item: p.item })
@@ -115,6 +126,7 @@ export function MonitoringPage() {
         <h1 className="text-2xl font-semibold">Monitoring</h1>
         <div className="flex flex-wrap items-center gap-3">
           {me?.permissions.includes('equipment.manage') && <Link to="/settings/monitoring" className="text-sm font-medium text-brand-deep underline-offset-4 hover:underline">Manage monitoring points</Link>}
+          {canRecord && <ScanButton />}
           {canRecord && <Button onClick={() => startRecording(null)}>Record a check</Button>}
           <LocationSelect value={locationId} onChange={setLocationId} />
         </div>

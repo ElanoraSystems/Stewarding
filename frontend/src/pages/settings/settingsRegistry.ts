@@ -1,4 +1,4 @@
-export type RulesSection = 'attendance' | 'monitoring-rules' | 'approvals' | 'breakage'
+export type RulesSection = 'attendance' | 'monitoring-rules' | 'qr-codes' | 'approvals' | 'breakage'
 
 export interface SettingDef {
   key: string
@@ -11,6 +11,7 @@ export interface SettingDef {
 export const SECTION_TITLES: Record<RulesSection, string> = {
   attendance: 'Check-in and attendance rules',
   'monitoring-rules': 'Monitoring rules',
+  'qr-codes': 'QR codes',
   approvals: 'Approvals and escalation',
   breakage: 'Breakage approval',
 }
@@ -29,6 +30,10 @@ export const SETTINGS: SettingDef[] = [
   { key: 'temp.pending_alert_hours', section: 'monitoring-rules', kind: 'number', label: 'Warn when a time out is missing after (0 = never)', unit: 'hours' },
   { key: 'temp.repeat_failure_count', section: 'monitoring-rules', kind: 'number', label: 'Repeat-failure alert at', unit: 'failures' },
   { key: 'temp.repeat_failure_days', section: 'monitoring-rules', kind: 'number', label: 'Repeat-failure window', unit: 'days' },
+
+  { key: 'scan.monitoring_required', section: 'qr-codes', kind: 'toggle', label: 'Scan the QR code of a monitoring point to record its checks' },
+  { key: 'scan.checklists_required', section: 'qr-codes', kind: 'toggle', label: 'Scan the QR code of the location to complete its checklist tasks' },
+  { key: 'scan.valid_minutes', section: 'qr-codes', kind: 'number', label: 'A scan stays valid for', unit: 'minutes' },
 
   { key: 'approval.checklists', section: 'approvals', kind: 'toggle', label: 'Every completed checklist task needs approval' },
   { key: 'reminder.lead_minutes', section: 'approvals', kind: 'number', label: 'Reminder before a deadline', unit: 'minutes' },
