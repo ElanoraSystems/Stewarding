@@ -11,6 +11,7 @@ import { useRun } from '@/lib/toast'
 import { amountText, cutTotal, cutsUse } from '@/lib/units'
 import { useApi } from '@/lib/useApi'
 import { LabelActions } from '@/pages/trace/LabelActions'
+import type { PortionName } from '@/pages/trace/PortionNamesTab'
 import { RECEIVED_CONDITIONS, type Lot, type Trace } from '@/pages/trace/types'
 
 const SIZE_UNITS = ['g', 'kg', 'ml', 'l', 'pcs']
@@ -34,6 +35,8 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
   const [made, setMade] = useState<Lot[] | null>(null)
   const trace = useApi<Trace>(chosen[0] ? `/lots/${chosen[0].id}` : null).data
   const parent = trace?.lot
+  const portionNames = useApi<PortionName[]>('/lots/portion-names').data ?? []
+  const suggested = portionNames.filter((n) => n.food_item_id === null || n.food_item_id === parent?.food_item_id)
   const balance = trace?.balance ?? null
   const thawed = parent?.condition === 'thawed'
   const using = balance ? cutsUse(balance, parts) : null
@@ -99,13 +102,16 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
         </div>
       )}
       {parent && !balance && <p className="text-sm text-ink-muted">No quantity was recorded when this lot was received, so no balance is shown.</p>}
+      <datalist id="portion-names">{suggested.map((n) => <option key={n.id} value={n.name} />)}</datalist>
       <div className="space-y-3">
         {parts.map((p, i) => {
           const total = cutTotal(p)
           return (
             <div key={i} className="space-y-3 rounded-lg border border-border p-3">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                <Field label="Portion name"><Input required maxLength={100} placeholder="Chicken breast portions" value={p.name} onChange={(e) => patch(i, { name: e.target.value })} /></Field>
+                <Field label="Portion name">
+                  <Input required list="portion-names" maxLength={100} placeholder="Pick a name or type a new one" value={p.name} onChange={(e) => patch(i, { name: e.target.value })} />
+                </Field>
                 <Field label="Stored as">
                   <Select value={thawed ? 'thawed' : p.condition} disabled={thawed} onChange={(e) => patch(i, { condition: e.target.value })}>
                     {thawed ? <option value="thawed">Thawed</option> : RECEIVED_CONDITIONS.map(([key, text]) => <option key={key} value={key}>{text}</option>)}

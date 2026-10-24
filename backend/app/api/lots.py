@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
@@ -12,7 +12,7 @@ from ..audit import audit
 from ..services.deletion import delete_if_unused
 from ..db import get_db
 from ..deps import check_location, current_user, permissions_of, require, scoped_locations
-from ..models import (Employee, Equipment, FoodItem, Location, Lot, LotEvent, LotLink, ReadingLot, Setting, ShelfLifeRule, Supplier,
+from ..models import (Employee, Equipment, FoodItem, Location, Lot, LotEvent, LotLink, PortionName, ReadingLot, Setting, ShelfLifeRule, Supplier,
                       TemperatureReading, User)
 from ..pagination import iso, paginate
 from ..services import exporters, labels
@@ -117,6 +117,17 @@ class ColdChainIn(BaseModel):
 class FoodItemIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     food_group: Group
+
+
+class PortionNameIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    food_item_id: int | None = None
+
+
+class PortionNameUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    food_item_id: int | None = None
+    active: bool | None = None
 
 
 class FoodItemUpdate(BaseModel):
@@ -287,16 +298,83 @@ def update_food_item(item_id: int, body: FoodItemUpdate, user: User = Depends(re
     return _item_dict(item)
 
 
+def _portion_dict(portion: PortionName, items: dict[int, str]) -> dict:
+    return {"id": portion.id, "name": portion.name, "food_item_id": portion.food_item_id, "food_item": items.get(portion.food_item_id), "active": portion.active}
+
+
+def _portion_taken(db: Session, name: str, exclude: int | None = None) -> bool:
+    return db.scalar(select(PortionName.id).where(func.lower(PortionName.name) == name.lower(), PortionName.id != (exclude or 0))) is not None
+
+
+def _known_food_item(db: Session, food_item_id: int | None) -> None:
+    if food_item_id is not None and not db.get(FoodItem, food_item_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown food item")
+
+
+@router.get("/portion-names")
+def list_portion_names(include_inactive: bool = False, user: User = Depends(any_of("lot.view", "lot.receive", "lot.split", "lot.manage")),
+                       db: Session = Depends(get_db)):
+    stmt = select(PortionName).order_by(PortionName.name)
+    if not include_inactive:
+        stmt = stmt.where(PortionName.active.is_(True))
+    items = dict(db.execute(select(FoodItem.id, FoodItem.name)).all())
+    return [_portion_dict(p, items) for p in db.scalars(stmt)]
+
+
+@router.post("/portion-names", status_code=201)
+def create_portion_name(body: PortionNameIn, user: User = Depends(require("lot.manage")), db: Session = Depends(get_db)):
+    name = " ".join(body.name.split())
+    if _portion_taken(db, name):
+        raise HTTPException(status.HTTP_409_CONFLICT, "A portion name like that already exists")
+    _known_food_item(db, body.food_item_id)
+    portion = PortionName(name=name, food_item_id=body.food_item_id)
+    db.add(portion)
+    db.flush()
+    audit(db, user, "lot.portion_name_create", "portion_name", portion.id, None, {"name": name, "food_item_id": body.food_item_id})
+    db.commit()
+    return _portion_dict(portion, dict(db.execute(select(FoodItem.id, FoodItem.name)).all()))
+
+
+@router.put("/portion-names/{portion_id}")
+def update_portion_name(portion_id: int, body: PortionNameUpdate, user: User = Depends(require("lot.manage")), db: Session = Depends(get_db)):
+    portion = db.get(PortionName, portion_id)
+    if not portion:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Portion name not found")
+    data = body.model_dump(exclude_unset=True)
+    if "name" in data:
+        data["name"] = " ".join(data["name"].split())
+        if _portion_taken(db, data["name"], portion.id):
+            raise HTTPException(status.HTTP_409_CONFLICT, "A portion name like that already exists")
+    if "food_item_id" in data:
+        _known_food_item(db, data["food_item_id"])
+    for key, value in data.items():
+        setattr(portion, key, value)
+    audit(db, user, "lot.portion_name_update", "portion_name", portion.id, None, data)
+    db.commit()
+    return _portion_dict(portion, dict(db.execute(select(FoodItem.id, FoodItem.name)).all()))
+
+
+@router.delete("/portion-names/{portion_id}")
+def delete_portion_name(portion_id: int, user: User = Depends(require("lot.manage")), db: Session = Depends(get_db)):
+    portion = db.get(PortionName, portion_id)
+    if not portion:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Portion name not found")
+    audit(db, user, "lot.portion_name_delete", "portion_name", portion_id, {"name": portion.name}, None)
+    db.delete(portion)
+    db.commit()
+    return {"deleted": portion_id}
+
+
 @router.get("/search")
 def search(q: str = Query(min_length=1, max_length=60), limit: int = Query(15, ge=1, le=50),
            user: User = Depends(any_of("lot.view", "lot.split", "temp.record")), db: Session = Depends(get_db)):
     """Active lots matching a typed code or item name, for pickers; those past their use-by are flagged."""
     like = f"%{q.strip()}%"
     stmt = _scoped(select(Lot).join(FoodItem, FoodItem.id == Lot.food_item_id).where(
-        Lot.status == "active", or_(Lot.code.ilike(like), FoodItem.name.ilike(like), Lot.supplier_lot.ilike(like))), user, db)
+        Lot.status == "active", or_(Lot.code.ilike(like), FoodItem.name.ilike(like), Lot.supplier_lot.ilike(like), Lot.pack_description.ilike(like))), user, db)
     maps, now = _maps(db), timeutil.utc_now()
     return [{"id": lot.id, "code": lot.code, "item": maps["item"].get(lot.food_item_id), "use_by": iso(lot.use_by), "past_use_by": bool(lot.use_by and lot.use_by < now),
-             "condition_label": CONDITIONS[lot.condition], "location": maps["location"].get(lot.location_id), "pack": lot.pack_description}
+             "condition_label": CONDITIONS[lot.condition], "location": maps["location"].get(lot.location_id), "pack": lot.pack_description, "supplier_lot": lot.supplier_lot}
             for lot in db.scalars(stmt.order_by(Lot.id.desc()).limit(limit))]
 
 
@@ -434,6 +512,9 @@ def split_lot(lot_id: int, body: SplitIn, user: User = Depends(require("lot.spli
         db.flush()
         db.add(LotLink(parent_id=parent.id, child_id=child.id))
         made.append(child)
+        if not _portion_taken(db, part.description):
+            db.add(PortionName(name=part.description, food_item_id=parent.food_item_id))
+            db.flush()
     codes = ", ".join(c.code for c in made)
     db.add(LotEvent(lot_id=parent.id, kind="split", detail=f"Split into {codes}"[:300], user_id=user.id, at=now))
     if body.finish_parent:

@@ -35,6 +35,13 @@ describe('LotPicker', () => {
     expect(screen.queryByRole('list', { name: 'Chosen lots' })).not.toBeInTheDocument()
   })
 
+  it('shows the portion name and the supplier batch beside the lot code', async () => {
+    api.mockImplementation(async () => [{ ...fresh, pack: '200 g breast portions', supplier_lot: 'B2610-884' }])
+    render(<Harness />)
+    fireEvent.change(screen.getByLabelText('Lot code or food name'), { target: { value: 'portions' } })
+    expect(await screen.findByRole('button', { name: /200 g breast portions, supplier batch B2610-884/ })).toBeInTheDocument()
+  })
+
   it('does not let a lot past its use-by date be picked from the list', async () => {
     render(<Harness />)
     fireEvent.change(screen.getByLabelText('Lot code or food name'), { target: { value: 'chicken' } })

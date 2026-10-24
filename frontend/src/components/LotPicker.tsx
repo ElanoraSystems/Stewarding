@@ -19,6 +19,7 @@ interface Suggestion extends LotChoice {
   condition_label: string
   location: string
   pack: string | null
+  supplier_lot: string | null
 }
 
 interface Props {
@@ -81,7 +82,7 @@ export function LotPicker({ value, onChange, max = 20 }: Props) {
         <div className="flex gap-2">
           <Input
             aria-label="Lot code or food name"
-            placeholder="Type a lot code or a food name"
+            placeholder="Type a lot code, food name or portion name"
             value={text}
             onChange={(e) => { setText(e.target.value); setProblem(null); if (!e.target.value.trim()) setFound([]) }}
             onKeyDown={(e) => {
@@ -106,7 +107,7 @@ export function LotPicker({ value, onChange, max = 20 }: Props) {
                 className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-muted disabled:opacity-50"
                 onClick={() => add(lot)}
               >
-                <span><span className="font-medium">{lot.code}</span> <span className="text-ink-muted">{lot.item}{lot.pack ? `, ${lot.pack}` : ''}</span></span>
+                <span><span className="font-medium">{lot.code}</span> <span className="text-ink-muted">{lot.item}{lot.pack ? `, ${lot.pack}` : ''}{lot.supplier_lot && lot.supplier_lot !== lot.code ? `, supplier batch ${lot.supplier_lot}` : ''}</span></span>
                 {lot.past_use_by ? <Badge tone="critical">Past use-by</Badge> : <span className="text-xs text-ink-muted">Use by {fmtDateTime(lot.use_by)}</span>}
               </button>
             </li>

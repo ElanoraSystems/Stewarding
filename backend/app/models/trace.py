@@ -18,6 +18,16 @@ class FoodItem(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
 
 
+class PortionName(Base):
+    """A name a cut of food is portioned under, optionally tied to the food item it comes from."""
+
+    __tablename__ = "portion_name"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    food_item_id: Mapped[int | None] = mapped_column(ForeignKey("food_item.id"), index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+
+
 class ShelfLifeRule(Base):
     """How long a food group keeps in a condition, set by the organization to match local rules."""
 

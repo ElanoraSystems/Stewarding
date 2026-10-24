@@ -4,6 +4,7 @@ import { SectionTabs } from '@/components/SectionTabs'
 import { useAuth } from '@/lib/auth'
 import { FoodItemsTab } from '@/pages/trace/FoodItemsTab'
 import { LotsTab } from '@/pages/trace/LotsTab'
+import { PortionNamesTab } from '@/pages/trace/PortionNamesTab'
 import { PrintersTab } from '@/pages/trace/PrintersTab'
 import { ReceiveLotForm } from '@/pages/trace/ReceiveLotForm'
 import { RulesTab } from '@/pages/trace/RulesTab'
@@ -15,6 +16,7 @@ const TABS = [
   ['split', 'Split a lot', 'lot.split'],
   ['rules', 'Shelf life', 'lot.view'],
   ['items', 'Food items', 'lot.manage'],
+  ['portions', 'Portion names', 'lot.manage'],
   ['printers', 'Label printers', 'lot.manage'],
 ] as const
 
@@ -22,7 +24,7 @@ type Tab = (typeof TABS)[number][0]
 
 const GROUPS: { title: string; keys: Tab[] }[] = [
   { title: 'Lots', keys: ['lots', 'receive', 'split'] },
-  { title: 'Setup', keys: ['rules', 'items', 'printers'] },
+  { title: 'Setup', keys: ['rules', 'items', 'portions', 'printers'] },
 ]
 
 export function TraceabilityPage() {
@@ -46,6 +48,7 @@ export function TraceabilityPage() {
       {tab === 'split' && <SplitLotForm onSaved={refresh} />}
       {tab === 'rules' && <RulesTab />}
       {tab === 'items' && <FoodItemsTab />}
+      {tab === 'portions' && <PortionNamesTab />}
       {tab === 'printers' && <PrintersTab />}
     </div>
   )
