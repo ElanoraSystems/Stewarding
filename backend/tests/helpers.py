@@ -45,3 +45,13 @@ def ledger_sum(db, code, location_code):
     rows = db.scalars(select(StockTransaction.qty_delta).where(
         StockTransaction.item_id == item_id(db, code), StockTransaction.location_id == loc_id(db, location_code)))
     return sum(rows)
+
+
+def retire_item(client, manager, db, code):
+    """Writes the item's stock off at every location, then makes it inactive."""
+    item = db.scalar(select(InventoryItem).where(InventoryItem.code == code))
+    for held in db.scalars(select(InventoryBalance).where(InventoryBalance.item_id == item.id)).all():
+        if held.qty:
+            client.post("/api/inventory/transactions", headers=manager, json={
+                "item_id": item.id, "location_id": held.location_id, "txn_type": "adjustment", "qty": -held.qty, "reason": "Written off before retiring"})
+    return client.put(f"/api/inventory/items/{item.id}", headers=manager, json={"active": False})

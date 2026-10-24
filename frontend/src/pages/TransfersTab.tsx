@@ -1,6 +1,7 @@
 import { Check, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { AssetTagPicker } from '@/components/AssetTagPicker'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
@@ -24,7 +25,7 @@ interface Transfer {
   requested_by: number
   requested_at: string
   note: string | null
-  lines: { item_id: number; qty: number; unit_cost: number | null; value: number | null }[]
+  lines: { item_id: number; qty: number; asset_tags: string[]; unit_cost: number | null; value: number | null }[]
   total_value: number
 }
 
@@ -41,8 +42,8 @@ export function TransfersTab() {
   const [from, setFrom] = useState(params.get('from') ?? String(me?.locations[0]?.id ?? ''))
   const [to, setTo] = useState(params.get('to') ?? '')
   const [note, setNote] = useState('')
-  const suggested = params.get('item') ? { item: params.get('item') ?? '', qty: params.get('qty') ?? '' } : undefined
-  const entry = useLineEntry({ item: '', qty: '' }, (l) => l.item !== '' && Number(l.qty) > 0, suggested)
+  const suggested = params.get('item') ? { item: params.get('item') ?? '', qty: params.get('qty') ?? '', tags: [] as number[] } : undefined
+  const entry = useLineEntry({ item: '', qty: '', tags: [] as number[] }, (l) => l.item !== '' && Number(l.qty) > 0, suggested)
   const { attachList } = entry
   const places = new Map(destinations.data?.map((l) => [l.id, l.name]))
   const stock = useApi<{ item_id: number; qty: number; avg_cost: number | null }[]>(from ? `/stock/location-stock${qs({ location_id: from })}` : null)
@@ -52,12 +53,14 @@ export function TransfersTab() {
   const available = (id: number) => held.get(id)?.qty ?? 0
   const over = [...asked].some(([id, qty]) => qty > available(id))
   const lineValue = (l: { item: string; qty: string }) => (l.item && Number(l.qty) > 0 && held.get(Number(l.item))?.avg_cost != null ? Number(l.qty) * held.get(Number(l.item))!.avg_cost! : null)
+  const tracked = (l: { item: string }) => byId.get(Number(l.item))?.is_tracked_asset ?? false
+  const tagsMissing = entry.rows.some((l) => l.item && Number(l.qty) > 0 && tracked(l) && l.tags.length !== Number(l.qty))
   const total = entry.rows.reduce((sum, l) => sum + (lineValue(l) ?? 0), 0)
 
   async function request() {
     const ok = await run(() => api('/stock/transfers', { body: {
       from_location_id: Number(from), to_location_id: Number(to), note: note || null,
-      lines: entry.rows.filter((l) => l.item && l.qty).map((l) => ({ item_id: Number(l.item), qty: Number(l.qty) })),
+      lines: entry.rows.filter((l) => l.item && l.qty).map((l) => ({ item_id: Number(l.item), qty: Number(l.qty), asset_ids: tracked(l) ? l.tags : [] })),
     } }), canApprove ? 'Transfer completed' : 'Transfer requested - awaiting approval')
     if (ok) {
       entry.reset()
@@ -88,17 +91,20 @@ export function TransfersTab() {
             {entry.rows.map((line, i) => (
               <div key={i} {...entry.rowProps(i)} className="flex flex-wrap items-end gap-2">
                 <Field label={i === 0 ? 'Item' : ''}>
-                  <Select aria-label="Item" value={line.item} onChange={(e) => entry.update(i, { item: e.target.value })}>
+                  <Select aria-label="Item" value={line.item} onChange={(e) => entry.update(i, { item: e.target.value, tags: [] })}>
                     <option value="">Select item</option>
                     {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
                   </Select>
                 </Field>
-                <Field label={i === 0 ? 'Qty' : ''}><Input aria-label="Quantity" type="number" min={1} className="w-24" value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} /></Field>
+                <Field label={i === 0 ? 'Qty' : ''}><Input aria-label="Quantity" type="number" min={1} className="w-24" value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value, tags: line.tags.slice(0, Number(e.target.value) || 0) })} /></Field>
                 <Field label={i === 0 ? 'Available' : ''}><output aria-label="Available" className="flex h-10 w-20 items-center justify-end text-sm tabular-nums">{line.item ? available(Number(line.item)) : '-'}</output></Field>
                 <Field label={i === 0 ? 'Unit cost' : ''}><output aria-label="Unit cost" className="flex h-10 w-20 items-center justify-end text-sm tabular-nums">{line.item && held.get(Number(line.item))?.avg_cost != null ? money(held.get(Number(line.item))!.avg_cost!) : '-'}</output></Field>
                 <Field label={i === 0 ? 'Value' : ''}><output aria-label="Line value" className="flex h-10 w-24 items-center justify-end text-sm font-medium tabular-nums">{lineValue(line) != null ? money(lineValue(line)!) : '-'}</output></Field>
                 <span className="flex h-10 w-5 items-center text-ok" aria-label={line.committed ? 'Line saved' : undefined}>{line.committed && <Check className="h-4 w-4" aria-hidden />}</span>
                 {entry.rows.length > 1 && <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => entry.remove(i)}><Trash2 className="h-4 w-4" /></Button>}
+                {line.item && Number(line.qty) > 0 && tracked(line) && (
+                  <AssetTagPicker itemId={Number(line.item)} locationId={Number(from)} qty={Number(line.qty)} value={line.tags} onChange={(tags) => entry.update(i, { tags })} />
+                )}
                 {entry.incomplete === i && <p role="alert" className="w-full text-xs text-danger">Choose an item and a quantity, then press Enter.</p>}
                 {line.item && (asked.get(Number(line.item)) ?? 0) > available(Number(line.item)) && (
                   <p role="alert" className="w-full text-xs font-medium text-danger">
@@ -113,7 +119,7 @@ export function TransfersTab() {
           </div>
           <p className="text-right text-sm">Total value <span className="ml-2 text-base font-semibold tabular-nums">{money(total)}</span></p>
           <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-          <Button disabled={!to || over || !entry.rows.some((l) => l.item && l.qty)} onClick={request}>{canApprove ? 'Transfer now' : 'Request transfer'}</Button>
+          <Button disabled={!to || over || tagsMissing || !entry.rows.some((l) => l.item && l.qty)} onClick={request}>{canApprove ? 'Transfer now' : 'Request transfer'}</Button>
         </CardContent>
       </Card>
 
@@ -127,7 +133,7 @@ export function TransfersTab() {
               <StatusBadge status={t.status} />
             </div>
             <ul className="mt-1 text-ink-muted">
-              {t.lines.map((l) => <li key={l.item_id}>{l.qty} x {byId.get(l.item_id)?.name ?? l.item_id}{l.value != null && <span> - {money(l.value)}</span>}</li>)}
+              {t.lines.map((l) => <li key={l.item_id}>{l.qty} x {byId.get(l.item_id)?.name ?? l.item_id}{l.asset_tags.length > 0 && <span> ({l.asset_tags.join(', ')})</span>}{l.value != null && <span> - {money(l.value)}</span>}</li>)}
             </ul>
             <p className="text-ink-muted">{fmtDateTime(t.requested_at)}{t.total_value > 0 && <span> - total {money(t.total_value)}</span>}</p>
             {t.status === 'requested' && canApprove && t.requested_by !== me?.id && (

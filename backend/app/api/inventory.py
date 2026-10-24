@@ -17,7 +17,7 @@ from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryLevel, InventoryUnit, Location,
                       StockTransaction, Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
-from ..services.inventory import StockError, below_minimum, counts_as_received, level_map, norm, post_txn
+from ..services.inventory import StockError, counts_as_received, level_map, norm, places_in, post_txn, shortage_rows, unheld_items
 from .uploads import MAX_BYTES, file_kind, upload_path
 from ..services.similarity import SCAN_LIMIT, compact, find_similar, token_key, tokens
 
@@ -228,6 +228,8 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
     units = {u.id: u.name for u in db.scalars(select(InventoryUnit))}
     suppliers = {s.id: s.name for s in db.scalars(select(Supplier))}
     levels = level_map(db)
+    unheld = {i.id for i in unheld_items(db)} & set(ids)
+    places = places_in(db, scope) if unheld else []
     show_cost = _can_see_cost(user)
     out = []
     for item in items:
@@ -235,6 +237,8 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
         qty = sum(per_location.values())
         short_at = [{"location_id": loc, "qty": have, "minimum": levels.get((item.id, loc), item.min_level)}
                     for loc, have in per_location.items() if have < levels.get((item.id, loc), item.min_level)]
+        if item.id in unheld:
+            short_at = [{"location_id": loc, "qty": 0, "minimum": item.min_level} for loc in places]
         single = next(iter(scope)) if scope is not None and len(scope) == 1 else None
         own = {loc: m for (i, loc), m in levels.items() if i == item.id and (scope is None or loc in scope)}
         entry = {**row(item, *ITEM_FIELDS), "category": categories.get(item.category_id), "unit": units.get(item.unit_id),
@@ -276,7 +280,9 @@ def list_items(search: str | None = None, category_id: int | None = None, locati
                         InventoryBalance.qty < func.coalesce(InventoryLevel.min_level, InventoryItem.min_level)))
         if scope is not None:
             short = short.where(InventoryBalance.location_id.in_(scope))
-        stmt = stmt.where(short.exists())
+        never_held = and_(InventoryItem.active.is_(True), InventoryItem.min_level > 0,
+                          ~select(InventoryBalance.item_id).where(InventoryBalance.item_id == InventoryItem.id).exists())
+        stmt = stmt.where(or_(short.exists(), never_held))
     total, rows = paginate(db, stmt.order_by(InventoryItem.code), page, size)
     items = [r[0] for r in rows]
     result = {"total": total, "items": _serialize_items(db, user, items, scope)}
@@ -367,6 +373,12 @@ def update_item(item_id: int, body: ItemUpdate, user: User = Depends(require("in
     if "name" in data:
         data["name"] = " ".join(data["name"].split())
         _check_duplicate(db, data["name"], item.id)
+    if data.get("unit_id", item.unit_id) != item.unit_id and db.scalar(select(StockTransaction.id).where(StockTransaction.item_id == item.id).limit(1)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This item already has stock movements, so its unit cannot change. Add a new item with the other unit instead.")
+    if data.get("active") is False and item.active:
+        on_hand = db.scalar(select(func.coalesce(func.sum(InventoryBalance.qty), 0)).where(InventoryBalance.item_id == item.id))
+        if on_hand != 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"{on_hand} of {item.name} are still on the books. Issue, transfer or write them off before making it inactive.")
     minimum = data.get("min_level", item.min_level)
     target = data.get("target_level", item.target_level)
     if target is not None and target < minimum:
@@ -457,7 +469,7 @@ def set_location_minimum(item_id: int, location_id: int, body: LevelIn, user: Us
 def shortages(location_id: int | None = None, user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
     """Every item below its minimum at a location, with the other locations that hold more than they need."""
     scope = _scope(db, user, location_id)
-    short = db.execute(below_minimum(scope).order_by(InventoryItem.code, InventoryBalance.location_id)).all()
+    short = sorted(shortage_rows(db, scope), key=lambda r: (r[1].code, r[0].location_id))
     places = {loc.id: loc.name for loc in db.scalars(select(Location))}
     levels = level_map(db)
     ids = {item.id for _, item, _ in short}
@@ -504,6 +516,9 @@ def post_transaction(body: TxnIn, user: User = Depends(require("stock.transfer")
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Quantity must be positive")
     if body.txn_type in ("adjustment", "damage", "opening") and not (body.reason and len(body.reason.strip()) >= 5):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A reason is required")
+    if body.txn_type == "opening" and db.scalar(select(StockTransaction.id).where(
+            StockTransaction.item_id == item.id, StockTransaction.location_id == body.location_id, StockTransaction.txn_type == "opening").limit(1)):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Opening stock of {item.name} was already recorded here. Post an adjustment to correct the quantity.")
     try:
         txn = post_txn(db, user, item, body.location_id, body.txn_type, body.qty, body.reason)
     except StockError as exc:

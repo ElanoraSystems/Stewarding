@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models import AuditLog, InventoryItem, Receipt, StockTransaction
 
 from .conftest import PASSWORD
-from .helpers import MGR, STEWARD, SUP, SUP_RB, balance, item_id, ledger_sum, loc_id
+from .helpers import MGR, STEWARD, SUP, SUP_RB, balance, item_id, ledger_sum, loc_id, retire_item
 
 
 def manager_headers(client):
@@ -96,7 +96,7 @@ def test_inactive_supplier_or_item_cannot_be_received(client, login, db):
     sid = suppliers(client)["Hotel Ware Trading"]
     client.put(f"/api/suppliers/{sid}", json={"active": False}, headers=m)
     assert receive(client, login(SUP), db, supplier="Gulf Catering Supplies", invoice="A1").status_code == 201
-    client.put(f"/api/inventory/items/{item_id(db, 'PL-002')}", json={"active": False}, headers=m)
+    retire_item(client, m, db, "PL-002")
     r = receive(client, login(SUP), db, [{"item_id": item_id(db, "PL-002"), "qty": 3}], invoice="A2")
     assert r.status_code == 400 and "inactive" in r.json()["detail"]
 

@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models import AuditLog, InventoryItem
 
-from .helpers import MGR, STEWARD, SUP, item_id
+from .helpers import MGR, STEWARD, SUP, item_id, retire_item
 
 
 def post(client, h, path, body):
@@ -82,7 +82,7 @@ def test_renaming_checks_duplicates_but_allows_recasing_itself(client, login, db
 
 def test_inactive_duplicate_points_to_reactivation(client, login, db):
     m = login(MGR)
-    client.put(f"/api/inventory/items/{item_id(db, 'PL-002')}", json={"active": False}, headers=m)
+    retire_item(client, m, db, "PL-002")
     dup = new_item(client, m, name="Side Plate 18cm")
     assert dup.status_code == 409 and "reactivate" in dup.json()["detail"]
 

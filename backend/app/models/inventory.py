@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -156,6 +156,7 @@ class InventoryTransferLine(Base):
     transfer_id: Mapped[int] = mapped_column(ForeignKey("inventory_transfer.id"), index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"))
     qty: Mapped[int] = mapped_column(Integer)
+    asset_ids: Mapped[list[int] | None] = mapped_column(JSON)  # the tracked assets that move with this line
 
 
 class TrackedAsset(Base):

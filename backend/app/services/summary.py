@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee,
                       Equipment, InventoryTransfer, Location, TemperatureReading)
 from .checklists import OPEN
-from .inventory import below_minimum
+from .inventory import shortage_rows
 from .settings import get_setting
 from .monitoring import CLOSED_ACTIONS, describe, due_checks
 from .reference import employee_names, user_names
@@ -89,7 +89,7 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
             add("attendance", rec.location_id, "high", names.get(rec.employee_id, "Employee"), "Missed check-out",
                 rec.check_in_at, "/attendance")
 
-    for balance, item, minimum in db.execute(below_minimum(set(locations))).all():
+    for balance, item, minimum in shortage_rows(db, set(locations)):
         add("low_stock", balance.location_id, "normal", "Supervisor",
             f"Low stock: {item.name} ({balance.qty} of minimum {minimum})", None, "/inventory")
 

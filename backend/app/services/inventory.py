@@ -38,6 +38,25 @@ def below_minimum(locations: set[int] | None = None):
     return stmt if locations is None else stmt.where(InventoryBalance.location_id.in_(locations))
 
 
+def unheld_items(db: Session) -> list[InventoryItem]:
+    """Active items with a minimum that no location has ever held: they have no balance row, so nothing else reports them."""
+    held = select(InventoryBalance.item_id).where(InventoryBalance.item_id == InventoryItem.id).exists()
+    return list(db.scalars(select(InventoryItem).where(InventoryItem.active.is_(True), InventoryItem.min_level > 0, ~held)
+                           .order_by(InventoryItem.code)))
+
+
+def places_in(db: Session, locations: set[int] | None) -> list[int]:
+    """Ids of the active locations, limited to `locations` when given."""
+    return [i for i in db.scalars(select(Location.id).where(Location.active.is_(True)).order_by(Location.id)) if locations is None or i in locations]
+
+
+def shortage_rows(db: Session, locations: set[int] | None = None) -> list[tuple[InventoryBalance, InventoryItem, int]]:
+    """Every item below its minimum at a location, and each item never stocked anywhere as an empty row at every location."""
+    rows = [(b, i, m) for b, i, m in db.execute(below_minimum(locations))]
+    places = places_in(db, locations)
+    return rows + [(InventoryBalance(item_id=i.id, location_id=p, qty=0), i, i.min_level) for i in unheld_items(db) for p in places]
+
+
 @event.listens_for(InventoryItem, "before_insert")
 @event.listens_for(InventoryItem, "before_update")
 def _set_search_keys(_mapper, _connection, item: InventoryItem) -> None:
@@ -97,6 +116,13 @@ def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn
     db.flush()
     level = db.get(InventoryLevel, (item.id, location_id))
     minimum = level.min_level if level else item.min_level
+    if delta < 0 and balance.qty < 0:
+        place = db.get(Location, location_id).name
+        notify(db, recipients(db, location_id, SUPERVISOR, MANAGER), "negative_stock",
+               f"Stock below zero: {item.name} is {balance.qty} at {place}",
+               key=f"negative:{item.id}:{location_id}:{timeutil.utc_now().date().isoformat()}", priority="high",
+               location_id=location_id, link="/inventory", requires_ack=True,
+               body="More was written off than the books show. Check the count and the receipts.")
     if delta < 0 and balance.qty < minimum:
         notify(db, recipients(db, location_id, SUPERVISOR, MANAGER), "low_stock",
                f"Low stock: {item.name} ({balance.qty} left, minimum {minimum})",

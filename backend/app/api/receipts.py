@@ -12,7 +12,7 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import Employee, InventoryItem, Location, Receipt, ReceiptLine, Supplier, User
+from ..models import Employee, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction, Supplier, User
 from ..pagination import paginate, row
 from ..services.inventory import StockError, post_txn
 
@@ -234,7 +234,8 @@ def void_receipt(receipt_id: int, body: VoidIn, user: User = Depends(require("st
     sign = -1 if receipt.doc_type == "receipt" else 1
     reason = f"Void of {LABEL[receipt.doc_type].lower()} #{receipt.id}: {body.reason}"
     for ln in db.scalars(select(ReceiptLine).where(ReceiptLine.receipt_id == receipt.id)):
-        paid = _per_unit(ln.line_total, ln.qty) if receipt.doc_type == "receipt" else None
+        posted = db.get(StockTransaction, ln.transaction_id) if receipt.doc_type == "receipt" and ln.transaction_id else None
+        paid = posted.unit_cost if posted else None
         post_txn(db, user, db.get(InventoryItem, ln.item_id), receipt.location_id, "adjustment", sign * ln.qty, reason,
                  "receipt_void", receipt.id, allow_negative=True, reverse_cost=paid)
     receipt.status, receipt.voided_by, receipt.voided_at, receipt.void_reason = "void", user.id, timeutil.utc_now(), body.reason

@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
@@ -13,7 +13,7 @@ from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (ApprovalRecord, InventoryBalance, InventoryCount, InventoryCountLine, InventoryItem,
-                      InventoryTransfer, InventoryTransferLine, Location, StockTransaction, User)
+                      InventoryTransfer, InventoryTransferLine, Location, StockTransaction, TrackedAsset, User)
 from ..pagination import row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services import metrics
@@ -32,6 +32,7 @@ TRANSFER_FIELDS = ("id", "from_location_id", "to_location_id", "status", "reques
 class LineIn(BaseModel):
     item_id: int
     qty: int = Field(gt=0)
+    asset_ids: list[int] = Field(default_factory=list, max_length=1000)  # the tags that move, for a tracked item
 
 
 class TransferIn(BaseModel):
@@ -66,7 +67,8 @@ def _transfer_dict(db: Session, transfer: InventoryTransfer) -> dict:
     out = []
     for ln in lines:
         cost = sent.get(ln.item_id) if transfer.status == "completed" else averages.get(ln.item_id)
-        out.append({**row(ln, "item_id", "qty"), "unit_cost": float(cost) if cost is not None else None,
+        tags = list(db.scalars(select(TrackedAsset.asset_tag).where(TrackedAsset.id.in_(ln.asset_ids or [])).order_by(TrackedAsset.asset_tag)))
+        out.append({**row(ln, "item_id", "qty"), "asset_tags": tags, "unit_cost": float(cost) if cost is not None else None,
                     "value": round(float(cost) * ln.qty, 2) if cost is not None else None})
     return {**row(transfer, *TRANSFER_FIELDS), "lines": out, "total_value": round(sum(l["value"] or 0 for l in out), 2)}
 
@@ -78,6 +80,10 @@ def _execute_transfer(db: Session, user: User, transfer: InventoryTransfer) -> N
                         "transfer", transfer.id)
         post_txn(db, user, item, transfer.to_location_id, "transfer_in", line.qty, transfer.note,
                  "transfer", transfer.id, unit_cost=sent.unit_cost)
+        for asset in db.scalars(select(TrackedAsset).where(TrackedAsset.id.in_(line.asset_ids or []))):
+            if asset.location_id != transfer.from_location_id:
+                raise StockError(f"Asset {asset.asset_tag} is no longer at the sending location")
+            asset.location_id = transfer.to_location_id
     transfer.status = "completed"
     transfer.decided_by, transfer.decided_at = user.id, timeutil.utc_now()
 
@@ -100,6 +106,25 @@ def location_stock(location_id: int, user: User = Depends(require("stock.transfe
         cost = balance.avg_cost if balance is not None and balance.avg_cost is not None else item.unit_cost
         out.append({"item_id": item.id, "qty": balance.qty if balance else 0, "avg_cost": float(cost) if cost is not None else None})
     return out
+
+
+def _check_assets(db: Session, body: TransferIn, wanted: dict[int, int]) -> None:
+    """A tracked item moves with the tags named, as many as the quantity; any other item moves with none."""
+    tags: dict[int, list[int]] = defaultdict(list)
+    for ln in body.lines:
+        tags[ln.item_id] += ln.asset_ids
+    for item_id, qty in wanted.items():
+        item, named = db.get(InventoryItem, item_id), tags[item_id]
+        if not item.is_tracked_asset:
+            if named:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{item.name} is not tracked by asset tag")
+            continue
+        if len(named) != qty or len(set(named)) != qty:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{item.name}: choose the {qty} asset tags that are moving")
+        found = db.scalar(select(func.count(TrackedAsset.id)).where(
+            TrackedAsset.id.in_(named), TrackedAsset.item_id == item_id, TrackedAsset.location_id == body.from_location_id))
+        if found != qty:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{item.name}: every tag must be one of its assets at the sending location")
 
 
 @router.post("/transfers", status_code=201)
@@ -126,11 +151,12 @@ def request_transfer(body: TransferIn, user: User = Depends(require("stock.trans
             audit(db, user, "stock.transfer_blocked", "inventory_item", item.id, None, {"from": source.id, "asked": wanted[item.id], "held": on_hand})
             db.commit()
             raise HTTPException(status.HTTP_409_CONFLICT, message)
+    _check_assets(db, body, wanted)
     transfer = InventoryTransfer(from_location_id=body.from_location_id, to_location_id=body.to_location_id,
                                  requested_by=user.id, requested_at=timeutil.utc_now(), note=body.note)
     db.add(transfer)
     db.flush()
-    db.add_all(InventoryTransferLine(transfer_id=transfer.id, item_id=ln.item_id, qty=ln.qty) for ln in body.lines)
+    db.add_all(InventoryTransferLine(transfer_id=transfer.id, item_id=ln.item_id, qty=ln.qty, asset_ids=ln.asset_ids or None) for ln in body.lines)
     db.flush()
     if "stock.approve" in permissions_of(user):
         try:
@@ -295,6 +321,15 @@ def post_count(count_id: int, user: User = Depends(require("inventory.count")), 
     variances = [ln for ln in lines if ln.counted_qty != ln.system_qty]
     if variances and "stock.approve" not in permissions_of(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a manager can post a count that has variances")
+    for ln in variances:
+        newer = db.scalar(
+            select(InventoryCount.id).join(InventoryCountLine, InventoryCountLine.count_id == InventoryCount.id)
+            .join(StockTransaction, StockTransaction.id == InventoryCountLine.adjustment_txn_id)
+            .where(InventoryCount.location_id == count.location_id, InventoryCount.id != count.id,
+                   InventoryCountLine.item_id == ln.item_id, StockTransaction.occurred_at >= count.counted_at).limit(1))
+        if newer:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"{db.get(InventoryItem, ln.item_id).name} was already corrected by count #{newer} "
+                                "after this count was taken. Recount the item.")
     for ln in variances:
         item = db.get(InventoryItem, ln.item_id)
         txn = post_txn(db, user, item, count.location_id, "adjustment", ln.counted_qty - ln.system_qty,

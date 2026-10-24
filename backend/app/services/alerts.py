@@ -9,7 +9,7 @@ from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, Checkl
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
 from .checklists import OPEN
-from .inventory import below_minimum
+from .inventory import shortage_rows
 from .notify import notify, recipients
 from .settings import get_setting
 from .monitoring import describe, due_checks, pending_entries
@@ -170,7 +170,7 @@ def pending_time_outs(db: Session, now: datetime) -> int:
 
 def low_stock(db: Session, now: datetime) -> int:
     created = 0
-    for balance, item, minimum in db.execute(below_minimum()).all():
+    for balance, item, minimum in shortage_rows(db):
         created += notify(db, recipients(db, balance.location_id, SUPERVISOR, MANAGER), "low_stock",
                           f"Low stock: {item.name} ({balance.qty} left, minimum {minimum})",
                           key=f"low:{item.id}:{balance.location_id}:{now.date().isoformat()}", priority="high",
