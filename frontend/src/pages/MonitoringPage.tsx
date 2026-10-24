@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { ScanButton } from '@/components/ScanButton'
-import { LocationSelect } from '@/components/LocationSelect'
+import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -128,7 +128,7 @@ export function MonitoringPage() {
           {me?.permissions.includes('equipment.manage') && <Link to="/settings/monitoring" className="text-sm font-medium text-brand-deep underline-offset-4 hover:underline">Manage monitoring points</Link>}
           {canRecord && <ScanButton />}
           {canRecord && <Button onClick={() => startRecording(null)}>Record a check</Button>}
-          <LocationSelect value={locationId} onChange={setLocationId} />
+          <WorkLocationSelect value={locationId} onChange={setLocationId} />
         </div>
       </div>
 
