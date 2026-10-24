@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ScanButton } from '@/components/ScanButton'
-import { LocationSelect } from '@/components/LocationSelect'
+import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -99,7 +99,7 @@ export function ChecklistsPage() {
       {configuring ? <ChecklistConfig locationId={locationId} onLocation={setLocationId} /> : (
         <>
           <div className="filter-bar">
-            <LocationSelect value={locationId} onChange={setLocationId} />
+            <WorkLocationSelect value={locationId} onChange={setLocationId} />
             <div role="group" aria-label="View" className="inline-flex rounded-lg border border-border bg-surface p-0.5">
               {(['day', 'week'] as const).map((v) => (
                 <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}
