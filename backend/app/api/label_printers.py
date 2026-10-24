@@ -16,7 +16,6 @@ from .lots import any_of, label_pages
 
 router = APIRouter(prefix="/api/label-printers", tags=["label printers"])
 
-MAX_LABELS = 200
 HOST_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 USERS = ("lot.receive", "lot.split", "lot.manage")
 
@@ -47,6 +46,7 @@ class PrintIn(BaseModel):
     printer_id: int
     lot_ids: list[int] = Field(min_length=1, max_length=100)
     copies: int = Field(default=1, ge=1, le=50)
+    style: Literal["container", "pack"] = "container"
 
 
 def _out(printer: LabelPrinter, manager: bool) -> dict:
@@ -137,10 +137,8 @@ def print_labels(body: PrintIn, user: User = Depends(any_of(*USERS)), db: Sessio
     printer = db.get(LabelPrinter, body.printer_id)
     if not printer or not printer.active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Printer not found")
-    if len(body.lot_ids) * body.copies > MAX_LABELS:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"At most {MAX_LABELS} labels at a time")
-    pages = label_pages(db, user, body.lot_ids, body.copies)
+    pages = label_pages(db, user, body.lot_ids, body.copies, body.style)
     _send(printer, pages)
-    audit(db, user, "label.print", "label_printer", printer.id, None, {"lots": body.lot_ids, "copies": body.copies})
+    audit(db, user, "label.print", "label_printer", printer.id, None, {"lots": body.lot_ids, "copies": body.copies, "style": body.style})
     db.commit()
     return {"printed": len(pages), "printer": printer.name}

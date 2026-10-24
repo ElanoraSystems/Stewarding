@@ -122,7 +122,7 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
           </dl>
 
           <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg bg-surface-muted p-3">
-            <LabelActions ids={[lot.id]} />
+            <LabelActions ids={[lot.id]} packs={lot.kind === 'portion' ? lot.pack_count ?? 0 : 0} />
             <Button type="button" variant="outline" onClick={exportTrace}><FileText className="h-4 w-4" aria-hidden /> Trace report (PDF)</Button>
           </div>
 

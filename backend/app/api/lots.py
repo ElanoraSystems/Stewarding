@@ -181,12 +181,31 @@ def _initials(name: str | None) -> str:
     return "".join(part[0] for part in (name or "").split()[:2]).upper()
 
 
-def _label(lot: Lot, maps: dict) -> dict:
+def _plain(qty: Decimal) -> str:
+    """A quantity without trailing zeros: 6.70 as 6.7 and 2600.00 as 2600."""
+    return f"{qty.normalize():f}"
+
+
+def _in_all(qty: Decimal | None, unit: str | None) -> str:
+    """An amount in the unit that reads best, 4800 g as 4.8 kg."""
+    if qty is None:
+        return ""
+    name = (unit or "").strip().lower()
+    if name in ("g", "ml") and qty >= 1000:
+        return f"{_plain(qty / 1000)} {'kg' if name == 'g' else 'l'}"
+    return f"{_plain(qty)} {unit or ''}".strip()
+
+
+def _label(lot: Lot, maps: dict, style: str = "container") -> dict:
     tz = maps["tz"][lot.location_id]
     portion = lot.kind == "portion"
-    amount = " ".join(part for part in (f"{lot.qty:g}" if lot.qty is not None else "", lot.unit or "") if part)
-    if portion:
+    amount = " ".join(part for part in (_plain(lot.qty) if lot.qty is not None else "", lot.unit or "") if part)
+    if portion and style == "pack":
+        detail = lot.pack_description or ""
+    elif portion:
         detail = f"{lot.pack_count} x {lot.pack_description}" if lot.pack_count and lot.pack_description else (lot.pack_description or "")
+        if lot.pack_count and lot.pack_description and lot.qty is not None:
+            detail += f", {_in_all(lot.qty, lot.unit)} in all"
     else:
         detail = ", ".join(part for part in (amount, f"tag {lot.tag_number}" if lot.tag_number else "") if part)
     return {"code": lot.code, "item": maps["item"].get(lot.food_item_id) or "", "detail": detail, "condition": CONDITIONS[lot.condition],
@@ -389,14 +408,25 @@ def by_code(code: str, user: User = Depends(any_of("lot.view", "lot.split", "tem
     return {**_lot(lot, _maps(db), now), "blocked": usable(lot, now)}
 
 
-def label_pages(db: Session, user: User, lot_ids: list[int], copies: int) -> list[dict]:
-    """The label content for each lot, repeated per copy, for lots the user may see."""
+MAX_LABELS = 200
+
+
+def label_pages(db: Session, user: User, lot_ids: list[int], copies: int, style: str = "container") -> list[dict]:
+    """The label content for each lot, repeated per copy, for lots the user may see; a pack style prints one label per pack of a portion lot."""
     maps = _maps(db)
-    return [_label(_get(db, user, lot_id), maps) for lot_id in lot_ids for _ in range(copies)]
+    pages = []
+    for lot_id in lot_ids:
+        lot = _get(db, user, lot_id)
+        each = (lot.pack_count or 1) * copies if style == "pack" and lot.kind == "portion" else copies
+        if len(pages) + each > MAX_LABELS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"At most {MAX_LABELS} labels at a time")
+        pages += [_label(lot, maps, style)] * each
+    return pages
 
 
 @router.get("/labels")
 def print_labels(ids: str = Query(max_length=600), copies: int = Query(1, ge=1, le=50), fmt: Literal["pdf", "zpl"] = "pdf",
+                 style: Literal["container", "pack"] = "container",
                  dpi: int = Query(203, ge=150, le=600), user: User = Depends(any_of("lot.view", "lot.receive", "lot.split")), db: Session = Depends(get_db)):
     """75 x 50 mm labels, one per copy, as a PDF to print or as ZPL for a Zebra printer."""
     try:
@@ -405,7 +435,7 @@ def print_labels(ids: str = Query(max_length=600), copies: int = Query(1, ge=1, 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "ids must be lot numbers separated by commas") from None
     if not wanted or len(wanted) > 100:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose between 1 and 100 lots")
-    pages = label_pages(db, user, wanted, copies)
+    pages = label_pages(db, user, wanted, copies, style)
     if fmt == "zpl":
         return Response(labels.labels_zpl(pages, dpi), media_type="text/plain", headers={"Content-Disposition": 'attachment; filename="lot-labels.zpl"'})
     return Response(labels.labels_pdf(pages), media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="lot-labels.pdf"'})

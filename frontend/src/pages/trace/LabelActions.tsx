@@ -21,13 +21,14 @@ const CHOICE = 'lot_label_printer'
 let helperSearch: Promise<LocalHelper | null> | undefined
 
 /** Prints the 75 x 50 mm labels for some lots: straight to a network Zebra, to a Zebra on this computer, or as a PDF or ZPL file. */
-export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies?: number }) {
+export function LabelActions({ ids, copies: start = 1, packs = 0 }: { ids: number[]; copies?: number; packs?: number }) {
   const toast = useToast()
   const run = useRun()
   const printers = useApi<NetworkPrinter[]>('/label-printers').data ?? []
   const [local, setLocal] = useState<LocalHelper | null>(null)
   const [copies, setCopies] = useState(String(start))
   const [dpi, setDpi] = useState('203')
+  const [style, setStyle] = useState<'container' | 'pack'>('container')
   const [chosen, setChosen] = useState<string>(() => {
     try {
       return localStorage.getItem(CHOICE) ?? ''
@@ -36,7 +37,7 @@ export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies
     }
   })
   const count = Math.min(50, Math.max(1, Number(copies) || 1))
-  const query = `ids=${ids.join(',')}&copies=${count}`
+  const query = `ids=${ids.join(',')}&copies=${count}&style=${style}`
   const printer = printers.find((p) => String(p.id) === chosen) ?? printers[0]
 
   useEffect(() => {
@@ -57,7 +58,7 @@ export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies
     }
   }
 
-  const toNetwork = () => run(() => api('/label-printers/print', { body: { printer_id: printer.id, lot_ids: ids, copies: count } }), `Sent to ${printer?.name}`)
+  const toNetwork = () => run(() => api('/label-printers/print', { body: { printer_id: printer.id, lot_ids: ids, copies: count, style } }), `Sent to ${printer?.name}`)
 
   async function onThisComputer() {
     if (!local) return
@@ -80,6 +81,17 @@ export function LabelActions({ ids, copies: start = 1 }: { ids: number[]; copies
   const first = printer ? 'network' : local ? 'local' : 'pdf'
   return (
     <div className="space-y-2">
+      {packs > 0 && (
+        <div className="space-y-1">
+          <div role="group" aria-label="Label type" className="inline-flex flex-wrap rounded-lg border border-border bg-surface p-0.5">
+            {([['container', 'One label for the container'], ['pack', `A label for each pack (${packs})`]] as const).map(([key, text]) => (
+              <button key={key} type="button" aria-pressed={style === key} onClick={() => setStyle(key)}
+                className={`min-h-9 rounded-md px-3 text-sm font-medium ${style === key ? 'bg-brand text-brand-ink' : 'text-ink-muted hover:text-ink'}`}>{text}</button>
+            ))}
+          </div>
+          {style === 'pack' && <p className="text-xs text-ink-muted">{packs * count} label{packs * count === 1 ? '' : 's'} will print, each with the weight of one pack and the lot code.</p>}
+        </div>
+      )}
       <div className="flex flex-wrap items-end gap-2">
         <label className="w-full text-xs text-ink-muted sm:w-auto">
           Copies of each

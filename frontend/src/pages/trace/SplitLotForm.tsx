@@ -73,7 +73,7 @@ export function SplitLotForm({ onSaved }: { onSaved: () => void }) {
             </li>
           ))}
         </ul>
-        <LabelActions ids={made.map((l) => l.id)} />
+        <LabelActions ids={made.map((l) => l.id)} packs={made.reduce((n, l) => n + (l.pack_count ?? 0), 0)} />
         <Button type="button" variant="outline" onClick={() => { setMade(null); setChosen([]); setParts([blank()]); setFinish(false) }}>Split another lot</Button>
       </div>
     )

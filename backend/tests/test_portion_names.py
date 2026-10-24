@@ -68,3 +68,32 @@ def test_the_lots_list_nests_each_lots_portions_under_the_delivery_and_shows_wha
         found = client.get(LOTS, headers=m, params={"grouped": True, "q": query}).json()
         assert [i["id"] for i in found["items"]] == [lot["id"]] and len(found["items"][0]["children"]) == 2
 
+
+
+def _portion_lot(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    rule(client, m)
+    cook = butcher(client, db, m)
+    lot = receive(client, sup, db, item, qty=6.7, unit="kg").json()
+    child = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(description="Tenderloin steaks", count=13, size=200, unit="g")]}).json()["lots"][0]
+    return lot, child, cook
+
+
+def test_a_container_label_gives_the_count_and_total_and_a_pack_label_only_the_weight(client, login, db, clock):
+    lot, child, cook = _portion_lot(client, login, db, clock)
+    container = client.get(f"{LOTS}/labels?ids={child['id']}&fmt=zpl", headers=cook).text
+    pack = client.get(f"{LOTS}/labels?ids={child['id']}&fmt=zpl&style=pack", headers=cook).text
+    assert "13 x 200 g Tenderloin steaks, 2.6 kg in all" in container and container.count("^XA") == 1
+    assert "200 g Tenderloin steaks" in pack and "13 x" not in pack and "in all" not in pack and "Pack " not in pack
+    assert pack.count("^XA") == 13 and child["code"] in pack
+
+
+def test_pack_labels_are_one_per_pack_times_the_copies_and_a_delivery_still_gets_one(client, login, db, clock):
+    lot, child, cook = _portion_lot(client, login, db, clock)
+    twice = client.get(f"{LOTS}/labels?ids={child['id']}&fmt=zpl&style=pack&copies=2", headers=cook).text
+    assert twice.count("^XA") == 26
+    delivery = client.get(f"{LOTS}/labels?ids={lot['id']}&fmt=zpl&style=pack", headers=login(SUP)).text
+    assert delivery.count("^XA") == 1 and "6.7 kg" in delivery
+    too_many = client.get(f"{LOTS}/labels?ids={child['id']}&fmt=zpl&style=pack&copies=50", headers=cook)
+    assert too_many.status_code == 400 and "At most 200 labels" in too_many.json()["detail"]
