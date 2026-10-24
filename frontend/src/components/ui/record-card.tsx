@@ -21,15 +21,17 @@ interface RecordCardProps {
   actions: CardAction[]
   inactive?: boolean
   children?: ReactNode
+  media?: ReactNode
 }
 
 /** One record of a settings list: what it is, a few facts, and everything that can be done with it. */
-export function RecordCard({ title, subtitle, badges, facts, actions, inactive, children }: RecordCardProps) {
+export function RecordCard({ title, subtitle, badges, facts, actions, inactive, children, media }: RecordCardProps) {
   return (
     <Card className={cn('flex flex-col transition-shadow hover:shadow-md', inactive && 'bg-surface-muted/60')}>
       <div className="flex-1 space-y-4 p-5">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          {media}
+          <div className="min-w-0 flex-1">
             <h3 className={cn('truncate text-base font-semibold', inactive && 'text-ink-muted')}>{title}</h3>
             {subtitle && <p className="mt-0.5 truncate text-sm text-ink-muted">{subtitle}</p>}
           </div>

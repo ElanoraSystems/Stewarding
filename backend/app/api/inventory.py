@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -11,12 +11,14 @@ from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..services.deletion import delete_if_unused
+from ..services.images import thumbnail_jpeg
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryLevel, InventoryUnit, Location,
                       StockTransaction, Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
 from ..services.inventory import StockError, below_minimum, counts_as_received, level_map, norm, post_txn
+from .uploads import MAX_BYTES, file_kind, upload_path
 from ..services.similarity import SCAN_LIMIT, compact, find_similar, token_key, tokens
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
@@ -380,6 +382,45 @@ def update_item(item_id: int, body: ItemUpdate, user: User = Depends(require("in
     return _serialize_items(db, user, [item], None)[0]
 
 
+@router.post("/items/{item_id}/image")
+async def set_item_image(item_id: int, file: UploadFile, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
+    """Keeps a small compressed copy of the picture as the item's thumbnail, replacing any earlier one."""
+    item = db.get(InventoryItem, item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    data = await file.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "The picture must be under 5 MB")
+    if file_kind(data[:16]) not in ("jpg", "png", "webp"):
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "The picture must be a JPEG, PNG or WebP image")
+    try:
+        thumbnail = thumbnail_jpeg(data)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    name = f"{uuid.uuid4().hex}.jpg"
+    upload_path(name).parent.mkdir(parents=True, exist_ok=True)
+    upload_path(name).write_bytes(thumbnail)
+    earlier, item.image_path = item.image_path, name
+    audit(db, user, "inventory.item_image", "inventory_item", item.id, None, {"image_path": name})
+    db.commit()
+    if earlier:
+        upload_path(earlier).unlink(missing_ok=True)
+    return {"image_path": name}
+
+
+@router.delete("/items/{item_id}/image")
+def remove_item_image(item_id: int, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
+    item = db.get(InventoryItem, item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    earlier, item.image_path = item.image_path, None
+    audit(db, user, "inventory.item_image", "inventory_item", item.id, {"image_path": earlier}, {"image_path": None})
+    db.commit()
+    if earlier:
+        upload_path(earlier).unlink(missing_ok=True)
+    return {"image_path": None}
+
+
 class LevelIn(BaseModel):
     min_level: int | None = Field(ge=0, le=MAX_LEVEL)
 
@@ -575,7 +616,10 @@ def delete_item(item_id: int, user: User = Depends(require("inventory.manage")),
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     before = {"code": item.code, "name": item.name}
+    picture = item.image_path
     delete_if_unused(db, item, item.name, cascade=frozenset({"inventory_level"}))
     audit(db, user, "inventory.item_delete", "inventory_item", item_id, before, None)
     db.commit()
+    if picture:
+        upload_path(picture).unlink(missing_ok=True)
     return {"deleted": item_id}

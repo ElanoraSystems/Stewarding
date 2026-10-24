@@ -1,20 +1,25 @@
 import { Pencil, Plus, Power, Search, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ItemThumb } from '@/components/ItemThumb'
+import { ActionMenu } from '@/components/ui/action-menu'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { CardGrid, RecordCard, SectionHeader } from '@/components/ui/record-card'
 import { Select } from '@/components/ui/select'
 import { EmptyState, Skeleton } from '@/components/ui/table'
+import { ViewSwitch } from '@/components/ui/view-switch'
 import { api } from '@/lib/api'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import type { Item } from '@/lib/useItems'
+import { useViewMode } from '@/lib/viewMode'
 import { ItemForm } from '@/pages/ItemForm'
 
-const SIZE = 12
+const SIZES = { cards: 12, grid: 24, list: 25 }
 
 export function SettingsItems() {
   const run = useRun()
@@ -22,6 +27,8 @@ export function SettingsItems() {
   const [search, setSearch] = useState('')
   const [active, setActive] = useState('true')
   const [page, setPage] = useState(1)
+  const [view, chooseView] = useViewMode('items')
+  const SIZE = SIZES[view]
   const [editing, setEditing] = useState<Item | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [removing, setRemoving] = useState<Item | null>(null)
@@ -43,12 +50,23 @@ export function SettingsItems() {
     if (done) reload()
   }
 
+  const openEdit = (item: Item) => { setEditing(item); setFormOpen(true) }
+  const actionsOf = (i: Item) => [
+    { label: 'Edit', icon: Pencil, onClick: () => openEdit(i) },
+    { label: i.active ? 'Make inactive' : 'Make active', icon: Power, onClick: () => toggle(i) },
+    { label: 'Delete', icon: Trash2, tone: 'danger' as const, onClick: () => setRemoving(i) },
+  ]
+  const statusBadges = (i: Item) => <>{i.is_tracked_asset && <Badge>Asset</Badge>}<Badge tone={i.active ? 'ok' : 'neutral'}>{i.active ? 'Active' : 'Inactive'}</Badge></>
+
   const reset = <T,>(set: (v: T) => void) => (v: T) => { set(v); setPage(1) }
 
   return (
     <div className="space-y-6">
       <SectionHeader title="Item master" count={data?.total}
-        action={<Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Add item</Button>} />
+        action={<div className="flex flex-wrap items-center gap-3">
+          <ViewSwitch value={view} onChange={(mode) => { chooseView(mode); setPage(1) }} />
+          <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Add item</Button>
+        </div>} />
 
       <div className="flex flex-wrap gap-3 rounded-xl border border-border bg-surface p-4">
         <div className="relative min-w-56 flex-1">
@@ -65,7 +83,7 @@ export function SettingsItems() {
         </Select>
       </div>
 
-      {!data ? <Skeleton className="h-48 w-full" /> : data.items.length === 0 ? <EmptyState title="No items found" /> : (
+      {!data ? <Skeleton className="h-48 w-full" /> : data.items.length === 0 ? <EmptyState title="No items found" /> : view === 'cards' ? (
         <CardGrid>
           {data.items.map((i) => (
             <RecordCard
@@ -73,21 +91,52 @@ export function SettingsItems() {
               title={i.name}
               subtitle={`${i.code} - ${i.category}`}
               inactive={!i.active}
-              badges={<>{i.is_tracked_asset && <Badge>Asset</Badge>}<Badge tone={i.active ? 'ok' : 'neutral'}>{i.active ? 'Active' : 'Inactive'}</Badge></>}
+              media={<ItemThumb path={i.image_path} name={i.name} className="h-14 w-14" />}
+              badges={statusBadges(i)}
               facts={[
                 { label: 'Unit', value: i.unit },
                 { label: 'Supplier', value: i.supplier ?? '-' },
                 { label: 'Unit cost', value: i.unit_cost != null ? i.unit_cost.toFixed(2) : '-' },
                 { label: 'Minimum / target', value: `${i.min_level} / ${i.target_level ?? '-'}` },
               ]}
-              actions={[
-                { label: 'Edit', icon: Pencil, onClick: () => { setEditing(i); setFormOpen(true) } },
-                { label: i.active ? 'Make inactive' : 'Make active', icon: Power, onClick: () => toggle(i) },
-                { label: 'Delete', icon: Trash2, tone: 'danger', onClick: () => setRemoving(i) },
-              ]}
+              actions={actionsOf(i)}
             />
           ))}
         </CardGrid>
+      ) : view === 'grid' ? (
+        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          {data.items.map((i) => (
+            <li key={i.id}>
+              <Card className={`flex h-full flex-col overflow-hidden transition-shadow hover:shadow-md ${i.active ? '' : 'bg-surface-muted/60'}`}>
+                <button type="button" aria-label={`Edit ${i.name}`} onClick={() => openEdit(i)} className="block text-left">
+                  <ItemThumb path={i.image_path} name={i.name} className="aspect-square w-full rounded-none" />
+                </button>
+                <div className="flex flex-1 items-start justify-between gap-1 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{i.name}</p>
+                    <p className="truncate text-xs text-ink-muted">{i.code} - {i.category}</p>
+                    <div className="mt-2 flex flex-wrap gap-1">{statusBadges(i)}</div>
+                  </div>
+                  <ActionMenu label={`Actions for ${i.name}`} actions={actionsOf(i)} />
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+          {data.items.map((i) => (
+            <li key={i.id} className={`flex items-center gap-3 px-4 py-3 ${i.active ? '' : 'bg-surface-muted/60'}`}>
+              <ItemThumb path={i.image_path} name={i.name} className="h-12 w-12" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{i.name}</p>
+                <p className="truncate text-sm text-ink-muted">{i.code} - {i.category} - {i.unit}{i.supplier ? ` - ${i.supplier}` : ''}</p>
+              </div>
+              <div className="hidden shrink-0 gap-1.5 sm:flex">{statusBadges(i)}</div>
+              <ActionMenu label={`Actions for ${i.name}`} actions={actionsOf(i)} />
+            </li>
+          ))}
+        </ul>
       )}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
 

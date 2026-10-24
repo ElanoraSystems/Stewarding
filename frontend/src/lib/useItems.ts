@@ -9,6 +9,7 @@ export interface Item {
   category: string
   unit: string
   description: string | null
+  image_path: string | null
   storage_location: string | null
   min_level: number
   target_level: number | null

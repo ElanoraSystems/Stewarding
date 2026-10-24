@@ -1,12 +1,14 @@
-import { AlertTriangle } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { AlertTriangle, ImagePlus } from 'lucide-react'
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import { ItemThumb } from '@/components/ItemThumb'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
-import { api } from '@/lib/api'
+import { api, uploadItemImage } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { shrinkImage } from '@/lib/image'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import type { Item } from '@/lib/useItems'
@@ -34,6 +36,8 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
   const units = useApi<{ id: number; name: string }[]>('/inventory/units')
   const suppliers = useApi<{ id: number; name: string }[]>('/suppliers')
   const [similar, setSimilar] = useState<Similar[]>([])
+  const [picture, setPicture] = useState<File | null>(null)
+  const [removePicture, setRemovePicture] = useState(false)
   const [form, setForm] = useState({
     name: item?.name ?? '', category_id: item ? String(item.category_id) : '',
     unit_id: item ? String(item.unit_id) : '', supplier_id: item?.supplier_id ? String(item.supplier_id) : '',
@@ -59,6 +63,19 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
     }
   }, [form.name, item?.id])
 
+  const preview = useMemo(() => (picture ? URL.createObjectURL(picture) : null), [picture])
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview) }, [preview])
+
+  async function choosePicture(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setRemovePicture(false)
+    setPicture(await shrinkImage(file))
+  }
+
+  const hasPicture = picture !== null || (item?.image_path != null && !removePicture)
+
   const shownSimilar = form.name.trim().length >= 3 ? similar : []
   const exact = shownSimilar.find((s) => s.match === 'same')
 
@@ -70,11 +87,14 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
       target_level: form.target_level === '' ? null : Number(form.target_level),
       unit_cost: form.unit_cost === '' ? null : Number(form.unit_cost), storage_location: form.storage_location || null,
     }
-    const ok = await run(() => editing
-      ? api(`/inventory/items/${item.id}`, { method: 'PUT', body: common })
-      : api('/inventory/items', { body: { ...common, is_tracked_asset: form.is_tracked_asset,
-        opening_qty: Number(form.opening_qty), opening_location_id: Number(form.opening_qty) > 0 ? Number(form.opening_location_id) : null } }),
-    editing ? 'Item updated' : 'Item created')
+    const ok = await run(async () => {
+      const saved = editing
+        ? await api<{ id: number }>(`/inventory/items/${item.id}`, { method: 'PUT', body: common })
+        : await api<{ id: number }>('/inventory/items', { body: { ...common, is_tracked_asset: form.is_tracked_asset,
+          opening_qty: Number(form.opening_qty), opening_location_id: Number(form.opening_qty) > 0 ? Number(form.opening_location_id) : null } })
+      if (picture) await uploadItemImage(saved.id, picture)
+      else if (removePicture && item?.image_path) await api(`/inventory/items/${saved.id}/image`, { method: 'DELETE' })
+    }, editing ? 'Item updated' : 'Item created')
     if (ok) onSaved()
   }
 
@@ -93,6 +113,21 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
       <form id="item-form" onSubmit={submit} className="space-y-7">
         <section className="space-y-4">
           <h3 className="text-sm font-semibold">About the item</h3>
+          <div className="flex items-center gap-4">
+            {preview ? <img src={preview} alt="New picture" className="h-20 w-20 rounded-lg object-cover" />
+              : <ItemThumb path={removePicture ? null : item?.image_path ?? null} name={form.name || 'Item'} className="h-20 w-20" />}
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-border-strong bg-surface px-3 text-sm font-medium hover:bg-surface-muted focus-within:outline-2 focus-within:outline-brand">
+                  <ImagePlus aria-hidden className="h-4 w-4" />
+                  {hasPicture ? 'Change picture' : 'Add picture'}
+                  <input type="file" accept="image/*" className="sr-only" onChange={choosePicture} />
+                </label>
+                {hasPicture && <Button type="button" variant="ghost" size="sm" onClick={() => { setPicture(null); setRemovePicture(true) }}>Remove picture</Button>}
+              </div>
+              <p className="text-xs text-ink-muted">A JPEG, PNG or WebP photo. It is shrunk to a small thumbnail when saved.</p>
+            </div>
+          </div>
           <Field label="Name">
             <Input required value={form.name} onChange={(e) => set('name', e.target.value)} />
           </Field>
