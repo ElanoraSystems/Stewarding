@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LocationSelect } from '@/components/LocationSelect'
+import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -64,7 +64,7 @@ export function CountsTab() {
   return (
     <div className="space-y-4">
       <div className="filter-bar">
-        <LocationSelect value={locationId} onChange={setLocationId} />
+        <WorkLocationSelect value={locationId} onChange={setLocationId} />
       </div>
       <Card>
         <CardHeader><CardTitle>Physical count</CardTitle></CardHeader>

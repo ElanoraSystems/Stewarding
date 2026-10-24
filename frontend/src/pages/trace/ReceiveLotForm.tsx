@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { LocationSelect } from '@/components/LocationSelect'
+import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -78,7 +78,7 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
             {foods.data.map((f) => <option key={f.id} value={f.id}>{f.name} ({f.group_label})</option>)}
           </Select>
         </Field>
-        <Field label="Received at"><LocationSelect className="w-full" value={locationId} onChange={setLocationId} /></Field>
+        <WorkLocationSelect label="Received at" fill value={locationId} onChange={setLocationId} />
         <Field label="How it arrived">
           <Select value={form.condition} onChange={(e) => set('condition', e.target.value)}>
             {RECEIVED_CONDITIONS.map(([key, text]) => <option key={key} value={key}>{text}</option>)}

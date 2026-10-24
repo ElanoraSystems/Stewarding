@@ -1,6 +1,6 @@
 import { Check, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { LocationSelect } from '@/components/LocationSelect'
+import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -158,7 +158,7 @@ export function ReceivingTab() {
                 {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
             </Field>
-            <Field label="Location"><LocationSelect className="w-full" value={locationId} onChange={setLocationId} /></Field>
+            <WorkLocationSelect label="Location" fill value={locationId} onChange={setLocationId} />
             <Field label={docType === 'receipt' ? 'Invoice number' : 'Credit note number'}><Input value={invoice} onChange={(e) => setInvoice(e.target.value)} /></Field>
             <Field label="Invoice date"><Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} /></Field>
             <div className="sm:col-span-2 lg:col-span-3"><Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field></div>

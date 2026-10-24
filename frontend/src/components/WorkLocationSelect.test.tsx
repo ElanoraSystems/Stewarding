@@ -13,9 +13,9 @@ vi.mock('@/lib/auth', () => ({
 }))
 vi.mock('@/lib/useApi', () => ({ useApi: () => ({ loading: mocks.loading, data: mocks.loading ? null : { rostered_today: mocks.rostered } }) }))
 
-function Harness({ start = null }: { start?: number | null }) {
+function Harness({ start = null, label }: { start?: number | null; label?: string }) {
   const [value, setValue] = useState<number | null>(start)
-  return <><WorkLocationSelect value={value} onChange={setValue} /><output data-testid="chosen">{String(value)}</output></>
+  return <><WorkLocationSelect value={value} onChange={setValue} label={label} fill={label !== undefined} /><output data-testid="chosen">{String(value)}</output></>
 }
 
 const at = (id: number, name: string) => ({ location_id: id, location_name: name, week_off: false })
@@ -41,5 +41,14 @@ describe('WorkLocationSelect', () => {
     mocks.rostered = [at(2, 'Banquet Hall')]
     render(<Harness start={1} />)
     expect((screen.getByLabelText('Location') as HTMLSelectElement).value).toBe('1')
+  })
+
+  it('keeps its label in a form, locked or open', async () => {
+    mocks.loading = false
+    mocks.rostered = [at(2, 'Banquet Hall')]
+    render(<Harness label="Received at" />)
+    expect(screen.getByText('Received at')).toBeTruthy()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Viewing another location?' }))
+    expect(screen.getByLabelText('Received at')).toBeTruthy()
   })
 })

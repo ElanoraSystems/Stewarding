@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { LocationSelect } from '@/components/LocationSelect'
+import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -57,7 +57,7 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
   return (
     <form onSubmit={submit} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Location"><LocationSelect className="w-full" value={locationId} onChange={setLocationId} /></Field>
+        <WorkLocationSelect label="Location" fill value={locationId} onChange={setLocationId} />
         <Field label="Incident type">
           <Select value={type} onChange={(e) => setType(e.target.value)}>
             <option value="breakage">Breakage</option>

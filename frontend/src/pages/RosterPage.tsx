@@ -1,7 +1,7 @@
 import { CalendarOff, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { LocationSelect } from '@/components/LocationSelect'
+import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -149,7 +149,7 @@ export function RosterPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Shift &amp; Duty Roster</h1>
         <div className="flex flex-wrap items-center gap-3">
-          <LocationSelect value={locationId} onChange={setLocationId} />
+          <WorkLocationSelect value={locationId} onChange={setLocationId} />
           {canManage && <Button disabled={!locationId} onClick={() => setDraft({ ...BLANK })}><Plus className="h-4 w-4" /> Assign shift</Button>}
         </div>
       </div>
