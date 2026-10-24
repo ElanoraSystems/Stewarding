@@ -253,9 +253,10 @@ def test_a_check_that_traces_lots_needs_them_and_links_them_to_the_record(client
     assert client.post("/api/monitoring/readings", headers=steward, json=record).status_code == 400            # no lot named
     assert client.post("/api/monitoring/readings", headers=steward, json={**record, "lot_ids": [999]}).status_code == 400
     done = client.post("/api/monitoring/readings", headers=steward, json={**record, "lot_ids": [child["id"]]})
-    assert done.status_code == 201 and done.json()["lots"] == [{"id": child["id"], "code": child["code"]}] and done.json()["reference"] == child["code"]
+    assert done.status_code == 201 and [(x["id"], x["code"]) for x in done.json()["lots"]] == [(child["id"], child["code"])] and done.json()["reference"] == child["code"]
     listed = client.get(f"/api/monitoring/readings?equipment_id={point['id']}", headers=m).json()["items"]
     assert listed[0]["lots"][0]["code"] == child["code"]
+    assert listed[0]["lots"][0]["item"] == "Chicken breast" and listed[0]["lots"][0]["pack"] == child["pack_description"]
     from_parent = client.get(f"{LOTS}/{lot['id']}", headers=m).json()
     assert [(u["lot_code"], u["stage"], u["passed"]) for u in from_parent["uses_forward"]] == [(child["code"], "Lots used", True)]   # the cook record is found from the delivery
     from_child = client.get(f"{LOTS}/{child['id']}", headers=m).json()
@@ -286,9 +287,9 @@ def test_the_lots_of_a_time_in_carry_over_to_the_time_out(client, login, db, clo
     starts = [c for c in point["schedules"] if c["phase"] == "start"]
     started = client.post("/api/monitoring/readings/batch", headers=steward, json={"equipment_id": point["id"], "readings": [
         {"schedule_id": c["id"], "value": 3, "lot_ids": [lot["id"]]} for c in starts]})
-    assert started.status_code == 201 and all(r["lots"] == [{"id": lot["id"], "code": lot["code"]}] and r["reference"] == lot["code"] for r in started.json())
+    assert started.status_code == 201 and all([(x["id"], x["code"]) for x in r["lots"]] == [(lot["id"], lot["code"])] and r["reference"] == lot["code"] for r in started.json())
     done = finish(client, steward, point, started.json()[0]["id"])                 # the time out names no lot
-    assert done.status_code == 201 and all(r["lots"] == [{"id": lot["id"], "code": lot["code"]}] for r in done.json())
+    assert done.status_code == 201 and all([(x["id"], x["code"]) for x in r["lots"]] == [(lot["id"], lot["code"])] for r in done.json())
     uses = client.get(f"{LOTS}/{lot['id']}", headers=m).json()["uses_forward"]
     assert len(uses) == len(starts) + len(done.json())
 
@@ -303,7 +304,7 @@ def test_a_retest_keeps_the_lots_of_the_failed_reading_and_receiving_lists_suppl
     assert failed.status_code == 201 and failed.json()["passed"] is False
     retest = client.post("/api/monitoring/readings", headers=steward, json={"equipment_id": point["id"], "schedule_id": check["id"], "value": 80,
                                                                           "retest_of_id": failed.json()["id"]})
-    assert retest.status_code == 201 and retest.json()["lots"] == [{"id": lot["id"], "code": lot["code"]}]
+    assert retest.status_code == 201 and [(x["id"], x["code"]) for x in retest.json()["lots"]] == [(lot["id"], lot["code"])]
     client.post("/api/suppliers", headers=m, json={"name": "Al Wazzan Poultry"})
     assert "Al Wazzan Poultry" in [s["name"] for s in client.get(f"{LOTS}/suppliers", headers=sup).json()]
     assert client.get(f"{LOTS}/suppliers", headers=steward).status_code == 403
