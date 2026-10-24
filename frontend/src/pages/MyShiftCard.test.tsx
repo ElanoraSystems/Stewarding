@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { MyShiftCard } from '@/pages/MyShiftCard'
 
@@ -19,13 +20,29 @@ vi.mock('@/lib/useApi', () => ({
 }))
 
 describe('MyShiftCard', () => {
-  it('shows where today is rostered and preselects that location first', () => {
+  it('locks the location to the rostered one until the person says they work elsewhere', async () => {
     mocks.rostered = [{ location_id: 2, location_name: 'Banquet Hall', shift: 'Morning', start: '06:00', end: '14:00', week_off: false }]
     render(<MyShiftCard />)
     expect(screen.getByText(/Morning, 06:00 to 14:00, at/)).toBeTruthy()
+    expect(screen.getByText('Banquet Hall (rostered today)')).toBeTruthy()
+    expect(screen.queryByLabelText('Location')).toBeNull()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Working somewhere else?' }))
     const select = screen.getByLabelText('Location') as HTMLSelectElement
     expect(select.value).toBe('2')
     expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Banquet Hall (rostered today)', 'Main Kitchen'])
+  })
+
+  it('keeps the choice open when rostered at two locations or at none', () => {
+    mocks.rostered = [
+      { location_id: 1, location_name: 'Main Kitchen', shift: 'Morning', start: '06:00', end: '10:00', week_off: false },
+      { location_id: 2, location_name: 'Banquet Hall', shift: 'Evening', start: '16:00', end: '22:00', week_off: false },
+    ]
+    const { unmount } = render(<MyShiftCard />)
+    expect(screen.getByLabelText('Location')).toBeTruthy()
+    unmount()
+    mocks.rostered = []
+    render(<MyShiftCard />)
+    expect(screen.getByLabelText('Location')).toBeTruthy()
   })
 
   it('says so on a week off and when nothing is rostered', () => {

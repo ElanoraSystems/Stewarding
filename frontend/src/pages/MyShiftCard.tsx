@@ -42,9 +42,11 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const toast = useToast()
   const { data, loading, reload } = useApi<ShiftStatus>('/attendance/me/status')
   const [picked, setPicked] = useState<number | null>(null)
+  const [elsewhere, setElsewhere] = useState(false)
   const rostered = data?.rostered_today ?? []
   const working = rostered.filter((r) => !r.week_off)
   const locationId = picked ?? working[0]?.location_id ?? null
+  const locked = new Set(working.map((r) => r.location_id)).size === 1 && !elsewhere
   const { me } = useAuth()
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [reason, setReason] = useState('')
@@ -159,7 +161,15 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
                 </p>
               ))}
             </div>
-            <Field label="Where are you working?"><LocationSelect className="h-12 w-full text-base" value={locationId} preferred={working.map((r) => r.location_id)} onChange={setPicked} /></Field>
+            {locked ? (
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Where are you working?</p>
+                <p className="flex min-h-12 items-center rounded-lg border border-border bg-surface-muted px-3 text-base font-medium">{working[0].location_name} (rostered today)</p>
+                <button type="button" className="min-h-11 text-sm font-medium text-brand-deep hover:underline" onClick={() => setElsewhere(true)}>Working somewhere else?</button>
+              </div>
+            ) : (
+              <Field label="Where are you working?"><LocationSelect className="h-12 w-full text-base" value={locationId} preferred={working.map((r) => r.location_id)} onChange={setPicked} /></Field>
+            )}
             <Button className="h-14 w-full text-base" disabled={locationId === null} onClick={checkIn}>
               <LogIn className="h-5 w-5" /> Check in
             </Button>
