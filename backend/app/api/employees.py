@@ -13,7 +13,7 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
-from ..models import (AttendanceRecord, ChecklistInstance, Employee, EmployeeLocation, Location, Role, User)
+from ..models import (AttendanceRecord, ChecklistInstance, Employee, EmployeeLocation, Location, Notification, Role, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
 from ..services.deletion import blockers
 from ..security import check_password_rules, hash_password, temporary_password
@@ -353,19 +353,21 @@ def history(employee_id: int, user: User = Depends(require("attendance.view")), 
 
 @router.delete("/{employee_id}")
 def delete_employee(employee_id: int, user: User = Depends(require("employee.manage")), db: Session = Depends(get_db)):
-    """Removes an employee added by mistake; anyone with history is refused and should be deactivated instead."""
+    """Removes an employee added by mistake with their roster entries and alerts; anyone with real history is refused and should be deactivated instead."""
     emp = _get_visible(db, user, employee_id)
     if emp.user_id == user.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot delete your own account")
     account = emp.user
-    used = blockers(db, emp, frozenset({"employee_location"})) + (blockers(db, account, frozenset({"employee"})) if account else [])
+    used = blockers(db, emp, frozenset({"employee_location", "shift_assignment"})) + (blockers(db, account, frozenset({"employee", "notification"})) if account else [])
     if used:
         raise HTTPException(status.HTTP_409_CONFLICT, f"{emp.full_name} is used by {', '.join(dict.fromkeys(used))}; deactivate them instead")
     before = {"employee_code": emp.employee_code, "full_name": emp.full_name, "email": emp.email}
     db.execute(delete(EmployeeLocation).where(EmployeeLocation.employee_id == emp.id))
+    db.execute(delete(ShiftAssignment).where(ShiftAssignment.employee_id == emp.id))
     db.delete(emp)
     db.flush()
     if account:
+        db.execute(delete(Notification).where(Notification.user_id == account.id))
         db.delete(account)
     audit(db, user, "employee.delete", "employee", employee_id, before, None)
     db.commit()

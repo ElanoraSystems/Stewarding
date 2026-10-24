@@ -1,3 +1,5 @@
+from datetime import date, datetime
+
 from sqlalchemy import select
 
 from app.models import AuditLog, InventoryItem, Supplier
@@ -111,6 +113,37 @@ def test_an_employee_with_history_is_refused_and_should_be_deactivated(client, l
     assert token
     r = client.delete(f"/api/employees/{made['id']}", headers=m)
     assert r.status_code == 409 and "deactivate them instead" in r.json()["detail"]
+
+
+def test_roster_entries_and_alerts_alone_do_not_stop_a_mistaken_employee_being_deleted(client, login, db):
+    from app.models import Notification, ShiftAssignment, User
+
+    m = login(MGR)
+    made = new_employee(client, m, db, "rostered@example.com")
+    shift = client.get("/api/roster/shifts", headers=m).json()[0]["id"]
+    assert client.post("/api/roster/assignments", headers=m, json={"employee_id": made["id"], "shift_id": shift, "location_id": made["location_ids"][0],
+                                                                  "weekdays": [1, 2], "valid_from": "2030-01-01"}).status_code == 201
+    account = db.scalar(select(User.id).where(User.email == "rostered@example.com"))
+    db.add(Notification(user_id=account, kind="reminder", title="Welcome", dedupe_key="welcome:1"))
+    db.commit()
+    assert client.delete(f"/api/employees/{made['id']}", headers=m).status_code == 200
+    assert db.scalar(select(ShiftAssignment.id).where(ShiftAssignment.employee_id == made["id"])) is None
+    assert db.scalar(select(Notification.id).where(Notification.user_id == account)) is None
+
+
+def test_an_employee_with_attendance_is_still_refused_even_if_rostered(client, login, db):
+    from app.models import AttendanceRecord
+
+    m = login(MGR)
+    made = new_employee(client, m, db, "attended@example.com")
+    loc = made["location_ids"][0]
+    shift = client.get("/api/roster/shifts", headers=m).json()[0]["id"]
+    assert client.post("/api/roster/assignments", headers=m, json={"employee_id": made["id"], "shift_id": shift, "location_id": loc,
+                                                                  "weekdays": [1], "valid_from": "2030-01-01"}).status_code == 201
+    db.add(AttendanceRecord(employee_id=made["id"], location_id=loc, local_date=date(2026, 3, 2), check_in_at=datetime(2026, 3, 2, 2, 5)))
+    db.commit()
+    r = client.delete(f"/api/employees/{made['id']}", headers=m)
+    assert r.status_code == 409 and "attendance records" in r.json()["detail"]
 
 
 def test_an_employee_who_others_report_to_is_refused(client, login, db):
