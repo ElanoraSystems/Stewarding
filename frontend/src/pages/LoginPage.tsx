@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { BrandMark } from '@/components/BrandMark'
 import { APP_NAME } from '@/lib/brand'
 import { useAuth } from '@/lib/auth'
@@ -61,8 +62,7 @@ export function LoginPage() {
             </label>
             <label className="block space-y-1 text-sm font-medium">
               Password
-              <Input
-                type="password"
+              <PasswordInput
                 autoComplete={signingUp ? 'new-password' : 'current-password'}
                 required
                 value={password}

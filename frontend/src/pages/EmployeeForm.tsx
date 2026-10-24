@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { api } from '@/lib/api'
@@ -122,7 +123,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
             </Field>
             {!editing && (
               <Field label="Initial password">
-                <Input required type="password" minLength={10} autoComplete="new-password" value={form.password} onChange={(e) => set('password', e.target.value)} />
+                <PasswordInput required minLength={10} autoComplete="new-password" value={form.password} onChange={(e) => set('password', e.target.value)} />
               </Field>
             )}
           </div>

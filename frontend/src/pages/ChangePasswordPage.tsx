@@ -3,7 +3,7 @@ import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { useAuth } from '@/lib/auth'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
@@ -29,13 +29,13 @@ export function PasswordForm({ forced = false }: { forced?: boolean }) {
   return (
     <form onSubmit={submit} className="space-y-4">
       <Field label={forced ? 'Temporary password' : 'Current password'}>
-        <Input required type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        <PasswordInput required autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
       </Field>
       <Field label="New password">
-        <Input required type="password" minLength={10} maxLength={128} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
+        <PasswordInput required minLength={10} maxLength={128} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
       </Field>
       <Field label="Repeat the new password">
-        <Input required type="password" autoComplete="new-password" aria-invalid={mismatch} value={again} onChange={(e) => setAgain(e.target.value)} />
+        <PasswordInput required autoComplete="new-password" aria-invalid={mismatch} value={again} onChange={(e) => setAgain(e.target.value)} />
       </Field>
       {mismatch && <p role="alert" className="text-sm text-danger">The two passwords do not match.</p>}
       <div className="flex flex-wrap items-center gap-2">
