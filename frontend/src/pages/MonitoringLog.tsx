@@ -26,6 +26,7 @@ interface Reading {
   value_type: string
   parameter: string
   reference: string | null
+  lots?: { id: number; code: string; item: string; pack: string | null }[]
   min_limit: number | null
   max_limit: number | null
   passed: boolean
@@ -41,6 +42,9 @@ interface Reading {
 }
 
 const SIZE = 15
+
+/** What a check was about: the food and portion name with the lot code when lots were linked, else the typed reference. */
+const referenceOf = (r: Reading) => (r.lots && r.lots.length > 0 ? r.lots.map((l) => `${l.item}${l.pack ? ` - ${l.pack}` : ''} (${l.code})`).join(', ') : r.reference)
 
 interface LogProps {
   locationId: number | null
@@ -143,7 +147,7 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
             <dl className="grid grid-cols-2 gap-3 text-sm">
               <div><dt className="text-xs text-ink-muted">Value</dt><dd className="font-medium">{valueOf(r)}</dd></div>
               <div><dt className="text-xs text-ink-muted">Limits</dt><dd>{limitsOf(r)}</dd></div>
-              {r.reference && <div><dt className="text-xs text-ink-muted">Reference</dt><dd>{r.reference}</dd></div>}
+              {r.reference && <div><dt className="text-xs text-ink-muted">Reference</dt><dd>{referenceOf(r)}</dd></div>}
               <div><dt className="text-xs text-ink-muted">Recorded by</dt><dd>{r.recorded_by_name}</dd></div>
             </dl>
             <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
@@ -168,7 +172,7 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
               <Td className="font-medium">{names.get(r.equipment_id)}</Td>
               <Td>{label(r.stage)}{r.retest_of_id && <Badge className="ml-1">Retest</Badge>}</Td>
               <Td>{r.value_type === 'signature' || r.value_type === 'image' ? <AuthImage name={r.display} alt={r.value_type === 'signature' ? 'Signature' : 'Image'} /> : r.display}</Td>
-              <Td>{r.reference ?? '-'}</Td>
+              <Td>{referenceOf(r) ?? '-'}</Td>
               <Td>{r.value_type === 'yes_no' ? 'Must be Yes' : r.value_type === 'number' ? `${r.min_limit ?? '-'} to ${r.max_limit ?? '-'}` : '-'}</Td>
               <Td>
                 <Badge tone={r.passed ? 'ok' : 'critical'}>{r.passed ? 'Pass' : 'Fail'}</Badge>

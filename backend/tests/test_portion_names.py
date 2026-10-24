@@ -44,3 +44,27 @@ def test_lot_search_finds_a_lot_by_its_portion_name_and_shows_the_supplier_batch
     client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(description="Satay skewers", count=3)]})
     found = client.get(f"{LOTS}/search", headers=cook, params={"q": "satay"}).json()
     assert len(found) == 1 and found[0]["pack"] == "Satay skewers" and found[0]["supplier_lot"] == "B2610-884"
+
+
+def test_the_lots_list_nests_each_lots_portions_under_the_delivery_and_shows_what_is_left(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    rule(client, m)
+    cook = butcher(client, db, m)
+    lot = receive(client, sup, db, item, qty=6.7, unit="kg").json()
+    other = receive(client, sup, db, item, supplier_lot="B-OTHER").json()
+    cuts = [part(description="Steak portions", count=10, size=200, unit="g"), part(description="Trim", count=1, size=1500, unit="g")]
+    assert client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": cuts}).status_code == 201
+    flat = client.get(LOTS, headers=m).json()
+    assert flat["total"] == 4
+    grouped = client.get(LOTS, headers=m, params={"grouped": True}).json()
+    assert grouped["total"] == 2
+    family = next(i for i in grouped["items"] if i["id"] == lot["id"])
+    assert [c["pack_description"] for c in family["children"]] == ["200 g Steak portions", "1500 g Trim"]
+    assert [c["code"] for c in family["children"]] == [f"{lot['code']}-1", f"{lot['code']}-2"]
+    assert family["balance"] == {"qty": 6.7, "unit": "kg", "portioned": 3.5, "waste": 0.0, "left": 3.2, "unmeasured": 0}
+    assert next(i for i in grouped["items"] if i["id"] == other["id"])["children"] == []
+    for query in ("steak", lot["code"] + "-2"):
+        found = client.get(LOTS, headers=m, params={"grouped": True, "q": query}).json()
+        assert [i["id"] for i in found["items"]] == [lot["id"]] and len(found["items"][0]["children"]) == 2
+

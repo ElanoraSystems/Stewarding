@@ -414,11 +414,11 @@ def print_labels(ids: str = Query(max_length=600), copies: int = Query(1, ge=1, 
 @router.get("")
 def list_lots(q: str | None = None, lot_status: str | None = Query(None, alias="status"), food_group: str | None = None,
               location_id: int | None = None, supplier_id: int | None = None, expiring_hours: int | None = Query(None, ge=1, le=8760), page: int = 1,
-              size: int = 25, user: User = Depends(require("lot.view")), db: Session = Depends(get_db)):
+              size: int = 25, grouped: bool = False, user: User = Depends(require("lot.view")), db: Session = Depends(get_db)):
     stmt = _scoped(select(Lot).join(FoodItem, FoodItem.id == Lot.food_item_id), user, db)
     if q:
         like = f"%{q.strip()}%"
-        stmt = stmt.where(or_(Lot.code.ilike(like), FoodItem.name.ilike(like), Lot.supplier_lot.ilike(like)))
+        stmt = stmt.where(or_(Lot.code.ilike(like), FoodItem.name.ilike(like), Lot.supplier_lot.ilike(like), Lot.pack_description.ilike(like)))
     if lot_status in STATUSES:
         stmt = stmt.where(Lot.status == lot_status)
     if food_group in GROUPS:
@@ -431,9 +431,46 @@ def list_lots(q: str | None = None, lot_status: str | None = Query(None, alias="
     now = timeutil.utc_now()
     if expiring_hours:
         stmt = stmt.where(Lot.status == "active", Lot.use_by.is_not(None), Lot.use_by <= now + timedelta(hours=expiring_hours))
+    if grouped:
+        return _families(db, user, stmt, page, size, now)
     total, rows = paginate(db, stmt.order_by(Lot.id.desc()), page, size)
     maps = _maps(db)
     return {"total": total, "items": [_lot(r[0], maps, now) for r in rows]}
+
+
+def _families(db: Session, user: User, matching, page: int, size: int, now: datetime) -> dict:
+    """The delivery each matching lot came from, newest first, with every lot made from it nested beneath and what is left to portion."""
+    parent_of: dict[int, int] = {}
+    made_from: dict[int, list[int]] = {}
+    for parent_id, child_id in db.execute(select(LotLink.parent_id, LotLink.child_id)):
+        parent_of[child_id] = parent_id
+        made_from.setdefault(parent_id, []).append(child_id)
+
+    def top(lot_id: int) -> int:
+        seen = {lot_id}
+        while lot_id in parent_of and parent_of[lot_id] not in seen:
+            lot_id = parent_of[lot_id]
+            seen.add(lot_id)
+        return lot_id
+
+    roots = {top(lot_id) for lot_id in db.scalars(matching.with_only_columns(Lot.id))}
+    visible = set(db.scalars(_scoped(select(Lot.id).where(Lot.id.in_(roots)), user, db))) if roots else set()
+    ordered = sorted(visible, reverse=True)
+    page_roots = ordered[(page - 1) * size: page * size]
+    wanted, stack = set(), list(page_roots)
+    while stack:
+        lot_id = stack.pop()
+        if lot_id not in wanted:
+            wanted.add(lot_id)
+            stack += made_from.get(lot_id, [])
+    lots = {lot.id: lot for lot in db.scalars(select(Lot).where(Lot.id.in_(wanted)))} if wanted else {}
+    maps = _maps(db)
+
+    def node(lot_id: int) -> dict:
+        kids = sorted(c for c in made_from.get(lot_id, []) if c in lots)
+        return {**_lot(lots[lot_id], maps, now), "children": [node(c) for c in kids], "balance": balance(db, lots[lot_id]) if kids else None}
+
+    return {"total": len(ordered), "items": [node(i) for i in page_roots if i in lots]}
 
 
 @router.post("", status_code=201)

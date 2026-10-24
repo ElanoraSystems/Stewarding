@@ -255,9 +255,10 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
           </div>
         ))}
         {needsReference && (
-          <Field label={cycle.find((s) => s.reference_label)?.reference_label ?? 'Batch, lot or product'}>
-            <Input required maxLength={120} className="w-56" value={reference} onChange={(e) => setReference(e.target.value)} />
-          </Field>
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">{cycle.find((s) => s.reference_label)?.reference_label ?? 'Batch, lot or product'}</p>
+            <LotPicker value={lots} onChange={setLots} allowCustom={{ value: reference, onChange: setReference }} />
+          </div>
         )}
         {needsLots && (
           <Field label="Food lot or lots">
@@ -279,7 +280,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
         <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </Field>
       <div className="sticky -bottom-5 -mx-6 -mb-5 border-t border-border bg-surface px-6 py-4">
-        <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '') || (needsLots && lots.length === 0)}>
+        <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '' && lots.length === 0) || (needsLots && lots.length === 0)}>
           {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : cycle.length > 1 ? 'Record all' : 'Record check'}
         </Button>
       </div>

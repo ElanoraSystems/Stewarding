@@ -69,4 +69,36 @@ describe('LotPicker', () => {
     await screen.findByRole('list', { name: 'Chosen lots' })
     expect(screen.queryByLabelText('Lot code or food name')).not.toBeInTheDocument()
   })
+
+  it('keeps a typed name for food that has no lot, and clears it when a lot is chosen', async () => {
+    function Typed() {
+      const [lots, setLots] = useState<LotChoice[]>([])
+      const [name, setName] = useState('')
+      return <><LotPicker value={lots} onChange={setLots} allowCustom={{ value: name, onChange: setName }} /><output data-testid="name">{name}</output></>
+    }
+    render(<Typed />)
+    const box = screen.getByLabelText('Lot code or food name')
+    fireEvent.change(box, { target: { value: 'house sauce' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Use "house sauce" as typed' }))
+    expect(screen.getByTestId('name').textContent).toBe('house sauce')
+    expect(screen.getByRole('list', { name: 'Typed name' })).toHaveTextContent('house sauce')
+    fireEvent.change(box, { target: { value: 'chicken' } })
+    fireEvent.click(await screen.findByRole('button', { name: /POU-260302-01/ }))
+    expect(screen.getByTestId('name').textContent).toBe('')
+    expect(screen.getByRole('list', { name: 'Chosen lots' })).toHaveTextContent('Chicken breast (POU-260302-01)')
+  })
+
+  it('uses what was typed when Enter is pressed and no lot has that code', async () => {
+    function Typed() {
+      const [lots, setLots] = useState<LotChoice[]>([])
+      const [name, setName] = useState('')
+      return <><LotPicker value={lots} onChange={setLots} allowCustom={{ value: name, onChange: setName }} /><output data-testid="name">{name}</output></>
+    }
+    render(<Typed />)
+    const box = screen.getByLabelText('Lot code or food name')
+    fireEvent.change(box, { target: { value: 'Satay marinade' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Satay marinade'))
+  })
 })
+

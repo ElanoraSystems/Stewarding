@@ -1,19 +1,16 @@
 import { Search } from 'lucide-react'
 import { useState } from 'react'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'
-import { EmptyState, Skeleton, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
-import { fmtDate, fmtDateTime } from '@/lib/format'
+import { EmptyState, Skeleton } from '@/components/ui/table'
 import { FOOD_GROUPS } from '@/lib/reportCatalog'
 import { qs, useApi } from '@/lib/useApi'
 import { LotDetailModal } from '@/pages/trace/LotDetailModal'
-import { STATUS_LABEL, STATUS_TONE, type Lot } from '@/pages/trace/types'
+import { LotFamily } from '@/pages/trace/LotFamily'
+import { STATUS_LABEL, type Lot } from '@/pages/trace/types'
 
 const SIZE = 15
-
-const quantity = (lot: Lot) => (lot.qty === null ? '-' : `${lot.qty} ${lot.unit ?? ''}`.trim())
 
 export function LotsTab() {
   const [search, setSearch] = useState('')
@@ -24,14 +21,14 @@ export function LotsTab() {
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState<number | null>(null)
   const suppliers = useApi<{ id: number; name: string }[]>('/lots/suppliers')
-  const { data, loading, reload } = useApi<{ total: number; items: Lot[] }>(`/lots${qs({ q: search, status, food_group: group, supplier_id: supplier, expiring_hours: soon ? 48 : '', page, size: SIZE })}`)
+  const { data, loading, reload } = useApi<{ total: number; items: Lot[] }>(`/lots${qs({ grouped: true, q: search, status, food_group: group, supplier_id: supplier, expiring_hours: soon ? 48 : '', page, size: SIZE })}`)
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface p-4">
         <div className="relative min-w-52 flex-1">
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted" aria-hidden />
-          <Input aria-label="Search lots" className="pl-9" placeholder="Lot code, food or supplier lot" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
+          <Input aria-label="Search lots" className="pl-9" placeholder="Lot code, food, portion name or supplier lot" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
         </div>
         <Select aria-label="Status" className="w-auto" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
           <option value="">Any status</option>
@@ -51,45 +48,9 @@ export function LotsTab() {
           <input type="checkbox" checked={soon} onChange={(e) => { setSoon(e.target.checked); setPage(1) }} /> Use-by within 48 hours
         </label>
       </div>
-      <ul className="space-y-3 xl:hidden">
-        {loading && !data && <li><Skeleton className="h-24 w-full" /></li>}
-        {data?.items.map((l) => (
-          <li key={l.id}>
-            <button type="button" onClick={() => setOpen(l.id)} className="w-full space-y-1.5 rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted">
-              <span className="flex items-center justify-between gap-2">
-                <span className="break-all font-semibold">{l.code}</span>
-                <Badge tone={STATUS_TONE[l.status]}>{STATUS_LABEL[l.status]}</Badge>
-              </span>
-              <span className="block text-sm">{l.item}{l.pack_description ? <span className="text-ink-muted"> - {l.pack_count} x {l.pack_description}</span> : null}</span>
-              <span className="flex flex-wrap items-center gap-x-3 text-xs text-ink-muted">
-                {l.qty !== null && <span>{quantity(l)}</span>}
-                <span>Use by {l.use_by ? fmtDateTime(l.use_by) : '-'}</span>
-                {l.past_use_by && l.status === 'active' && <Badge tone="critical">Past</Badge>}
-                <span>{l.location}</span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="hidden xl:block">
-      <Table>
-        <thead><tr><Th>Lot</Th><Th>Food</Th><Th>Quantity</Th><Th>Supplier</Th><Th>Produced</Th><Th>Expiry</Th><Th>Use by</Th><Th>Status</Th><Th>Location</Th></tr></thead>
-        <tbody>
-          {loading && !data ? <SkeletonRows cols={9} /> : data?.items.map((l) => (
-            <tr key={l.id} className="cursor-pointer" onClick={() => setOpen(l.id)}>
-              <Td className="font-medium">{l.code}</Td>
-              <Td>{l.item}{l.pack_description ? <span className="block text-xs text-ink-muted">{l.pack_count} x {l.pack_description}</span> : null}</Td>
-              <Td className="whitespace-nowrap">{quantity(l)}</Td>
-              <Td>{l.supplier ?? '-'}{l.supplier_lot ? <span className="block text-xs text-ink-muted">lot {l.supplier_lot}</span> : null}</Td>
-              <Td>{l.produced_on ? fmtDate(l.produced_on) : '-'}</Td>
-              <Td>{l.expiry_on ? fmtDate(l.expiry_on) : '-'}</Td>
-              <Td>{l.use_by ? fmtDateTime(l.use_by) : '-'}{l.past_use_by && l.status === 'active' && <Badge tone="critical" className="ml-1">Past</Badge>}</Td>
-              <Td><Badge tone={STATUS_TONE[l.status]}>{STATUS_LABEL[l.status]}</Badge></Td>
-              <Td>{l.location}</Td>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
+      {loading && !data && <Skeleton className="h-32 w-full" />}
+      <div className="space-y-4">
+        {data?.items.map((l) => <LotFamily key={l.id} lot={l} onOpen={setOpen} />)}
       </div>
       {data?.items.length === 0 && <EmptyState title="No lots found" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}

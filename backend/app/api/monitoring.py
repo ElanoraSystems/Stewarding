@@ -10,7 +10,7 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, EquipmentSchedule, Location, Lot, Notification, ReadingLot,
+from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, EquipmentSchedule, FoodItem, Location, Lot, Notification, ReadingLot,
                       TemperatureReading, User)
 from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
@@ -111,9 +111,10 @@ def _latest_actions(db: Session, reading_ids: list[int]) -> dict[int, Corrective
 def _lots_of(db: Session, reading_ids: list[int]) -> dict[int, list[dict]]:
     out: dict[int, list[dict]] = {i: [] for i in reading_ids}
     if reading_ids:
-        for reading_id, lot_id, code in db.execute(select(ReadingLot.reading_id, Lot.id, Lot.code).join(Lot, Lot.id == ReadingLot.lot_id)
-                                                   .where(ReadingLot.reading_id.in_(reading_ids)).order_by(Lot.id)):
-            out[reading_id].append({"id": lot_id, "code": code})
+        for reading_id, lot_id, code, item, pack in db.execute(
+                select(ReadingLot.reading_id, Lot.id, Lot.code, FoodItem.name, Lot.pack_description).join(Lot, Lot.id == ReadingLot.lot_id)
+                .join(FoodItem, FoodItem.id == Lot.food_item_id).where(ReadingLot.reading_id.in_(reading_ids)).order_by(Lot.id)):
+            out[reading_id].append({"id": lot_id, "code": code, "item": item, "pack": pack})
     return out
 
 
