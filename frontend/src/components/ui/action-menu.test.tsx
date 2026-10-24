@@ -48,4 +48,10 @@ describe('ActionMenu', () => {
     await user.click(document.body)
     expect(screen.queryByRole('menu')).toBeNull()
   })
+
+  it('can show a word beside the dots so the menu is easy to find', () => {
+    render(<ActionMenu label="More actions for Sam" text="More" actions={[{ label: 'Delete', onClick: () => undefined }]} />)
+    expect(screen.getByRole('button', { name: 'More actions for Sam' }).textContent).toBe('More')
+  })
 })
+

@@ -103,6 +103,7 @@ export function EmployeesPage() {
     <>
       <Button size="sm" variant="outline" onClick={() => { setEditing(e); setFormOpen(true) }}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
       <ActionMenu
+        text="More"
         label={`More actions for ${e.full_name}`}
         actions={[
           { label: e.face_enrolled ? 'Update face' : 'Enroll face', icon: ScanFace, onClick: () => setEnrolling(e) },

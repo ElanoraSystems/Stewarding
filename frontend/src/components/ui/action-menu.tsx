@@ -13,11 +13,12 @@ export interface MenuAction {
 
 interface ActionMenuProps {
   label: string
+  text?: string
   actions: MenuAction[]
 }
 
 /** A "more actions" button that opens a short list; the list floats above the page so a table cannot clip it. */
-export function ActionMenu({ label, actions }: ActionMenuProps) {
+export function ActionMenu({ label, actions, text }: ActionMenuProps) {
   const [spot, setSpot] = useState<{ top: number; right: number } | null>(null)
   const button = useRef<HTMLSpanElement>(null)
   const menu = useRef<HTMLDivElement>(null)
@@ -66,8 +67,8 @@ export function ActionMenu({ label, actions }: ActionMenuProps) {
   return (
     <>
       <span ref={button} className="inline-flex">
-        <Button type="button" size="icon" variant="outline" aria-label={label} aria-haspopup="menu" aria-expanded={spot !== null} onClick={toggle}>
-          <MoreHorizontal className="h-4 w-4" aria-hidden />
+        <Button type="button" size={text ? 'sm' : 'icon'} variant="outline" aria-label={label} aria-haspopup="menu" aria-expanded={spot !== null} onClick={toggle}>
+          <MoreHorizontal className="h-4 w-4" aria-hidden />{text}
         </Button>
       </span>
       {spot && (
