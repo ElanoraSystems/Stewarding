@@ -200,17 +200,27 @@ def _open_record(db: Session, emp: Employee) -> AttendanceRecord | None:
 
 def _pick_shift(db: Session, emp: Employee, location: Location, now: datetime) -> Shift | None:
     day = timeutil.local_date(now, location.timezone)
-    candidates = db.scalars(
-        select(Shift).join(ShiftAssignment, ShiftAssignment.shift_id == Shift.id)
+    candidates = [shift for shift, assignment in db.execute(
+        select(Shift, ShiftAssignment).join(ShiftAssignment, ShiftAssignment.shift_id == Shift.id)
         .where(ShiftAssignment.employee_id == emp.id, ShiftAssignment.location_id == location.id,
-               ShiftAssignment.weekday == day.weekday(), ShiftAssignment.valid_from <= day,
-               or_(ShiftAssignment.valid_to.is_(None), ShiftAssignment.valid_to >= day), Shift.active.is_(True),
-               Shift.kind == "work")
-    ).all()
+               ShiftAssignment.weekday == day.weekday(), Shift.active.is_(True), Shift.kind == "work")
+    ) if assignment.applies_on(day)]
     if not candidates:
         return None
     return min(candidates, key=lambda s: abs((now - timeutil.local_to_utc(day, s.start_time, location.timezone))
                                              .total_seconds()))
+
+
+def rostered_today(db: Session, emp: Employee, now: datetime) -> list[dict]:
+    """Where and when the employee is rostered today, or marked off, at each location, earliest shift first."""
+    found = db.execute(
+        select(ShiftAssignment, Shift, Location).join(Shift, Shift.id == ShiftAssignment.shift_id)
+        .join(Location, Location.id == ShiftAssignment.location_id)
+        .where(ShiftAssignment.employee_id == emp.id, Shift.active.is_(True), Location.active.is_(True)))
+    today = [(shift, location) for assignment, shift, location in found if assignment.applies_on(timeutil.local_date(now, location.timezone))]
+    return [{"location_id": location.id, "location_name": location.name, "shift": shift.name, "start": f"{shift.start_time:%H:%M}",
+             "end": f"{shift.end_time:%H:%M}", "week_off": shift.kind == "weekoff"}
+            for shift, location in sorted(today, key=lambda pair: pair[0].start_time)]
 
 
 def incomplete_tasks(db: Session, user: User, record: AttendanceRecord) -> list[ChecklistInstance]:
@@ -365,7 +375,8 @@ def my_status(user: User = Depends(require("attendance.self")), db: Session = De
     record = _open_record(db, emp)
     out = {"checked_in": record is not None, "server_time": iso(now), "employee": emp.full_name,
            "employee_code": emp.employee_code, "record": None, "incomplete_task_count": 0,
-           "face_required": bool(get_setting(db, "attendance.face_required")), "face_enrolled": emp.face_descriptor is not None}
+           "face_required": bool(get_setting(db, "attendance.face_required")), "face_enrolled": emp.face_descriptor is not None,
+           "rostered_today": rostered_today(db, emp, now)}
     if record:
         out["record"] = _serialize(record, now)
         out["incomplete_task_count"] = len(incomplete_tasks(db, user, record))

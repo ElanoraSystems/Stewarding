@@ -100,6 +100,9 @@ class Shift(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+CYCLE_EPOCH = date(2020, 1, 6)  # a Monday: the first week of every roster cycle
+
+
 class ShiftAssignment(Base):
     __tablename__ = "shift_assignment"
     __table_args__ = (UniqueConstraint("employee_id", "shift_id", "location_id", "weekday", "valid_from"),)
@@ -110,6 +113,13 @@ class ShiftAssignment(Base):
     weekday: Mapped[int] = mapped_column(Integer)
     valid_from: Mapped[date] = mapped_column(Date)
     valid_to: Mapped[date | None] = mapped_column(Date)
+    cycle_weeks: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 1 = every week, 2 = alternate weeks
+    cycle_week: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # which week of the cycle, counted from CYCLE_EPOCH
+
+    def applies_on(self, day: date) -> bool:
+        """Whether this weekly assignment falls on `day`: the weekday, the dates it is valid for and the week of its cycle."""
+        return (self.weekday == day.weekday() and self.valid_from <= day and (self.valid_to is None or self.valid_to >= day)
+                and ((day - CYCLE_EPOCH).days // 7) % self.cycle_weeks == self.cycle_week)
 
 
 class AttendanceRecord(Base):

@@ -29,13 +29,13 @@ def missing_checkins(db: Session, location: Location, now: datetime) -> int:
         select(ShiftAssignment, Employee, Shift).join(Employee, Employee.id == ShiftAssignment.employee_id)
         .join(Shift, Shift.id == ShiftAssignment.shift_id)
         .where(ShiftAssignment.location_id == location.id, ShiftAssignment.weekday == day.weekday(),
-               ShiftAssignment.valid_from <= day, Employee.status == "active", Shift.active.is_(True),
+               Employee.status == "active", Shift.active.is_(True),
                Shift.kind == "work")).all()
     away = set(db.scalars(select(AbsenceRecord.employee_id).where(
         AbsenceRecord.local_date == day, AbsenceRecord.voided_at.is_(None))))
     created = 0
     for assignment, emp, shift in rows:
-        if assignment.valid_to and assignment.valid_to < day:
+        if not assignment.applies_on(day):
             continue
         start = timeutil.local_to_utc(day, shift.start_time, tz)
         end = timeutil.shift_end_utc(day, shift.start_time, shift.end_time, tz)

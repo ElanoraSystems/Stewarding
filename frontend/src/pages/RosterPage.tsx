@@ -15,6 +15,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDate, label, weekdaysText } from '@/lib/format'
 import { useRun } from '@/lib/toast'
+import { cycleOffset, cycleStart, cycleWeek } from '@/lib/rosterCycle'
 import { qs, useApi } from '@/lib/useApi'
 import type { EmployeeRow } from '@/pages/EmployeeForm'
 
@@ -45,6 +46,8 @@ interface Assignment {
   weekday: number
   valid_from: string
   valid_to: string | null
+  cycle_weeks: number
+  cycle_week: number
 }
 interface Group {
   key: string
@@ -54,6 +57,8 @@ interface Group {
   valid_to: string | null
   weekdays: number[]
   ids: number[]
+  cycle_weeks: number
+  cycle_week: number
 }
 interface Draft {
   ids: number[] | null
@@ -62,11 +67,13 @@ interface Draft {
   weekdays: number[]
   valid_from: string
   valid_to: string
+  cycle_weeks: number
+  offset: number
 }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const PAGE = 12
-const BLANK: Draft = { ids: null, employee_id: '', shift_id: '', weekdays: [0, 1, 2, 3, 4], valid_from: '', valid_to: '' }
+const BLANK: Draft = { ids: null, employee_id: '', shift_id: '', weekdays: [0, 1, 2, 3, 4], valid_from: '', valid_to: '', cycle_weeks: 1, offset: 0 }
 
 export function RosterPage() {
   const { me } = useAuth()
@@ -89,7 +96,10 @@ export function RosterPage() {
   async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft) return
-    const shared = { shift_id: Number(draft.shift_id), weekdays: draft.weekdays, valid_from: draft.valid_from, valid_to: draft.valid_to || null }
+    const shared = {
+      shift_id: Number(draft.shift_id), weekdays: draft.weekdays, valid_from: draft.valid_from, valid_to: draft.valid_to || null,
+      cycle_weeks: draft.cycle_weeks, cycle_week: cycleWeek(draft.valid_from, draft.cycle_weeks, draft.offset),
+    }
     const ok = await run(
       () => draft.ids
         ? api('/roster/assignments', { method: 'PUT', body: { ids: draft.ids, ...shared } })
@@ -117,12 +127,12 @@ export function RosterPage() {
   const groups = (() => {
     const out = new Map<string, Group>()
     for (const a of assignments.data ?? []) {
-      const key = `${a.employee_id}|${a.shift_id}|${a.valid_from}|${a.valid_to ?? ''}`
+      const key = `${a.employee_id}|${a.shift_id}|${a.valid_from}|${a.valid_to ?? ''}|${a.cycle_weeks}|${a.cycle_week}`
       const group = out.get(key)
       if (group) {
         group.weekdays.push(a.weekday)
         group.ids.push(a.id)
-      } else out.set(key, { key, employee_id: a.employee_id, shift_id: a.shift_id, valid_from: a.valid_from, valid_to: a.valid_to, weekdays: [a.weekday], ids: [a.id] })
+      } else out.set(key, { key, employee_id: a.employee_id, shift_id: a.shift_id, valid_from: a.valid_from, valid_to: a.valid_to, weekdays: [a.weekday], ids: [a.id], cycle_weeks: a.cycle_weeks, cycle_week: a.cycle_week })
     }
     const needle = search.trim().toLowerCase()
     return [...out.values()]
@@ -191,10 +201,11 @@ export function RosterPage() {
                   badges={shift?.kind === 'weekoff' ? <Badge>Week off</Badge> : g.valid_to ? <Badge tone="warn">Ends {fmtDate(g.valid_to)}</Badge> : <Badge tone="ok">Ongoing</Badge>}
                   facts={[
                     { label: 'Days', value: weekdaysText(g.weekdays) },
+                    { label: 'Repeats', value: g.cycle_weeks === 1 ? 'Every week' : `Every ${g.cycle_weeks} weeks, from the week of ${fmtDate(cycleStart(g.valid_from, g.cycle_weeks, g.cycle_week))}` },
                     { label: 'From', value: fmtDate(g.valid_from) },
                   ]}
                   actions={canManage ? [
-                    { label: 'Edit', icon: Pencil, onClick: () => setDraft({ ids: g.ids, employee_id: String(g.employee_id), shift_id: String(g.shift_id), weekdays: g.weekdays, valid_from: g.valid_from, valid_to: g.valid_to ?? '' }) },
+                    { label: 'Edit', icon: Pencil, onClick: () => setDraft({ ids: g.ids, employee_id: String(g.employee_id), shift_id: String(g.shift_id), weekdays: g.weekdays, valid_from: g.valid_from, valid_to: g.valid_to ?? '', cycle_weeks: g.cycle_weeks, offset: cycleOffset(g.valid_from, g.cycle_weeks, g.cycle_week) }) },
                     { label: 'End', icon: CalendarOff, onClick: () => end(g), disabled: g.valid_to !== null, title: g.valid_to ? 'Already ends on a set date' : 'Stop this assignment from today' },
                     { label: 'Delete', icon: Trash2, tone: 'danger', onClick: () => setRemoving(g) },
                   ] : []}
@@ -252,6 +263,27 @@ export function RosterPage() {
                 <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({ ...draft, weekdays: [] })}>Clear</Button>
               </div>
             </fieldset>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field label="Repeats">
+                <Select value={draft.cycle_weeks} onChange={(e) => setDraft({ ...draft, cycle_weeks: Number(e.target.value), offset: 0 })}>
+                  <option value={1}>Every week</option>
+                  <option value={2}>Every 2nd week (alternate weeks)</option>
+                  <option value={3}>Every 3rd week</option>
+                  <option value={4}>Every 4th week</option>
+                </Select>
+              </Field>
+              {draft.cycle_weeks > 1 && (
+                <Field label={draft.valid_from ? 'Which weeks' : 'Which weeks (choose the start date first)'}>
+                  <Select disabled={!draft.valid_from} value={draft.offset} onChange={(e) => setDraft({ ...draft, offset: Number(e.target.value) })}>
+                    {Array.from({ length: draft.cycle_weeks }, (_, offset) => (
+                      <option key={offset} value={offset}>
+                        {draft.valid_from ? `The week of ${fmtDate(cycleStart(draft.valid_from, draft.cycle_weeks, cycleWeek(draft.valid_from, draft.cycle_weeks, offset)))}, then every ${draft.cycle_weeks} weeks` : `Week ${offset + 1}`}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </div>
           </form>
         )}
       </Modal>

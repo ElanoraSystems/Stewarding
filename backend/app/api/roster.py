@@ -1,4 +1,5 @@
 from datetime import date, time
+from math import gcd
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -48,11 +49,15 @@ class AssignmentIn(BaseModel):
     weekdays: list[int] = Field(min_length=1)
     valid_from: date
     valid_to: date | None = None
+    cycle_weeks: int = Field(default=1, ge=1, le=4)
+    cycle_week: int = Field(default=0, ge=0, le=3)
 
     @model_validator(mode="after")
     def _range(self):
         if self.valid_to is not None and self.valid_to < self.valid_from:
             raise ValueError("The end date cannot be before the start date")
+        if self.cycle_week >= self.cycle_weeks:
+            raise ValueError("The week of the cycle must be within the cycle")
         return self
 
 
@@ -123,12 +128,19 @@ def list_assignments(location_id: int | None = None, employee_id: int | None = N
         stmt = stmt.where(ShiftAssignment.location_id.in_(allowed))
     if employee_id is not None:
         stmt = stmt.where(ShiftAssignment.employee_id == employee_id)
-    return [row(a, "id", "employee_id", "shift_id", "location_id", "weekday", "valid_from", "valid_to")
+    return [row(a, "id", "employee_id", "shift_id", "location_id", "weekday", "valid_from", "valid_to", "cycle_weeks", "cycle_week")
             for a in db.scalars(stmt.order_by(ShiftAssignment.location_id, ShiftAssignment.weekday))]
 
 
 class EndIn(BaseModel):
     ids: list[int] = Field(min_length=1, max_length=7)
+
+
+def _meeting(db: Session, body: "AssignmentIn", *conditions) -> bool:
+    """Whether the employee already has an assignment matching `conditions` that falls in the same weeks as the new one."""
+    found = db.execute(select(ShiftAssignment.cycle_weeks, ShiftAssignment.cycle_week).join(Shift, Shift.id == ShiftAssignment.shift_id)
+                       .where(ShiftAssignment.employee_id == body.employee_id, *conditions))
+    return any((week - body.cycle_week) % gcd(weeks, body.cycle_weeks) == 0 for weeks, week in found)
 
 
 def _check_assignment(db: Session, body: AssignmentIn, ignore: set[int]) -> None:
@@ -145,14 +157,11 @@ def _check_assignment(db: Session, body: AssignmentIn, ignore: set[int]) -> None
     overlaps = (ShiftAssignment.weekday.in_(set(body.weekdays)), ShiftAssignment.id.not_in(ignore),
                 or_(ShiftAssignment.valid_to.is_(None), ShiftAssignment.valid_to >= body.valid_from),
                 ShiftAssignment.valid_from <= (body.valid_to or date.max))
-    repeat = db.scalar(select(ShiftAssignment.id).where(
-        ShiftAssignment.employee_id == body.employee_id, ShiftAssignment.shift_id == body.shift_id, ShiftAssignment.location_id == body.location_id, *overlaps))
+    repeat = _meeting(db, body, ShiftAssignment.shift_id == body.shift_id, ShiftAssignment.location_id == body.location_id, *overlaps)
     if repeat:
         raise HTTPException(status.HTTP_409_CONFLICT, f"The employee already has {shift.name} on one of those days; end it first")
     opposite = "work" if shift.kind == "weekoff" else "weekoff"
-    clash = db.scalar(
-        select(ShiftAssignment.id).join(Shift, Shift.id == ShiftAssignment.shift_id)
-        .where(ShiftAssignment.employee_id == body.employee_id, Shift.kind == opposite, *overlaps))
+    clash = _meeting(db, body, Shift.kind == opposite, *overlaps)
     if clash:
         raise HTTPException(status.HTTP_409_CONFLICT, "The employee already has a "
                             + ("working shift" if opposite == "work" else "week off") + " on one of those days; end it first")
@@ -163,7 +172,8 @@ def _insert_assignments(db: Session, body: AssignmentIn) -> list[int]:
     try:
         for weekday in sorted(set(body.weekdays)):
             a = ShiftAssignment(employee_id=body.employee_id, shift_id=body.shift_id, location_id=body.location_id,
-                                weekday=weekday, valid_from=body.valid_from, valid_to=body.valid_to)
+                                weekday=weekday, valid_from=body.valid_from, valid_to=body.valid_to,
+                                cycle_weeks=body.cycle_weeks, cycle_week=body.cycle_week)
             db.add(a)
             db.flush()
             created.append(a.id)
@@ -189,11 +199,15 @@ class ChangeIn(BaseModel):
     weekdays: list[int] = Field(min_length=1)
     valid_from: date
     valid_to: date | None = None
+    cycle_weeks: int = Field(default=1, ge=1, le=4)
+    cycle_week: int = Field(default=0, ge=0, le=3)
 
     @model_validator(mode="after")
     def _range(self):
         if self.valid_to is not None and self.valid_to < self.valid_from:
             raise ValueError("The end date cannot be before the start date")
+        if self.cycle_week >= self.cycle_weeks:
+            raise ValueError("The week of the cycle must be within the cycle")
         return self
 
 
@@ -212,10 +226,12 @@ def change_assignments(body: ChangeIn, user: User = Depends(require("roster.mana
     """Replaces one employee's group of weekly assignments with new days, shift and dates, checking them as a new assignment would be."""
     old = _load_group(db, user, body.ids)
     new = AssignmentIn(employee_id=old[0].employee_id, location_id=old[0].location_id, shift_id=body.shift_id,
-                       weekdays=body.weekdays, valid_from=body.valid_from, valid_to=body.valid_to)
+                       weekdays=body.weekdays, valid_from=body.valid_from, valid_to=body.valid_to,
+                       cycle_weeks=body.cycle_weeks, cycle_week=body.cycle_week)
     _check_assignment(db, new, {a.id for a in old})
     before = {"ids": sorted(a.id for a in old), "shift_id": old[0].shift_id, "weekdays": sorted(a.weekday for a in old),
-              "valid_from": old[0].valid_from.isoformat(), "valid_to": old[0].valid_to.isoformat() if old[0].valid_to else None}
+              "valid_from": old[0].valid_from.isoformat(), "valid_to": old[0].valid_to.isoformat() if old[0].valid_to else None,
+              "cycle_weeks": old[0].cycle_weeks, "cycle_week": old[0].cycle_week}
     for a in old:
         db.delete(a)
     db.flush()
@@ -273,11 +289,9 @@ def today(location_id: int, user: User = Depends(require("roster.view")), db: Se
         select(ShiftAssignment, Employee, Shift)
         .join(Employee, Employee.id == ShiftAssignment.employee_id)
         .join(Shift, Shift.id == ShiftAssignment.shift_id)
-        .where(ShiftAssignment.location_id == location_id, ShiftAssignment.weekday == day.weekday(),
-               ShiftAssignment.valid_from <= day, or_(ShiftAssignment.valid_to.is_(None),
-                                                      ShiftAssignment.valid_to >= day),
-               Employee.status == "active")
+        .where(ShiftAssignment.location_id == location_id, ShiftAssignment.weekday == day.weekday(), Employee.status == "active")
     ).all()
+    rows = [(a, e, s) for a, e, s in rows if a.applies_on(day)]
     attended = {r.employee_id: r for r in db.scalars(select(AttendanceRecord).where(
         AttendanceRecord.location_id == location_id, AttendanceRecord.local_date == day))}
     absences = {a.employee_id: a for a in db.scalars(select(AbsenceRecord).where(

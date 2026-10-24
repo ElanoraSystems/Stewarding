@@ -164,7 +164,8 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
             </Select>
           </Field>
           <fieldset>
-            <legend className="mb-2 text-sm font-medium">Assigned locations</legend>
+            <legend className="mb-2 text-sm font-medium">Locations they can work at</legend>
+            <p className="mb-2 text-sm text-ink-muted">Which location they work at each day is set in the Shift &amp; Duty Roster.</p>
             <div className="flex flex-wrap gap-2">
               {me?.locations.map((location) => (
                 <label key={location.id} className={`cursor-pointer rounded-full border px-4 py-1.5 text-sm transition-colors ${form.location_ids.includes(location.id) ? 'border-brand bg-brand-soft font-semibold text-brand-deep' : 'border-border hover:bg-surface-muted'}`}>

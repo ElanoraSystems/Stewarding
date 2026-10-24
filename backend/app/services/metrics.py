@@ -144,7 +144,7 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
     off_days: dict[tuple[int, date], Shift] = {}
     for day in daterange(win.d_from, last):
         for a, emp, shift in assigns:
-            if a.weekday != day.weekday() or a.valid_from > day or (a.valid_to and a.valid_to < day):
+            if not a.applies_on(day):
                 continue
             if shift.kind == "weekoff":
                 off_days[(emp.id, day)] = shift

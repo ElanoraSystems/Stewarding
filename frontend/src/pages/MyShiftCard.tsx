@@ -29,6 +29,7 @@ interface ShiftStatus {
   incomplete_task_count: number
   face_required: boolean
   face_enrolled: boolean
+  rostered_today: { location_id: number; location_name: string; shift: string; start: string; end: string; week_off: boolean }[]
 }
 
 interface Challenge {
@@ -40,7 +41,10 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const run = useRun()
   const toast = useToast()
   const { data, loading, reload } = useApi<ShiftStatus>('/attendance/me/status')
-  const [locationId, setLocationId] = useState<number | null>(null)
+  const [picked, setPicked] = useState<number | null>(null)
+  const rostered = data?.rostered_today ?? []
+  const working = rostered.filter((r) => !r.week_off)
+  const locationId = picked ?? working[0]?.location_id ?? null
   const { me } = useAuth()
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [reason, setReason] = useState('')
@@ -147,7 +151,15 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
           </>
         ) : (
           <>
-            <Field label="Where are you working?"><LocationSelect className="h-12 w-full text-base" value={locationId} onChange={setLocationId} /></Field>
+            <div className="space-y-1 rounded-xl bg-surface-muted/70 px-4 py-3 text-sm">
+              <p className="font-medium">Today</p>
+              {rostered.length === 0 ? <p className="text-ink-muted">You are not on the roster today.</p> : rostered.map((r) => (
+                <p key={`${r.location_id}-${r.shift}`} className="text-ink-muted">
+                  {r.week_off ? <>Week off at {r.location_name}</> : <>{r.shift}, {r.start} to {r.end}, at <span className="font-medium text-ink">{r.location_name}</span></>}
+                </p>
+              ))}
+            </div>
+            <Field label="Where are you working?"><LocationSelect className="h-12 w-full text-base" value={locationId} preferred={working.map((r) => r.location_id)} onChange={setPicked} /></Field>
             <Button className="h-14 w-full text-base" disabled={locationId === null} onClick={checkIn}>
               <LogIn className="h-5 w-5" /> Check in
             </Button>
