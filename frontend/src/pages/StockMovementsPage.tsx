@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'
 import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
-import { fmtDateTime, label } from '@/lib/format'
+import { fmtDate, fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { CostTab } from '@/pages/CostTab'
@@ -23,6 +23,7 @@ interface Txn {
   txn_type: string
   qty_delta: number
   occurred_at: string
+  invoice_date: string | null
   reason: string | null
   user: string | null
 }
@@ -54,11 +55,12 @@ function Transactions() {
         <Input aria-label="To date" type="date" className="w-auto" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
       </div>
       <Table>
-        <thead><tr><Th>Time</Th><Th>Item</Th><Th>Location</Th><Th>Type</Th><Th className="text-right">Qty</Th><Th>By</Th><Th>Reason</Th></tr></thead>
+        <thead><tr><Th>Time</Th><Th>Invoice date</Th><Th>Item</Th><Th>Location</Th><Th>Type</Th><Th className="text-right">Qty</Th><Th>By</Th><Th>Reason</Th></tr></thead>
         <tbody>
-          {loading && !data ? <SkeletonRows cols={7} /> : data?.items.map((t) => (
+          {loading && !data ? <SkeletonRows cols={8} /> : data?.items.map((t) => (
             <tr key={t.id}>
               <Td>{fmtDateTime(t.occurred_at)}</Td>
+              <Td>{t.invoice_date ? fmtDate(t.invoice_date) : '-'}</Td>
               <Td className="font-medium">{byId.get(t.item_id)?.name ?? t.item_id}</Td>
               <Td>{places.get(t.location_id)}</Td>
               <Td>{label(t.txn_type)}</Td>

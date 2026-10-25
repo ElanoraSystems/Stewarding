@@ -15,7 +15,7 @@ from ..services.images import thumbnail_jpeg
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryLevel, InventoryUnit, Location,
-                      StockTransaction, Supplier, TrackedAsset, User)
+                      Receipt, StockTransaction, Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
 from ..services.costing import last_purchases
 from ..services.inventory import StockError, counts_as_received, level_map, norm, places_in, post_txn, shortage_rows, unheld_items
@@ -556,8 +556,12 @@ def list_transactions(item_id: int | None = None, location_id: int | None = None
         stmt = stmt.where(StockTransaction.occurred_at < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
     total, rows = paginate(db, stmt.order_by(StockTransaction.id.desc()), page, size)
     names = dict(db.execute(select(Employee.user_id, Employee.full_name)).all())
+    receipt_ids = {t.ref_id for t, in rows if t.ref_type in ("receipt", "receipt_void") and t.ref_id}
+    invoice_dates = {rid: day.date().isoformat() for rid, day in db.execute(
+        select(Receipt.id, Receipt.invoice_date).where(Receipt.id.in_(receipt_ids), Receipt.invoice_date.is_not(None)))} if receipt_ids else {}
     return {"total": total, "items": [
         {**row(t, "id", "item_id", "location_id", "txn_type", "qty_delta", "occurred_at", "reason", "ref_type", "ref_id"),
+         "invoice_date": invoice_dates.get(t.ref_id) if t.ref_type in ("receipt", "receipt_void") else None,
          "user": names.get(t.user_id)} for t, in rows]}
 
 

@@ -228,3 +228,47 @@ def test_item_list_shows_average_cost_and_the_last_purchase_by_invoice_date(clie
     item = next(i for i in client.get("/api/inventory/items?size=200", headers=h).json()["items"] if i["id"] == pl)
     assert item["last_purchase"]["price"] == 3.0 and item["last_purchase"]["supplier"] == "Gulf Catering Supplies"
     assert item["avg_cost"] is not None
+
+
+def test_stock_movements_from_an_invoice_carry_its_invoice_date(client, login, db, clock):
+    h = manager_headers(client)
+    receive(client, login(SUP), db, invoice="DATED", invoice_date="2026-02-27")
+    receive(client, login(SUP), db, invoice="UNDATED")
+    rows = client.get("/api/inventory/transactions?txn_type=receipt", headers=h).json()["items"]
+    assert sorted(r["invoice_date"] or "" for r in rows) == ["", "2026-02-27"]
+
+
+def test_received_on_defaults_to_today_has_no_past_limit_and_cannot_be_in_the_future(client, login, db, clock):
+    sup = login(SUP)
+    assert receive(client, sup, db, invoice="R-1").json()["received_on"] == "2026-03-02"
+    assert receive(client, sup, db, invoice="R-2", received_on="2025-11-05").json()["received_on"] == "2025-11-05"
+    future = receive(client, sup, db, invoice="R-3", received_on="2026-03-03")
+    assert future.status_code == 400 and "future" in future.json()["detail"]
+
+
+def test_a_posted_document_can_be_edited_for_its_labels_and_dates_but_not_its_stock(client, login, db, clock):
+    sup, mgr = login(SUP), manager_headers(client)
+    first = receive(client, sup, db, invoice="E-1", invoice_date="2026-02-20").json()
+    receive(client, sup, db, invoice="E-2")
+    before = balance(db, "PL-001", "MK")
+    assert client.put(f"/api/receipts/{first['id']}", json={"note": "x"}, headers=sup).status_code == 403
+    r = client.put(f"/api/receipts/{first['id']}", headers=mgr, json={"invoice_number": " e-9 ", "invoice_date": "2026-02-18",
+                                                                     "received_on": "2026-02-21", "note": "Fixed the dates"})
+    assert r.status_code == 200
+    doc = r.json()
+    assert (doc["invoice_number"], doc["invoice_date"], doc["received_on"], doc["note"]) == ("E-9", "2026-02-18", "2026-02-21", "Fixed the dates")
+    assert balance(db, "PL-001", "MK") == before and doc["total"] == first["total"]
+    assert db.scalar(select(AuditLog.id).where(AuditLog.action == "receipt.edit")) is not None
+    assert client.put(f"/api/receipts/{first['id']}", headers=mgr, json={"invoice_number": "E-2"}).status_code == 409
+    assert client.put(f"/api/receipts/{first['id']}", headers=mgr, json={"received_on": "2026-03-03"}).status_code == 400
+    assert client.put(f"/api/receipts/{first['id']}", headers=mgr, json={"invoice_date": None}).json()["invoice_date"] is None
+    client.post(f"/api/receipts/{first['id']}/void", headers=mgr, json={"reason": "Entered twice by mistake"})
+    assert client.put(f"/api/receipts/{first['id']}", headers=mgr, json={"note": "again"}).status_code == 409
+
+
+def test_the_documents_list_can_filter_by_the_invoice_date_or_the_day_received(client, login, db, clock):
+    sup, mgr = login(SUP), manager_headers(client)
+    receive(client, sup, db, invoice="F-1", invoice_date="2026-02-10", received_on="2026-02-25")
+    url = "/api/receipts?date_from=2026-02-20&date_to=2026-02-28"
+    assert client.get(url, headers=mgr).json()["total"] == 0
+    assert client.get(url + "&date_by=received", headers=mgr).json()["total"] == 1

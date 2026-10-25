@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, text
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -182,7 +182,8 @@ class Receipt(Base):
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
     invoice_number: Mapped[str] = mapped_column(String(60))
     invoice_date: Mapped[datetime | None] = mapped_column(DateTime)
-    received_at: Mapped[datetime] = ts(index=True)
+    received_at: Mapped[datetime] = ts(index=True)  # when the document was entered; the ledger rows carry the same moment
+    received_on: Mapped[date | None] = mapped_column(Date)  # the day the goods physically arrived, as the person entered it
     received_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     note: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="posted")  # posted | void

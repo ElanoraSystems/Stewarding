@@ -423,7 +423,7 @@ def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from
             kind = "Return" if doc.doc_type == "supplier_return" else "Receipt"
             for ln in lines_by_doc.get(doc.id, []):
                 item = items[ln.item_id]
-                rows.append({"date": _local(doc.received_at, loc.timezone)[:11], "type": kind, "supplier": suppliers.get(doc.supplier_id, ""),
+                rows.append({"date": (doc.received_on or timeutil.to_local(doc.received_at, loc.timezone).date()).strftime("%d %b %Y"), "type": kind, "supplier": suppliers.get(doc.supplier_id, ""),
                              "invoice": doc.invoice_number, "invoice_date": doc.invoice_date.date().isoformat() if doc.invoice_date else "", "item": f"{item.code} - {item.name}", "qty": ln.qty,
                              "unit_cost": _money(ln.unit_cost), "discount": _money(ln.discount_amount), "line_total": _money(ln.line_total),
                              "received_by": names.get(doc.received_by, ""), "status": "Void" if doc.status == "void" else "Posted"})
@@ -432,7 +432,7 @@ def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from
         disc = sum(((d.line_discount_total or 0) + (d.discount_amount or 0) for d in posted), 0)
         groups.append({
             "title": f"{loc.name} - Receipts and invoices", "meta": [("Location", loc.name)],
-            "columns": [("date", "Date"), ("type", "Type"), ("supplier", "Supplier"), ("invoice", "Invoice"), ("invoice_date", "Invoice date"), ("item", "Item"),
+            "columns": [("date", "Received"), ("type", "Type"), ("supplier", "Supplier"), ("invoice", "Invoice"), ("invoice_date", "Invoice date"), ("item", "Item"),
                         ("qty", "Qty"), ("unit_cost", "Unit cost"), ("discount", "Discount"), ("line_total", "Line total"),
                         ("received_by", "Received by"), ("status", "Status")],
             "rows": rows,

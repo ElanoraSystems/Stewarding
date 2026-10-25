@@ -43,11 +43,21 @@ class ReceiptIn(BaseModel):
     location_id: int
     invoice_number: str = Field(min_length=1, max_length=60)
     invoice_date: date | None = None
+    received_on: date | None = None  # the day the goods arrived; today when left out
     note: str | None = Field(default=None, max_length=1000)
     discount_type: DiscountType | None = None
     discount: Decimal | None = Field(default=None, ge=0)
     update_costs: bool = False
     lines: list[LineIn] = Field(min_length=1, max_length=200)
+
+
+class EditIn(BaseModel):
+    """What can change on a posted document without touching stock: its labels, dates and note."""
+
+    invoice_number: str | None = Field(default=None, min_length=1, max_length=60)
+    invoice_date: date | None = None
+    received_on: date | None = None
+    note: str | None = Field(default=None, max_length=1000)
 
 
 class VoidIn(BaseModel):
@@ -61,6 +71,7 @@ def _num(value: Decimal | None) -> float | None:
 def _serialize(db: Session, receipt: Receipt, lines: bool = False) -> dict:
     out = row(receipt, *FIELDS)
     out["invoice_date"] = receipt.invoice_date.date().isoformat() if receipt.invoice_date else None
+    out["received_on"] = receipt.received_on.isoformat() if receipt.received_on else receipt.received_at.date().isoformat()
     for column in ("subtotal", "line_discount_total", "discount_value", "discount_amount", "total"):
         out[column] = _num(getattr(receipt, column))
     out["total_discount"] = _num((receipt.line_discount_total or 0) + (receipt.discount_amount or 0)) if receipt.total is not None else None
@@ -110,6 +121,15 @@ def _get(db: Session, user: User, receipt_id: int) -> Receipt:
     return receipt
 
 
+def _check_dates(db: Session, today: date, invoice_date: date | None, received_on: date | None) -> None:
+    if invoice_date and invoice_date > today:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice date cannot be in the future")
+    if invoice_date and invoice_date < today - timedelta(days=730) and not get_setting(db, "receiving.allow_old_invoices"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice is more than two years old. A manager can allow old invoices in Settings > Receiving")
+    if received_on and received_on > today:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The goods cannot have been received in the future")
+
+
 @router.post("", status_code=201)
 def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
     check_location(user, db, body.location_id)
@@ -127,10 +147,7 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
     if not invoice:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the invoice number")
     today = timeutil.local_date(timeutil.utc_now(), db.get(Location, body.location_id).timezone)
-    if body.invoice_date and body.invoice_date > today:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice date cannot be in the future")
-    if body.invoice_date and body.invoice_date < today - timedelta(days=730) and not get_setting(db, "receiving.allow_old_invoices"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice is more than two years old. A manager can allow old invoices in Settings > Receiving")
+    _check_dates(db, today, body.invoice_date, body.received_on)
     duplicate = db.scalar(select(Receipt).where(Receipt.supplier_id == supplier.id, Receipt.invoice_number == invoice,
                                                 Receipt.status == "posted"))
     if duplicate:
@@ -158,7 +175,7 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
 
     receipt = Receipt(doc_type=body.doc_type, supplier_id=supplier.id, location_id=body.location_id, invoice_number=invoice,
                       invoice_date=datetime.combine(body.invoice_date, datetime.min.time()) if body.invoice_date else None,
-                      received_at=timeutil.utc_now(), received_by=user.id, note=body.note, subtotal=subtotal,
+                      received_at=timeutil.utc_now(), received_on=body.received_on or today, received_by=user.id, note=body.note, subtotal=subtotal,
                       line_discount_total=line_discounts, discount_type=body.discount_type if body.discount else None,
                       discount_value=body.discount or None, discount_amount=doc_discount, total=total)
     try:
@@ -199,8 +216,8 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
 
 @router.get("")
 def list_receipts(supplier_id: int | None = None, location_id: int | None = None, receipt_status: str | None = None,
-                  q: str | None = None, date_from: date | None = None, date_to: date | None = None, page: int = 1,
-                  size: int = 25, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
+                  q: str | None = None, date_from: date | None = None, date_to: date | None = None,
+                  date_by: Literal["invoice", "received"] = "invoice", page: int = 1, size: int = 25, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
     stmt = select(Receipt)
     scope = scoped_locations(user, db)
     if location_id is not None:
@@ -214,10 +231,16 @@ def list_receipts(supplier_id: int | None = None, location_id: int | None = None
         stmt = stmt.where(Receipt.status == receipt_status)
     if q:
         stmt = stmt.where(or_(Receipt.invoice_number.ilike(f"%{q.strip()}%"), Receipt.note.ilike(f"%{q.strip()}%")))
-    if date_from:
-        stmt = stmt.where(func.coalesce(Receipt.invoice_date, Receipt.received_at) >= datetime.combine(date_from, datetime.min.time()))
-    if date_to:
-        stmt = stmt.where(func.coalesce(Receipt.invoice_date, Receipt.received_at) < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
+    if date_by == "received":  # the day the goods arrived
+        if date_from:
+            stmt = stmt.where(func.coalesce(Receipt.received_on, func.date(Receipt.received_at)) >= date_from)
+        if date_to:
+            stmt = stmt.where(func.coalesce(Receipt.received_on, func.date(Receipt.received_at)) <= date_to)
+    else:  # the invoice date, or the day entered when none was given
+        if date_from:
+            stmt = stmt.where(func.coalesce(Receipt.invoice_date, Receipt.received_at) >= datetime.combine(date_from, datetime.min.time()))
+        if date_to:
+            stmt = stmt.where(func.coalesce(Receipt.invoice_date, Receipt.received_at) < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
     total, rows = paginate(db, stmt.order_by(Receipt.id.desc()), page, size)
     return {"total": total, "items": [_serialize(db, r[0]) for r in rows]}
 
@@ -225,6 +248,39 @@ def list_receipts(supplier_id: int | None = None, location_id: int | None = None
 @router.get("/{receipt_id}")
 def get_receipt(receipt_id: int, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
     return _serialize(db, _get(db, user, receipt_id), lines=True)
+
+
+@router.put("/{receipt_id}")
+def edit_receipt(receipt_id: int, body: EditIn, user: User = Depends(require("stock.approve")), db: Session = Depends(get_db)):
+    """Corrects the invoice number, dates or note of a posted document; items, quantities and prices change only by voiding and re-entering."""
+    receipt = _get(db, user, receipt_id)
+    if receipt.status != "posted":
+        raise HTTPException(status.HTTP_409_CONFLICT, "A void document cannot be edited")
+    data = body.model_dump(exclude_unset=True)
+    if "invoice_number" in data:
+        data["invoice_number"] = " ".join(data["invoice_number"].split()).upper()
+        if not data["invoice_number"]:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the invoice number")
+    if data.get("received_on") is None:
+        data.pop("received_on", None)  # the day goods arrived is always set; leaving it out keeps it
+    today = timeutil.local_date(timeutil.utc_now(), db.get(Location, receipt.location_id).timezone)
+    _check_dates(db, today, data.get("invoice_date"), data.get("received_on"))
+    if "invoice_number" in data and data["invoice_number"] != receipt.invoice_number:
+        if db.scalar(select(Receipt.id).where(Receipt.supplier_id == receipt.supplier_id, Receipt.invoice_number == data["invoice_number"],
+                                              Receipt.status == "posted", Receipt.id != receipt.id)):
+            raise HTTPException(status.HTTP_409_CONFLICT, f"Invoice {data['invoice_number']} from this supplier was already posted")
+    before = {k: _plain(getattr(receipt, k)) for k in data}
+    for key, value in data.items():
+        setattr(receipt, key, datetime.combine(value, datetime.min.time()) if key == "invoice_date" and value else value)
+    after = {k: _plain(getattr(receipt, k)) for k in data}
+    if before != after:
+        audit(db, user, "receipt.edit", "receipt", receipt.id, before, after)
+    db.commit()
+    return _serialize(db, receipt, lines=True)
+
+
+def _plain(value):
+    return value.date().isoformat() if isinstance(value, datetime) else value.isoformat() if isinstance(value, date) else value
 
 
 @router.post("/{receipt_id}/void")

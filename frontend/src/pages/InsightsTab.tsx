@@ -46,7 +46,7 @@ export function InsightsTab() {
           </section>
           <section aria-label="Charts" className="grid gap-4 lg:grid-cols-2">
             <Card>
-              <CardHeader><CardTitle>Stock in and out {data.range.grain === 'month' ? 'by month' : 'by day'}</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Stock in and out {data.range.grain === 'month' ? 'by month' : 'by day'} (date entered)</CardTitle></CardHeader>
               <CardContent><ColumnChart data={data.movement} labelKey="date" series={[{ key: 'in', label: 'In', className: 'bg-ok' }, { key: 'out', label: 'Out', className: 'bg-brand' }]} /></CardContent>
             </Card>
             <Card>

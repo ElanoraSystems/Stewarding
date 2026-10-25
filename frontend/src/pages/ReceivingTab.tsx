@@ -1,5 +1,5 @@
 import { Check, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { iso } from '@/lib/dates'
 import { fmtDate, fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
@@ -26,6 +27,7 @@ interface Doc {
   location_id: number
   invoice_number: string
   invoice_date: string | null
+  received_on: string
   received_at: string
   received_by_name: string | null
   note: string | null
@@ -70,9 +72,12 @@ export function ReceivingTab() {
   const [filterSupplier, setFilterSupplier] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [search, setSearch] = useState('')
+  const [filterFrom, setFilterFrom] = useState('')
+  const [filterTo, setFilterTo] = useState('')
+  const [dateBy, setDateBy] = useState<'invoice' | 'received'>('invoice')
   const [page, setPage] = useState(1)
   const list = useApi<{ total: number; items: Doc[] }>(
-    `/receipts${qs({ supplier_id: filterSupplier, receipt_status: filterStatus, q: search, page, size: SIZE })}`,
+    `/receipts${qs({ supplier_id: filterSupplier, receipt_status: filterStatus, q: search, date_from: filterFrom, date_to: filterTo, date_by: dateBy, page, size: SIZE })}`,
   )
   const places = new Map(me?.locations.map((l) => [l.id, l.name]))
 
@@ -80,7 +85,9 @@ export function ReceivingTab() {
   const [supplierId, setSupplierId] = useState('')
   const [locationId, setLocationId] = useState<number | null>(null)
   const [invoice, setInvoice] = useState('')
-  const [invoiceDate, setInvoiceDate] = useState('')
+  const [receivedOn, setReceivedOn] = useState(() => iso(new Date()))
+  const [invoiceDate, setInvoiceDate] = useState(() => iso(new Date()))  // follows the received date until it is changed by hand
+  const [invoiceDateTouched, setInvoiceDateTouched] = useState(false)
   const [note, setNote] = useState('')
   const [updateCosts, setUpdateCosts] = useState(false)
   const [docDiscType, setDocDiscType] = useState<DiscountType>('amount')
@@ -90,6 +97,8 @@ export function ReceivingTab() {
   const [detail, setDetail] = useState<Doc | null>(null)
   const [voiding, setVoiding] = useState(false)
   const [voidReason, setVoidReason] = useState('')
+  const [editing, setEditing] = useState<Doc | null>(null)
+  const [edit, setEdit] = useState({ invoice: '', invoiceDate: '', receivedOn: '', note: '' })
 
   const pickItem = (i: number, id: string) => {
     const cost = items.find((x) => String(x.id) === id)?.unit_cost
@@ -105,7 +114,7 @@ export function ReceivingTab() {
   async function post() {
     const ok = await run(() => api('/receipts', { body: {
       doc_type: docType, supplier_id: Number(supplierId), location_id: locationId, invoice_number: invoice,
-      invoice_date: invoiceDate || null, note: note || null, update_costs: updateCosts && docType === 'receipt',
+      invoice_date: invoiceDate || null, received_on: receivedOn || null, note: note || null, update_costs: updateCosts && docType === 'receipt',
       discount_type: docDisc ? docDiscType : null, discount: docDisc ? Number(docDisc) : null,
       lines: filled.map((l) => ({
         item_id: Number(l.item), qty: Number(l.qty), unit_cost: l.cost === '' ? null : Number(l.cost),
@@ -114,7 +123,9 @@ export function ReceivingTab() {
     } }), docType === 'receipt' ? 'Delivery received and stock updated' : 'Return posted and stock reduced')
     if (ok) {
       setInvoice('')
-      setInvoiceDate('')
+      setReceivedOn(iso(new Date()))
+      setInvoiceDate(iso(new Date()))
+      setInvoiceDateTouched(false)
       setNote('')
       setUpdateCosts(false)
       setDocDisc('')
@@ -125,6 +136,26 @@ export function ReceivingTab() {
 
   async function open(doc: Doc) {
     setDetail(await api<Doc>(`/receipts/${doc.id}`))
+  }
+
+  function startEdit(doc: Doc) {
+    setEditing(doc)
+    setEdit({ invoice: doc.invoice_number, invoiceDate: doc.invoice_date ?? '', receivedOn: doc.received_on, note: doc.note ?? '' })
+  }
+
+  async function saveEdit(event: FormEvent) {
+    event.preventDefault()
+    if (!editing) return
+    const ok = await run(async () => {
+      const saved = await api<Doc>(`/receipts/${editing.id}`, { method: 'PUT', body: {
+        invoice_number: edit.invoice, invoice_date: edit.invoiceDate || null, received_on: edit.receivedOn, note: edit.note || null,
+      } })
+      setDetail((current) => (current && current.id === saved.id ? saved : current))
+    }, 'Document updated')
+    if (ok) {
+      setEditing(null)
+      list.reload()
+    }
   }
 
   async function voidDoc() {
@@ -160,8 +191,9 @@ export function ReceivingTab() {
             </Field>
             <WorkLocationSelect label="Location" fill value={locationId} onChange={setLocationId} />
             <Field label={docType === 'receipt' ? 'Invoice number' : 'Credit note number'}><Input value={invoice} onChange={(e) => setInvoice(e.target.value)} /></Field>
-            <Field label="Invoice date"><Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} /></Field>
-            <div className="sm:col-span-2 lg:col-span-3"><Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field></div>
+            <Field label="Received on"><Input type="date" max={iso(new Date())} value={receivedOn} onChange={(e) => { setReceivedOn(e.target.value); if (!invoiceDateTouched) setInvoiceDate(e.target.value) }} /></Field>
+            <Field label="Invoice date"><Input type="date" max={iso(new Date())} value={invoiceDate} onChange={(e) => { setInvoiceDate(e.target.value); setInvoiceDateTouched(true) }} /></Field>
+            <div className="sm:col-span-2"><Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field></div>
           </div>
           {suppliers.data?.length === 0 && <p className="text-sm text-warn">No suppliers yet. A manager adds them under Settings, Suppliers.</p>}
 
@@ -247,6 +279,12 @@ export function ReceivingTab() {
           <option value="void">Void</option>
         </Select>
         <Input aria-label="Search invoices" className="w-56" placeholder="Search invoice or note" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
+        <Select aria-label="Date filter basis" className="w-auto" value={dateBy} onChange={(e) => { setDateBy(e.target.value as typeof dateBy); setPage(1) }}>
+          <option value="invoice">By invoice date</option>
+          <option value="received">By received date</option>
+        </Select>
+        <Input aria-label="From date" type="date" className="w-auto" value={filterFrom} onChange={(e) => { setFilterFrom(e.target.value); setPage(1) }} />
+        <Input aria-label="To date" type="date" className="w-auto" value={filterTo} onChange={(e) => { setFilterTo(e.target.value); setPage(1) }} />
       </div>
       <Table>
         <thead><tr><Th>#</Th><Th>Received</Th><Th>Type</Th><Th>Supplier</Th><Th>Invoice</Th><Th>Invoice date</Th><Th>Location</Th><Th className="text-right">Total</Th><Th>Status</Th><Th /></tr></thead>
@@ -254,15 +292,18 @@ export function ReceivingTab() {
           {list.loading && !list.data ? <SkeletonRows cols={10} /> : list.data?.items.map((d) => (
             <tr key={d.id}>
               <Td>{d.id}</Td>
-              <Td>{fmtDateTime(d.received_at)}</Td>
+              <Td title={`Entered ${fmtDateTime(d.received_at)}`}>{fmtDate(d.received_on)}</Td>
               <Td><Badge tone={d.doc_type === 'receipt' ? 'ok' : 'warn'}>{LABEL[d.doc_type]}</Badge></Td>
               <Td className="font-medium">{d.supplier}</Td>
               <Td>{d.invoice_number}</Td>
-              <Td>{fmtDate(d.invoice_date)}</Td>
+              <Td>{d.invoice_date ? fmtDate(d.invoice_date) : '-'}</Td>
               <Td>{places.get(d.location_id)}</Td>
               <Td className="text-right tabular-nums">{d.total != null ? d.total.toFixed(2) : '-'}</Td>
               <Td><StatusBadge status={d.status} /></Td>
-              <Td><Button size="sm" variant="outline" onClick={() => open(d)}>View</Button></Td>
+              <Td><div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => open(d)}>View</Button>
+                {canVoid && d.status === 'posted' && <Button size="sm" variant="outline" onClick={() => startEdit(d)}>Edit</Button>}
+              </div></Td>
             </tr>
           ))}
         </tbody>
@@ -270,11 +311,29 @@ export function ReceivingTab() {
       {list.data?.items.length === 0 && <EmptyState title="No receiving documents" />}
       {list.data && <Pagination page={page} size={SIZE} total={list.data.total} onPage={setPage} />}
 
+      <Modal
+        open={editing !== null}
+        title={editing ? `Edit ${LABEL[editing.doc_type].toLowerCase()} #${editing.id}` : ''}
+        description="Changes the invoice number, dates and note. Stock is not affected, and the change is recorded in the audit log."
+        onClose={() => setEditing(null)}
+        footer={<>
+          <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+          <Button type="submit" form="edit-doc-form" disabled={!edit.invoice.trim() || !edit.receivedOn}>Save changes</Button>
+        </>}
+      >
+        <form id="edit-doc-form" onSubmit={saveEdit} className="grid gap-5 sm:grid-cols-2">
+          <Field label="Invoice number"><Input required maxLength={60} value={edit.invoice} onChange={(e) => setEdit({ ...edit, invoice: e.target.value })} /></Field>
+          <Field label="Received on"><Input required type="date" max={iso(new Date())} value={edit.receivedOn} onChange={(e) => setEdit({ ...edit, receivedOn: e.target.value })} /></Field>
+          <Field label="Invoice date"><Input type="date" max={iso(new Date())} value={edit.invoiceDate} onChange={(e) => setEdit({ ...edit, invoiceDate: e.target.value })} /></Field>
+          <Field label="Note"><Input maxLength={1000} value={edit.note} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></Field>
+        </form>
+      </Modal>
+
       <Modal open={detail !== null} title={detail ? `${LABEL[detail.doc_type]} #${detail.id}` : ''} onClose={() => { setDetail(null); setVoiding(false) }}>
         {detail && (
           <div className="space-y-3 text-sm">
             <p><strong>{detail.supplier}</strong> - invoice {detail.invoice_number}{detail.invoice_date && ` dated ${detail.invoice_date}`}</p>
-            <p className="text-ink-muted">Posted {fmtDateTime(detail.received_at)} by {detail.received_by_name} at {places.get(detail.location_id)}</p>
+            <p className="text-ink-muted">Received {fmtDate(detail.received_on)}. Entered {fmtDateTime(detail.received_at)} by {detail.received_by_name} at {places.get(detail.location_id)}</p>
             {detail.note && <p>{detail.note}</p>}
             <Table>
               <thead><tr><Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Unit cost</Th><Th className="text-right">Discount</Th><Th className="text-right">Line total</Th></tr></thead>
@@ -294,7 +353,13 @@ export function ReceivingTab() {
               </dl>
             )}
             {detail.status === 'void' && <p className="rounded-md bg-surface-muted p-2">Voided: {detail.void_reason}</p>}
-            {detail.status === 'posted' && canVoid && !voiding && <Button variant="danger" onClick={() => setVoiding(true)}>Void this document</Button>}
+            {detail.status === 'posted' && canVoid && !voiding && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => startEdit(detail)}>Edit details</Button>
+                <Button variant="danger" onClick={() => setVoiding(true)}>Void this document</Button>
+              </div>
+            )}
+            {detail.status === 'posted' && canVoid && !voiding && <p className="text-xs text-ink-muted">Edit changes the invoice number, dates and note. To change items, quantities or prices, void this document and enter it again.</p>}
             {voiding && (
               <div className="space-y-2 rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft p-3">
                 <p className="text-danger">Voiding reverses the stock with new ledger entries. The original entries stay in the history.</p>
