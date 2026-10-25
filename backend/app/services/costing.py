@@ -1,25 +1,33 @@
 """Stock cost over a period at weighted average cost: opening value, purchases, closing value and what that means was consumed."""
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
-from ..models import InventoryBalance, InventoryCategory, InventoryItem, Receipt, ReceiptLine, StockTransaction
+from .. import timeutil
+from ..models import InventoryBalance, InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction
 
 MEASURES = ("opening_value", "purchases", "returns", "transfers_in", "transfers_out", "closing_value", "cost_consumed", "issued",
             "breakage_damage", "count_adjustments")
 
 
 def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -> dict:
-    """Per item and in total for [start, end): cost consumed = opening + purchases + returns + transfers in - transfers out - closing."""
+    """Per item and in total for [start, end): cost consumed = opening + purchases + returns + transfers in - transfers out - closing.
+
+    A purchase counts on its invoice date when it has one (the ledger keeps the day it was entered); everything else counts when it happened.
+    """
     inside = case((StockTransaction.occurred_at >= start, 1), else_=0)
     worth = func.sum(StockTransaction.qty_delta * func.coalesce(StockTransaction.unit_cost, 0))
+    invoice = and_(Receipt.id == StockTransaction.ref_id, StockTransaction.ref_type == "receipt")
     sums = db.execute(
         select(StockTransaction.item_id, StockTransaction.txn_type, inside, func.sum(StockTransaction.qty_delta), worth)
-        .where(StockTransaction.location_id == location_id, StockTransaction.occurred_at < end)
+        .outerjoin(Receipt, invoice)
+        .where(StockTransaction.location_id == location_id, StockTransaction.occurred_at < end, Receipt.invoice_date.is_(None))
         .group_by(StockTransaction.item_id, StockTransaction.txn_type, inside)).all()
+    tz = db.get(Location, location_id).timezone
+    sums = [*sums, *_by_invoice_date(db, location_id, tz, start, end, invoice)]
     qty_before: dict[int, int] = defaultdict(int)
     value_before: dict[int, Decimal] = defaultdict(Decimal)
     flow: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
@@ -61,6 +69,22 @@ def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -
         by_category[row["category"]]["items"] += 1
         rows.append(row)
     return {"rows": rows, "totals": {k: round(float(v), 2) for k, v in totals.items()}, "by_category": category_rows(by_category, totals["cost_consumed"])}
+
+
+def _by_invoice_date(db: Session, location_id: int, tz: str, start: datetime, end: datetime, invoice) -> list[tuple]:
+    """Purchases that carry an invoice date, as (item, type, inside the period, quantity, value) rows placed by that date."""
+    grouped: dict[tuple, list] = defaultdict(lambda: [0, Decimal(0)])
+    for item_id, txn_type, qty, cost, day in db.execute(
+            select(StockTransaction.item_id, StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.unit_cost, Receipt.invoice_date)
+            .join(Receipt, invoice)
+            .where(StockTransaction.location_id == location_id, Receipt.invoice_date.is_not(None))):
+        when = timeutil.local_to_utc(day.date(), time(0, 0), tz)
+        if when >= end:
+            continue
+        entry = grouped[(item_id, txn_type, 1 if when >= start else 0)]
+        entry[0] += qty
+        entry[1] += qty * Decimal(str(cost or 0))
+    return [(item_id, txn_type, inside, qty, value) for (item_id, txn_type, inside), (qty, value) in grouped.items()]
 
 
 def category_rows(by_category: dict[str, dict], consumed_total: Decimal) -> list[dict]:

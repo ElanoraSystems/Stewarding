@@ -159,3 +159,19 @@ def test_completed_prices_are_frozen_when_the_item_price_changes_later(client, l
     assert next(i for i in client.get("/api/breakage", headers=m).json()["items"] if i["id"] == incident["id"])["est_cost"] == 3.0
     listed = next(i for i in client.get("/api/inventory/items?search=Costing", headers=m).json()["items"] if i["id"] == item["id"])
     assert listed["unit_cost"] == 9.0 and listed["value"] == 12.0      # today's value uses the average (4 held x 3.00), not the new reference price
+
+
+def test_a_purchase_counts_in_the_period_of_its_invoice_date_not_the_day_it_was_entered(client, login, db, clock):
+    item, sup = item_and_supplier(client, login, db)
+    m = login(MGR)
+    # entered on 2 March, invoiced on 27 February; a second one has no invoice date and counts on 2 March
+    assert receive(client, login, db, item, sup, 10, 2.00, "D-FEB", invoice_date="2026-02-27").status_code == 201
+    assert receive(client, login, db, item, sup, 5, 3.00, "D-MAR").status_code == 201
+
+    def purchases(date_from, date_to):
+        report = client.get(f"{URL}?location_id={loc_id(db, 'MK')}&date_from={date_from}&date_to={date_to}", headers=m).json()
+        row = next((r for r in report["rows"] if r["item_id"] == item["id"]), None)
+        return (row["purchases"], row["opening_value"], row["closing_value"]) if row else None
+
+    assert purchases("2026-02-01", "2026-02-28") == (20.0, 0.0, 20.0)
+    assert purchases("2026-03-01", "2026-03-31") == (15.0, 20.0, 35.0)

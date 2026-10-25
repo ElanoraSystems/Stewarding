@@ -17,6 +17,8 @@ only until the first priced receipt; a migration set it to each item's latest pr
 
 ## Cost consumed
 
+A purchase counts on its invoice date when it has one, so a delivery invoiced on the 28th is a purchase of that month even if it was entered on the 3rd; one without an invoice date counts on the day it was entered. The ledger itself keeps the real entry time, and a void counts on the day it was made.
+
 For a period: opening value + purchases + returns + transfers in - transfers out - closing value.
 It equals issued + breakage and damage - count gains (a count loss adds to it). The Stock cost report in Reports and
 `GET /api/stock/cost-report` show it per item and in total.

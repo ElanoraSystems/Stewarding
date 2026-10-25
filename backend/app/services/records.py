@@ -151,7 +151,7 @@ def _stock_cost_groups(db: Session, locations: list[Location], day_from: date, d
                 for r in sorted(report["rows"], key=lambda r: (r["category"], r["code"]))]
         t = report["totals"]
         groups.append({
-            "title": f"{loc.name} - Stock cost", "meta": [("Location", loc.name), ("Costing method", "Weighted average cost")],
+            "title": f"{loc.name} - Stock cost", "meta": [("Location", loc.name), ("Costing method", "Weighted average cost"), ("Purchases counted on", "Invoice date")],
             "columns": [("category", "Category"), ("item", "Item"), ("average_cost", "Average cost"), ("opening_value", "Opening value"), ("purchases", "Purchases"),
                         ("net_transfers_returns", "Returns and transfers (net)"), ("closing_value", "Closing value"),
                         ("cost_consumed", "Cost consumed"), ("issued", "of which issued"), ("breakage_damage", "of which breakage and damage"),
@@ -180,12 +180,12 @@ def _stock_cost_category_groups(db: Session, locations: list[Location], day_from
             for key in MEASURES:
                 together[line["category"]][key] += Decimal(str(line[key]))
         all_totals.append(report["totals"])
-        groups.append(_category_group(f"{loc.name} - Stock cost by category", [("Location", loc.name), ("Costing method", "Weighted average cost")],
+        groups.append(_category_group(f"{loc.name} - Stock cost by category", [("Location", loc.name), ("Costing method", "Weighted average cost"), ("Purchases counted on", "Invoice date")],
                                       columns, report["by_category"], report["totals"]))
     if len(groups) > 1:
         grand = {k: sum(Decimal(str(t[k])) for t in all_totals) for k in MEASURES}
         groups.append(_category_group("All locations - Stock cost by category",
-                                      [("Locations", ", ".join(loc.name for loc in locations)), ("Costing method", "Weighted average cost")],
+                                      [("Locations", ", ".join(loc.name for loc in locations)), ("Costing method", "Weighted average cost"), ("Purchases counted on", "Invoice date")],
                                       columns, category_rows(together, grand["cost_consumed"]), {k: float(v) for k, v in grand.items()}))
     return groups
 
