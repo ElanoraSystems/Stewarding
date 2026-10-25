@@ -274,6 +274,7 @@ def sec_inventory_variance(c: Ctx) -> dict:
 
 def sec_attendance_hours(c: Ctx) -> dict:
     agg: dict[str, Counter] = defaultdict(Counter)
+    counted: set = set()  # a day worked at two outlets is one day
     for w in c.wins:
         for r in metrics.attendance_stats(c.db, w, c.now, c.employee_id)["rows"]:
             a = agg[r["name"]]
@@ -285,7 +286,8 @@ def sec_attendance_hours(c: Ctx) -> dict:
             elif r["status"] == "week_off":
                 a["weekoff"] += 1
             elif r["check_in"]:
-                a["days"] += 1
+                a["days"] += 0 if (r["name"], r["day"]) in counted else 1
+                counted.add((r["name"], r["day"]))
                 a["minutes"] += r["payable_minutes"] or 0
                 a["overtime"] += r["overtime_minutes"] or 0
                 a["late"] += 1 if r["late_minutes"] > 0 else 0

@@ -135,6 +135,11 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
             AttendanceRecord.location_id == win.loc.id, AttendanceRecord.local_date >= win.d_from,
             AttendanceRecord.local_date <= last, *((AttendanceRecord.employee_id == employee_id,) if employee_id is not None else ()))):
         records.setdefault((rec.employee_id, rec.local_date), rec)
+    # a rostered person who worked at another outlet that day is not absent here; the other outlet counts the day
+    elsewhere = {(emp_id, day): place for emp_id, day, place in db.execute(
+        select(AttendanceRecord.employee_id, AttendanceRecord.local_date, Location.name).join(Location, Location.id == AttendanceRecord.location_id)
+        .where(AttendanceRecord.location_id != win.loc.id, AttendanceRecord.local_date >= win.d_from, AttendanceRecord.local_date <= last,
+               *((AttendanceRecord.employee_id == employee_id,) if employee_id is not None else ())))}
     absences = {(a.employee_id, a.local_date): a for a in db.scalars(select(AbsenceRecord).where(
         AbsenceRecord.location_id == win.loc.id, AbsenceRecord.local_date >= win.d_from, AbsenceRecord.local_date <= last,
         AbsenceRecord.voided_at.is_(None), *((AbsenceRecord.employee_id == employee_id,) if employee_id is not None else ())))}
@@ -189,6 +194,8 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
             count(day, "scheduled")
             count(day, "absent")
             rows.append(row(emp_id, day, shift, None, "absent", True, absence.note))
+        elif (emp_id, day) in elsewhere:
+            rows.append(row(emp_id, day, shift, None, "worked_elsewhere", True, f"Worked at {elsewhere[(emp_id, day)]}"))
         else:
             count(day, "scheduled")
             start = timeutil.local_to_utc(day, shift.start_time, tz)

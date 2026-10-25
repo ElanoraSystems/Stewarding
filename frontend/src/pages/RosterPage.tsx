@@ -27,6 +27,7 @@ interface Today {
   checked_in: boolean
   late_minutes: number
   on_duty: boolean
+  elsewhere: string | null
   day_type: 'work' | 'week_off' | 'absence'
   absence_type: string | null
 }
@@ -165,8 +166,8 @@ export function RosterPage() {
                   <span className="text-ink-muted">{p.day_type === 'week_off' ? p.shift : `${p.shift} from ${p.shift_start.slice(0, 5)}`}</span>
                   <span className="flex flex-wrap gap-1.5">
                     {p.day_type === 'work' ? (
-                      <Badge tone={p.on_duty ? 'ok' : p.checked_in ? 'neutral' : 'warn'}>
-                        {p.on_duty ? 'On duty' : p.checked_in ? 'Checked out' : 'Not checked in'}
+                      <Badge tone={p.on_duty ? 'ok' : p.checked_in || p.elsewhere ? 'neutral' : 'warn'}>
+                        {p.on_duty ? 'On duty' : p.checked_in ? 'Checked out' : p.elsewhere ? `Working at ${p.elsewhere}` : 'Not checked in'}
                       </Badge>
                     ) : p.day_type === 'week_off' ? <Badge>Week off</Badge> : <Badge tone={p.absence_type === 'absent' ? 'critical' : 'neutral'}>{label(p.absence_type ?? 'absent')}</Badge>}
                     {p.late_minutes > 0 && <Badge tone="warn">Late {p.late_minutes}m</Badge>}

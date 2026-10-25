@@ -18,10 +18,11 @@ from .. import timeutil
 from ..audit import audit
 from ..config import settings
 from ..db import get_db
-from ..deps import check_location, require, role_names, scoped_locations
+from ..deps import check_location, permissions_of, require, role_names, scoped_locations
 from ..models import (AbsenceRecord, AttendanceCorrection, AttendanceRecord, ChecklistInstance, ChecklistTask, Employee,
                       EmployeeLocation, FaceChallenge, Location, Shift, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
+from .absences import PAST_DAYS
 from ..services.checklists import DONE
 from ..services.deletion import blockers
 from ..services.settings import get_setting
@@ -520,3 +521,33 @@ def remove(attendance_id: int, body: RemoveIn, user: User = Depends(require("att
     audit(db, user, "attendance.delete", "attendance_record", attendance_id, before, {"reason": " ".join(body.reason.split())})
     db.commit()
     return {"deleted": attendance_id}
+
+
+@router.post("/{attendance_id}/day-off")
+def change_to_day_off(attendance_id: int, body: RemoveIn, user: User = Depends(require("attendance.correct")), db: Session = Depends(get_db)):
+    """Replaces a punch record entered for a day the person was off with a day off, in one step; the punch stays in the audit log."""
+    if "attendance.absence" not in permissions_of(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You may not record a day off")
+    record = db.get(AttendanceRecord, attendance_id)
+    if not record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attendance record not found")
+    check_location(user, db, record.location_id)
+    today = timeutil.local_date(timeutil.utc_now(), db.get(Location, record.location_id).timezone)
+    if record.local_date < today - timedelta(days=PAST_DAYS):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"A day off can be recorded only for the last {PAST_DAYS} days")
+    used = blockers(db, record, frozenset({"attendance_correction"}))
+    if used:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"This record is used by {', '.join(used)}")
+    reason = " ".join(body.reason.split())
+    before = {"employee_id": record.employee_id, "location_id": record.location_id, "date": record.local_date.isoformat(),
+              "check_in": iso(record.check_in_at), "check_out": iso(record.check_out_at), "note": record.exception_reason}
+    day = AbsenceRecord(employee_id=record.employee_id, location_id=record.location_id, local_date=record.local_date,
+                        absence_type="day_off", note=reason, recorded_by=user.id)
+    db.execute(delete(AttendanceCorrection).where(AttendanceCorrection.attendance_id == record.id))
+    db.delete(record)
+    db.flush()  # the punch goes first so the day is free for the day off
+    db.add(day)
+    db.flush()
+    audit(db, user, "attendance.to_day_off", "absence_record", day.id, before, {"reason": reason})
+    db.commit()
+    return {"absence_id": day.id}

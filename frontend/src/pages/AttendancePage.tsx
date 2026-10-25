@@ -18,6 +18,7 @@ import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { AbsencePanel, MyLeave } from '@/pages/AbsencePanel'
 import { FaceSnapshotButton } from '@/pages/FaceSnapshotButton'
+import { DayOffModal } from '@/pages/DayOffModal'
 import { ManualAttendanceModal } from '@/pages/ManualAttendanceModal'
 
 interface Record {
@@ -50,6 +51,7 @@ export function AttendancePage() {
   const run = useRun()
   const canView = me?.permissions.includes('attendance.view') ?? false
   const canCorrect = me?.permissions.includes('attendance.correct') ?? false
+  const canMarkOff = me?.permissions.includes('attendance.absence') ?? false
   const [locationId, setLocationId] = useState<number | null>(null)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -60,6 +62,7 @@ export function AttendancePage() {
   const [value, setValue] = useState('')
   const [reason, setReason] = useState('')
   const [adding, setAdding] = useState(false)
+  const [markingOff, setMarkingOff] = useState(false)
   const [tab, setTab] = useState<'records' | 'leave'>('records')
 
   const path = canView
@@ -78,10 +81,9 @@ export function AttendancePage() {
   async function submitCorrection(event: FormEvent) {
     event.preventDefault()
     if (!correcting) return
-    const ok = await run(
-      () => api(`/attendance/${correcting.id}/correct`, { body: { field, new_value: new Date(value).toISOString(), reason } }),
-      'Attendance corrected',
-    )
+    const ok = field === 'day_off'
+      ? await run(() => api(`/attendance/${correcting.id}/day-off`, { body: { reason } }), 'Changed to a day off')
+      : await run(() => api(`/attendance/${correcting.id}/correct`, { body: { field, new_value: new Date(value).toISOString(), reason } }), 'Attendance corrected')
     if (ok) {
       setCorrecting(null)
       reload()
@@ -131,6 +133,7 @@ export function AttendancePage() {
       {tab === 'records' && <section className="space-y-4" aria-label="Attendance records">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{canView ? 'Attendance records' : 'My attendance history'}</h2>
+          {canMarkOff && <Button variant="outline" onClick={() => setMarkingOff(true)}><Plus className="h-4 w-4" /> Mark day off</Button>}
           {canCorrect && <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add missing attendance</Button>}
         </div>
         {canView && (
@@ -197,6 +200,7 @@ export function AttendancePage() {
         {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
       </section>}
 
+      {markingOff && <DayOffModal onClose={() => setMarkingOff(false)} onSaved={() => { setMarkingOff(false); reload() }} />}
       {adding && <ManualAttendanceModal onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload() }} />}
 
       <Modal
@@ -220,9 +224,12 @@ export function AttendancePage() {
               <Select value={field} onChange={(e) => setField(e.target.value)}>
                 <option value="check_in_at">Check-in time</option>
                 <option value="check_out_at">Check-out time</option>
+                {canMarkOff && <option value="day_off">Change this to a day off</option>}
               </Select>
             </Field>
-            <Field label="New time (your local time)"><Input required type="datetime-local" value={value} onChange={(e) => setValue(e.target.value)} /></Field>
+            {field === 'day_off'
+              ? <p className="text-sm text-ink-muted">The check-in and check-out are removed and the day is recorded as a day off. They stay in the audit log with your reason.</p>
+              : <Field label="New time (your local time)"><Input required type="datetime-local" value={value} onChange={(e) => setValue(e.target.value)} /></Field>}
             <Field label="Reason"><Input required minLength={5} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
           </form>
         )}

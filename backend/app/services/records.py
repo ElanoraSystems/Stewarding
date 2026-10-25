@@ -374,7 +374,7 @@ def _attendance_sheet_groups(db: Session, now: datetime, scope, f: Filters, day_
         if not rows:
             continue
         count = lambda *statuses: sum(1 for r in rows if r["_status"] in statuses)  # noqa: E731
-        totals = [("Days present", count(*PRESENT_STATUSES)), ("Late arrivals", sum(1 for r in rows if r["_late"] and r["_status"] in PRESENT_STATUSES)),
+        totals = [("Days present", len({r["date"] for r in rows if r["_status"] in PRESENT_STATUSES})), ("Late arrivals", sum(1 for r in rows if r["_late"] and r["_status"] in PRESENT_STATUSES)),
                   ("Week off", count("week_off")), ("Absent", count("absent")), ("On leave", count(*LEAVE_STATUSES)),
                   ("Hours worked", _hm(sum(r["_minutes"] for r in rows)) or "0:00"), ("Overtime", _hm(sum(r["_over"] for r in rows)) or "0:00")]
         for r in rows:

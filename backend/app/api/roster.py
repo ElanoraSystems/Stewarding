@@ -296,8 +296,12 @@ def today(location_id: int, user: User = Depends(require("roster.view")), db: Se
         AttendanceRecord.location_id == location_id, AttendanceRecord.local_date == day))}
     absences = {a.employee_id: a for a in db.scalars(select(AbsenceRecord).where(
         AbsenceRecord.location_id == location_id, AbsenceRecord.local_date == day, AbsenceRecord.voided_at.is_(None)))}
+    elsewhere = dict(db.execute(
+        select(AttendanceRecord.employee_id, Location.name).join(Location, Location.id == AttendanceRecord.location_id)
+        .where(AttendanceRecord.location_id != location_id, AttendanceRecord.local_date == day,
+               AttendanceRecord.employee_id.in_([e.id for _, e, _ in rows]))).all())
     return [{
-        "employee_id": e.id, "name": e.full_name, "shift": s.name, "shift_start": s.start_time.isoformat(),
+        "employee_id": e.id, "name": e.full_name, "shift": s.name, "elsewhere": elsewhere.get(e.id), "shift_start": s.start_time.isoformat(),
         "day_type": "week_off" if s.kind == "weekoff" or (e.id in absences and absences[e.id].absence_type == "day_off")
         else ("absence" if e.id in absences and e.id not in attended else "work"),
         "absence_type": absences[e.id].absence_type if e.id in absences else None,
