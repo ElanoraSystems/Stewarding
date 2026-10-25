@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
@@ -405,7 +405,11 @@ def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from
     groups = []
     for loc in locations:
         start, end = _bounds(day_from, day_to, loc.timezone)
-        stmt = select(Receipt).where(Receipt.location_id == loc.id, Receipt.received_at >= start, Receipt.received_at < end)
+        # the range is of the invoice date; a document with no invoice date falls back to the day it was entered
+        on, after = datetime.combine(day_from, time(0, 0)), datetime.combine(day_to + timedelta(days=1), time(0, 0))
+        stmt = select(Receipt).where(Receipt.location_id == loc.id, or_(
+            and_(Receipt.invoice_date.is_not(None), Receipt.invoice_date >= on, Receipt.invoice_date < after),
+            and_(Receipt.invoice_date.is_(None), Receipt.received_at >= start, Receipt.received_at < end)))
         if f.supplier_id is not None:
             stmt = stmt.where(Receipt.supplier_id == f.supplier_id)
         docs = list(db.scalars(stmt.order_by(Receipt.received_at)))
@@ -420,7 +424,7 @@ def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from
             for ln in lines_by_doc.get(doc.id, []):
                 item = items[ln.item_id]
                 rows.append({"date": _local(doc.received_at, loc.timezone)[:11], "type": kind, "supplier": suppliers.get(doc.supplier_id, ""),
-                             "invoice": doc.invoice_number, "item": f"{item.code} - {item.name}", "qty": ln.qty,
+                             "invoice": doc.invoice_number, "invoice_date": doc.invoice_date.date().isoformat() if doc.invoice_date else "", "item": f"{item.code} - {item.name}", "qty": ln.qty,
                              "unit_cost": _money(ln.unit_cost), "discount": _money(ln.discount_amount), "line_total": _money(ln.line_total),
                              "received_by": names.get(doc.received_by, ""), "status": "Void" if doc.status == "void" else "Posted"})
         posted = [d for d in docs if d.status == "posted" and d.doc_type == "receipt" and d.total is not None]
@@ -428,7 +432,7 @@ def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from
         disc = sum(((d.line_discount_total or 0) + (d.discount_amount or 0) for d in posted), 0)
         groups.append({
             "title": f"{loc.name} - Receipts and invoices", "meta": [("Location", loc.name)],
-            "columns": [("date", "Date"), ("type", "Type"), ("supplier", "Supplier"), ("invoice", "Invoice"), ("item", "Item"),
+            "columns": [("date", "Date"), ("type", "Type"), ("supplier", "Supplier"), ("invoice", "Invoice"), ("invoice_date", "Invoice date"), ("item", "Item"),
                         ("qty", "Qty"), ("unit_cost", "Unit cost"), ("discount", "Discount"), ("line_total", "Line total"),
                         ("received_by", "Received by"), ("status", "Status")],
             "rows": rows,

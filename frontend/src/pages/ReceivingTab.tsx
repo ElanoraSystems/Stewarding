@@ -13,7 +13,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { fmtDateTime } from '@/lib/format'
+import { fmtDate, fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
@@ -249,15 +249,16 @@ export function ReceivingTab() {
         <Input aria-label="Search invoices" className="w-56" placeholder="Search invoice or note" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
       </div>
       <Table>
-        <thead><tr><Th>#</Th><Th>Received</Th><Th>Type</Th><Th>Supplier</Th><Th>Invoice</Th><Th>Location</Th><Th className="text-right">Total</Th><Th>Status</Th><Th /></tr></thead>
+        <thead><tr><Th>#</Th><Th>Received</Th><Th>Type</Th><Th>Supplier</Th><Th>Invoice</Th><Th>Invoice date</Th><Th>Location</Th><Th className="text-right">Total</Th><Th>Status</Th><Th /></tr></thead>
         <tbody>
-          {list.loading && !list.data ? <SkeletonRows cols={9} /> : list.data?.items.map((d) => (
+          {list.loading && !list.data ? <SkeletonRows cols={10} /> : list.data?.items.map((d) => (
             <tr key={d.id}>
               <Td>{d.id}</Td>
               <Td>{fmtDateTime(d.received_at)}</Td>
               <Td><Badge tone={d.doc_type === 'receipt' ? 'ok' : 'warn'}>{LABEL[d.doc_type]}</Badge></Td>
               <Td className="font-medium">{d.supplier}</Td>
               <Td>{d.invoice_number}</Td>
+              <Td>{fmtDate(d.invoice_date)}</Td>
               <Td>{places.get(d.location_id)}</Td>
               <Td className="text-right tabular-nums">{d.total != null ? d.total.toFixed(2) : '-'}</Td>
               <Td><StatusBadge status={d.status} /></Td>

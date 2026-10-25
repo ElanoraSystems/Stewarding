@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -215,9 +215,9 @@ def list_receipts(supplier_id: int | None = None, location_id: int | None = None
     if q:
         stmt = stmt.where(or_(Receipt.invoice_number.ilike(f"%{q.strip()}%"), Receipt.note.ilike(f"%{q.strip()}%")))
     if date_from:
-        stmt = stmt.where(Receipt.received_at >= datetime.combine(date_from, datetime.min.time()))
+        stmt = stmt.where(func.coalesce(Receipt.invoice_date, Receipt.received_at) >= datetime.combine(date_from, datetime.min.time()))
     if date_to:
-        stmt = stmt.where(Receipt.received_at < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
+        stmt = stmt.where(func.coalesce(Receipt.invoice_date, Receipt.received_at) < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
     total, rows = paginate(db, stmt.order_by(Receipt.id.desc()), page, size)
     return {"total": total, "items": [_serialize(db, r[0]) for r in rows]}
 
