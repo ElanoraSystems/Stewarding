@@ -15,6 +15,11 @@ Edit `.env`:
 - `STW_SECRET_KEY`: 32 or more random characters. Generate one with
   `python -c "import secrets; print(secrets.token_urlsafe(48))"`. The backend refuses to start without it.
 - `STW_CORS_ORIGINS`: the public address of the site, for example `https://stewarding.example.com`.
+- Optional, for push alerts to phones and browsers: run `python -m scripts.vapid_keys` in `backend` once and set `STW_VAPID_PUBLIC_KEY` and
+  `STW_VAPID_PRIVATE_KEY` from its output, and `STW_VAPID_SUBJECT` to a `mailto:` address you own. The site must be on HTTPS. Keep the same
+  pair for good: a new pair drops every device's subscription and people must turn alerts on again. On Render, enter them when applying the blueprint
+  or under the API service's Environment. Without them alerts stay in the app only. People turn alerts on from Notifications; an iPhone needs the
+  site added to the Home Screen first.
 
 ```bash
 docker compose up -d --build

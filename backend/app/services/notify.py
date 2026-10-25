@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Employee, EmployeeLocation, Notification, Role, RolePermission, User
 from ..permissions import MANAGER
+from .push import queue
 
 
 def recipients(db: Session, location_id: int | None, *roles: str) -> list[int]:
@@ -53,5 +54,6 @@ def notify(db: Session, user_ids, kind: str, title: str, *, key: str, body: str 
                             location_id=location_id, link=link, dedupe_key=key, due_at=due_at,
                             requires_ack=requires_ack))
         db.flush()
+        queue(db, uid, title, body, link, priority, key)
         created += 1
     return created

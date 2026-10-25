@@ -28,6 +28,13 @@ services:
         generateValue: true
       - key: STW_UPLOAD_DIR
         value: /data/uploads
+      # browser push alerts; Render asks for these when the blueprint is applied (see docs/DEPLOYMENT.md)
+      - key: STW_VAPID_PUBLIC_KEY
+        sync: false
+      - key: STW_VAPID_PRIVATE_KEY
+        sync: false
+      - key: STW_VAPID_SUBJECT
+        sync: false
 
   # The public site: serves the app and forwards /api to the private API.
   - type: web

@@ -8,6 +8,7 @@ import { EmptyState, Skeleton, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDateTime, label } from '@/lib/format'
+import { PushToggle } from '@/components/PushToggle'
 import { useRun, useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
@@ -77,6 +78,7 @@ function Notifications() {
 
   return (
     <div className="space-y-3">
+      <PushToggle />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={unread} onChange={(e) => { setUnread(e.target.checked); setPage(1) }} /> Unread only</label>
         <Button variant="outline" size="sm" onClick={() => act('read-all', 'All marked as read')}>Mark all as read ({data?.unread ?? 0})</Button>

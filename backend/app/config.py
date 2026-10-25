@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     scheduler_enabled: bool = True
     bcrypt_rounds: int = 12
+    # browser push; create the pair with scripts/vapid_keys.py. Push stays off while the keys are empty.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@example.com"
 
     @field_validator("database_url")
     @classmethod

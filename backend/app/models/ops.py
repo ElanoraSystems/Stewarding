@@ -54,6 +54,18 @@ class Notification(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class PushSubscription(Base):
+    """One browser or phone that asked for push alerts; the endpoint is where the browser's push service takes a message."""
+
+    __tablename__ = "push_subscription"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(600), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = ts()
+
+
 class ApprovalRecord(Base):
     __tablename__ = "approval_record"
     id: Mapped[int] = mapped_column(primary_key=True)
