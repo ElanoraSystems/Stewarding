@@ -26,6 +26,7 @@ const PAGES: Record<SectionKey, ComponentType> = {
   'qr-codes': SettingsQrCodes,
   approvals: rules('approvals'),
   breakage: rules('breakage'),
+  receiving: rules('receiving'),
   locations: SettingsLocations,
   shifts: SettingsShifts,
   monitoring: SettingsMonitoring,

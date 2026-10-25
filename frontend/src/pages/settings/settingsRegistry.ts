@@ -1,4 +1,4 @@
-export type RulesSection = 'attendance' | 'monitoring-rules' | 'qr-codes' | 'approvals' | 'breakage'
+export type RulesSection = 'attendance' | 'monitoring-rules' | 'qr-codes' | 'approvals' | 'breakage' | 'receiving'
 
 export interface SettingDef {
   key: string
@@ -14,6 +14,7 @@ export const SECTION_TITLES: Record<RulesSection, string> = {
   'qr-codes': 'QR codes',
   approvals: 'Approvals and escalation',
   breakage: 'Breakage approval',
+  receiving: 'Receiving',
 }
 
 export const SETTINGS: SettingDef[] = [
@@ -42,4 +43,6 @@ export const SETTINGS: SettingDef[] = [
 
   { key: 'breakage.approval_qty', section: 'breakage', kind: 'number', label: 'Approval needed from this quantity', unit: 'units' },
   { key: 'breakage.approval_cost', section: 'breakage', kind: 'number', label: 'Approval needed from this estimated cost' },
+
+  { key: 'receiving.allow_old_invoices', section: 'receiving', kind: 'toggle', label: 'Allow receiving against invoices older than two years' },
 ]

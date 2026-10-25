@@ -15,6 +15,7 @@ from ..deps import check_location, require, scoped_locations
 from ..models import Employee, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction, Supplier, User
 from ..pagination import paginate, row
 from ..services.inventory import StockError, post_txn
+from ..services.settings import get_setting
 
 router = APIRouter(prefix="/api/receipts", tags=["receiving"])
 
@@ -126,8 +127,10 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
     if not invoice:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the invoice number")
     today = timeutil.local_date(timeutil.utc_now(), db.get(Location, body.location_id).timezone)
-    if body.invoice_date and not (today - timedelta(days=730) <= body.invoice_date <= today):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice date cannot be in the future or more than two years old")
+    if body.invoice_date and body.invoice_date > today:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice date cannot be in the future")
+    if body.invoice_date and body.invoice_date < today - timedelta(days=730) and not get_setting(db, "receiving.allow_old_invoices"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice is more than two years old. A manager can allow old invoices in Settings > Receiving")
     duplicate = db.scalar(select(Receipt).where(Receipt.supplier_id == supplier.id, Receipt.invoice_number == invoice,
                                                 Receipt.status == "posted"))
     if duplicate:

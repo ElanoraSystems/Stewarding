@@ -28,6 +28,7 @@ DEFAULTS: dict[str, int | bool] = {
     "scan.monitoring_required": 0,
     "scan.checklists_required": 0,
     "scan.valid_minutes": 30,
+    "receiving.allow_old_invoices": 0,
 }
 
 # The smallest and largest value a manager may save for each setting; an on/off setting is 0 or 1.
@@ -53,6 +54,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "scan.monitoring_required": (0, 1),
     "scan.checklists_required": (0, 1),
     "scan.valid_minutes": (1, 720),
+    "receiving.allow_old_invoices": (0, 1),
 }
 
 
