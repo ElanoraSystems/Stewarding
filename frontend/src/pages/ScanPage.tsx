@@ -28,7 +28,7 @@ export function ScanPage() {
   }, [token])
 
   const isPoint = place?.kind === 'equipment'
-  const go = () => place && navigate(isPoint ? '/monitoring' : '/checklists', { state: { locationId: place.location_id, equipmentId: isPoint ? place.id : undefined } })
+  const go = (path: string) => place && navigate(path, { state: { locationId: place.location_id, equipmentId: isPoint ? place.id : undefined } })
 
   return (
     <div className="mx-auto max-w-md space-y-4">
@@ -45,7 +45,12 @@ export function ScanPage() {
             <p className="text-xl font-semibold">{place.name}</p>
             {isPoint && <p className="text-sm text-ink-muted">{place.location_name}</p>}
           </div>
-          <Button className="h-12 w-full text-base" onClick={go}>{isPoint ? 'Record a check' : "Open today's checklists"}</Button>
+          {isPoint ? <Button className="h-12 w-full text-base" onClick={() => go('/monitoring')}>Record a check</Button> : (
+            <div className="space-y-2">
+              <Button className="h-12 w-full text-base" onClick={() => go('/checklists')}>Open today's checklists</Button>
+              <Button variant="outline" className="h-12 w-full text-base" onClick={() => go('/monitoring')}>Open monitoring logs</Button>
+            </div>
+          )}
         </CardContent></Card>
       )}
     </div>
