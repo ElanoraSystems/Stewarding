@@ -13,6 +13,7 @@ import { Select } from '@/components/ui/select'
 import { EmptyState, Skeleton } from '@/components/ui/table'
 import { ViewSwitch } from '@/components/ui/view-switch'
 import { api } from '@/lib/api'
+import { fmtDate } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import type { Item } from '@/lib/useItems'
@@ -96,7 +97,9 @@ export function SettingsItems() {
               facts={[
                 { label: 'Unit', value: i.unit },
                 { label: 'Supplier', value: i.supplier ?? '-' },
-                { label: 'Unit cost', value: i.unit_cost != null ? i.unit_cost.toFixed(2) : '-' },
+                { label: 'Starting price', value: i.unit_cost != null ? i.unit_cost.toFixed(2) : '-' },
+                { label: 'Average cost', value: i.avg_cost != null ? i.avg_cost.toFixed(2) : '-' },
+                { label: 'Last purchase', value: i.last_purchase ? `${i.last_purchase.price.toFixed(2)} on ${fmtDate(i.last_purchase.date)}${i.last_purchase.supplier ? `, ${i.last_purchase.supplier}` : ''}` : '-' },
                 { label: 'Minimum / target', value: `${i.min_level} / ${i.target_level ?? '-'}` },
               ]}
               actions={actionsOf(i)}
@@ -131,6 +134,11 @@ export function SettingsItems() {
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{i.name}</p>
                 <p className="truncate text-sm text-ink-muted">{i.code} - {i.category} - {i.unit}{i.supplier ? ` - ${i.supplier}` : ''}</p>
+                {i.avg_cost !== undefined && (
+                  <p className="truncate text-sm text-ink-muted">
+                    Start {i.unit_cost != null ? i.unit_cost.toFixed(2) : '-'} - Average {i.avg_cost != null ? i.avg_cost.toFixed(2) : '-'} - Last bought {i.last_purchase ? `${i.last_purchase.price.toFixed(2)} (${fmtDate(i.last_purchase.date)})` : '-'}
+                  </p>
+                )}
               </div>
               <div className="hidden shrink-0 gap-1.5 sm:flex">{statusBadges(i)}</div>
               <ActionMenu label={`Actions for ${i.name}`} actions={actionsOf(i)} />

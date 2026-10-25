@@ -12,8 +12,8 @@ Every stock movement is valued when it is posted, and the value stays with the m
 | Void of a receipt | The price that receipt was posted at | Takes that price back out of the average |
 
 The average is held per item and per location (`inventory_balance.avg_cost`) and the cost of each movement per row (`stock_transaction.unit_cost`),
-so the value of any past month is fixed and a later price change never rewrites it. An item's own `unit_cost` is a reference price used
-only until the first priced receipt.
+so the value of any past month is fixed and a later price change never rewrites it. An item's own `unit_cost` (shown as the starting price) is a reference price used
+only until the first priced receipt; a migration set it to each item's latest priced purchase, and ticking "Update item costs" on a receipt keeps doing so.
 
 ## Cost consumed
 

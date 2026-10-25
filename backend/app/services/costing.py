@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from ..models import InventoryBalance, InventoryCategory, InventoryItem, StockTransaction
+from ..models import InventoryBalance, InventoryCategory, InventoryItem, Receipt, ReceiptLine, StockTransaction
 
 MEASURES = ("opening_value", "purchases", "returns", "transfers_in", "transfers_out", "closing_value", "cost_consumed", "issued",
             "breakage_damage", "count_adjustments")
@@ -71,3 +71,20 @@ def category_rows(by_category: dict[str, dict], consumed_total: Decimal) -> list
                     "share": round(float(sums["cost_consumed"] / consumed_total * 100), 1) if consumed_total else 0.0})
     return out
 
+
+
+def last_purchases(db: Session, item_ids: list[int]) -> dict[int, dict]:
+    """Each item's most recent priced purchase: unit price after its line discount, the invoice date (or entry day) and the supplier."""
+    if not item_ids:
+        return {}
+    when = func.coalesce(Receipt.invoice_date, Receipt.received_at)
+    rows = db.execute(
+        select(ReceiptLine.item_id, ReceiptLine.line_total, ReceiptLine.qty, when, Receipt.supplier_id)
+        .join(Receipt, Receipt.id == ReceiptLine.receipt_id)
+        .where(ReceiptLine.item_id.in_(item_ids), Receipt.status == "posted", Receipt.doc_type == "receipt",
+               ReceiptLine.line_total > 0, ReceiptLine.qty > 0)
+        .order_by(when, Receipt.id))
+    # oldest first, so the last row seen for an item is its latest purchase
+    return {item_id: {"price": float((Decimal(str(total)) / qty).quantize(Decimal("0.01"))), "date": day.date().isoformat() if hasattr(day, "date") else str(day)[:10],
+                      "supplier_id": supplier_id}
+            for item_id, total, qty, day, supplier_id in rows}

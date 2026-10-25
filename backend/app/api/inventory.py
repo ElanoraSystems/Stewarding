@@ -17,6 +17,7 @@ from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryLevel, InventoryUnit, Location,
                       StockTransaction, Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
+from ..services.costing import last_purchases
 from ..services.inventory import StockError, counts_as_received, level_map, norm, places_in, post_txn, shortage_rows, unheld_items
 from .uploads import MAX_BYTES, file_kind, upload_path
 from ..services.similarity import SCAN_LIMIT, compact, find_similar, token_key, tokens
@@ -231,6 +232,7 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
     unheld = {i.id for i in unheld_items(db)} & set(ids)
     places = places_in(db, scope) if unheld else []
     show_cost = _can_see_cost(user)
+    last = last_purchases(db, ids) if show_cost else {}
     out = []
     for item in items:
         per_location = by_item.get(item.id, {})
@@ -250,6 +252,11 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
         if show_cost:
             entry["unit_cost"] = float(item.unit_cost) if item.unit_cost is not None else None
             held = [(b.qty, b.avg_cost if b.avg_cost is not None else item.unit_cost) for b in balances.get(item.id, [])]
+            stocked = [(q, c) for q, c in held if c is not None and q > 0]
+            kept = [b.avg_cost for b in balances.get(item.id, []) if b.avg_cost is not None]
+            entry["avg_cost"] = round(float(sum(q * c for q, c in stocked) / sum(q for q, _ in stocked)), 2) if stocked else (float(kept[0]) if kept else None)
+            purchase = last.get(item.id)
+            entry["last_purchase"] = {**purchase, "supplier": suppliers.get(purchase["supplier_id"])} if purchase else None
             entry["value"] = round(sum(float(q * c) for q, c in held if c is not None), 2) if any(c is not None for _, c in held) else None
         out.append(entry)
     return out

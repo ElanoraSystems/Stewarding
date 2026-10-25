@@ -216,3 +216,15 @@ def test_item_cost_follows_the_net_price_after_the_line_discount(client, login, 
     assert receive(client, login(MGR), db, lines, invoice="NET-1", update_costs=True).status_code == 201
     item = client.get("/api/inventory/items?search=dinner", headers=login(MGR)).json()["items"][0]
     assert item["unit_cost"] == 4
+
+
+def test_item_list_shows_average_cost_and_the_last_purchase_by_invoice_date(client, login, db, clock):
+    h, sup = manager_headers(client), login(SUP)
+    pl = item_id(db, "PL-001")
+    r1 = receive(client, sup, db, [{"item_id": pl, "qty": 10, "unit_cost": 3.0}], invoice="NEW", invoice_date="2026-02-27")
+    # entered later but dated earlier, so it is not the last purchase
+    r2 = receive(client, sup, db, [{"item_id": pl, "qty": 10, "unit_cost": 9.0}], invoice="OLD", invoice_date="2026-02-01")
+    assert r1.status_code == r2.status_code == 201, (r1.json(), r2.json())
+    item = next(i for i in client.get("/api/inventory/items?size=200", headers=h).json()["items"] if i["id"] == pl)
+    assert item["last_purchase"]["price"] == 3.0 and item["last_purchase"]["supplier"] == "Gulf Catering Supplies"
+    assert item["avg_cost"] is not None

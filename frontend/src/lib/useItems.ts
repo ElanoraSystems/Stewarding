@@ -26,6 +26,8 @@ export interface Item {
   location_minimums: Record<string, number>
   minimum: number
   unit_cost?: number | null
+  avg_cost?: number | null
+  last_purchase?: { price: number; date: string; supplier: string | null } | null
   value?: number | null
 }
 
