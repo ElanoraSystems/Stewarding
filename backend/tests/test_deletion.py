@@ -176,13 +176,40 @@ def test_a_checklist_nothing_was_recorded_against_is_deleted_with_its_tasks(clie
     assert client.delete(f"/api/checklists/templates/{made['id']}", headers=m).status_code == 404
 
 
+def test_a_checklist_the_scheduler_generated_but_nobody_worked_on_can_still_be_deleted(client, login, db):
+    m = login(MGR)
+    body = {"name": "Mistake checklist", "category": "General", "location_id": loc_id(db, "MK"), "frequency": "daily"}
+    made = client.post("/api/checklists/templates", json=body, headers=m).json()
+    client.post(f"/api/checklists/templates/{made['id']}/tasks", json={"description": "Check the fridge"}, headers=m)
+    assert client.post("/api/checklists/generate", json={"location_id": loc_id(db, "MK")}, headers=m).json()["created"] > 0
+    assert client.delete(f"/api/checklists/templates/{made['id']}", headers=m).json() == {"deleted": made["id"]}
+
+
 def test_a_checklist_or_task_with_records_is_refused(client, login, db):
+    from app.models import ChecklistInstance
+
     m = login(MGR)
     body = {"name": "Used checklist", "category": "General", "location_id": loc_id(db, "MK"), "frequency": "daily"}
     made = client.post("/api/checklists/templates", json=body, headers=m).json()
     task = client.post(f"/api/checklists/templates/{made['id']}/tasks", json={"description": "Check the fridge"}, headers=m).json()
     assert client.post("/api/checklists/generate", json={"location_id": loc_id(db, "MK")}, headers=m).status_code in (200, 201)
+    db.query(ChecklistInstance).filter(ChecklistInstance.task_id == task["id"]).update({"status": "completed"})
+    db.commit()
     r = client.delete(f"/api/checklists/templates/{made['id']}", headers=m)
     assert r.status_code == 409 and "make it inactive instead" in r.json()["detail"]
     r = client.post(f"/api/checklists/tasks/{task['id']}/remove", headers=m)
-    assert r.status_code == 409 and "checklist records" in r.json()["detail"]
+    assert r.status_code == 409 and "records of work done" in r.json()["detail"]
+
+def test_a_checklist_ignored_for_days_is_a_record_and_cannot_be_deleted(client, login, db):
+    from datetime import date
+
+    from app.models import ChecklistInstance
+
+    m = login(MGR)
+    body = {"name": "Ignored checklist", "category": "General", "location_id": loc_id(db, "MK"), "frequency": "daily"}
+    made = client.post("/api/checklists/templates", json=body, headers=m).json()
+    task = client.post(f"/api/checklists/templates/{made['id']}/tasks", json={"description": "Check the fridge"}, headers=m).json()
+    client.post("/api/checklists/generate", json={"location_id": loc_id(db, "MK")}, headers=m)
+    db.query(ChecklistInstance).filter(ChecklistInstance.task_id == task["id"]).update({"local_date": date(2026, 2, 20), "status": "overdue"})
+    db.commit()
+    assert client.delete(f"/api/checklists/templates/{made['id']}", headers=m).status_code == 409

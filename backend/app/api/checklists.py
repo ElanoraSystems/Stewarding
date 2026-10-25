@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,7 +16,6 @@ from ..pagination import paginate, row
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services import checklists as engine
 from ..services.checklists import DONE, OPEN, effective_status
-from ..services.deletion import blockers
 from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
@@ -477,15 +476,21 @@ def assign(instance_id: int, body: AssignIn, user: User = Depends(require("task.
     return _serialize(inst, task, template, timeutil.utc_now())
 
 
+DELETE_GRACE_DAYS = 3  # a checklist made in error is noticed within days; older untouched tasks are missed work and stay on record
+
+
+def _grace_start(db: Session, location_id: int) -> date:
+    return timeutil.local_date(timeutil.utc_now(), db.get(Location, location_id).timezone) - timedelta(days=DELETE_GRACE_DAYS)
+
+
 @router.delete("/templates/{template_id}")
 def delete_template(template_id: int, user: User = Depends(require("checklist.configure")), db: Session = Depends(get_db)):
     """Deletes a checklist and its tasks when nothing was ever recorded against them."""
     template = _template_or_404(db, template_id)
     check_location(user, db, template.location_id)
     tasks = list(db.scalars(select(ChecklistTask).where(ChecklistTask.template_id == template.id)))
-    used = list(dict.fromkeys(name for task in tasks for name in blockers(db, task)))
-    if used:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"{template.name} is used by {', '.join(used)}; make it inactive instead")
+    if not engine.drop_untouched_instances(db, [t.id for t in tasks], _grace_start(db, template.location_id)):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{template.name} has records of work done; make it inactive instead")
     before = {"name": template.name, "category": template.category, "frequency": template.frequency, "tasks": len(tasks)}
     for task in tasks:
         db.delete(task)
@@ -502,10 +507,10 @@ def remove_task(task_id: int, user: User = Depends(require("checklist.configure"
     task = db.get(ChecklistTask, task_id)
     if not task:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
-    check_location(user, db, _template_or_404(db, task.template_id).location_id)
-    used = blockers(db, task)
-    if used:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"This task is used by {', '.join(used)}; make it inactive instead")
+    location_id = _template_or_404(db, task.template_id).location_id
+    check_location(user, db, location_id)
+    if not engine.drop_untouched_instances(db, [task.id], _grace_start(db, location_id)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This task has records of work done; make it inactive instead")
     before = row(task, *TASK_FIELDS)
     db.delete(task)
     audit(db, user, "checklist.task_delete", "checklist_task", task_id, {k: str(v) for k, v in before.items()}, None)
