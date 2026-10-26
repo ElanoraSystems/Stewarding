@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { useMoney } from '@/lib/money'
 
 interface Props {
   locationId: number | null
@@ -45,6 +46,7 @@ const sinceDate = () => { const d = new Date(); d.setDate(d.getDate() - (DAYS - 
 const when = (iso: string) => new Date(iso.endsWith('Z') ? iso : `${iso}Z`).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 export function InventoryOverview({ locationId }: Props) {
+  const money = useMoney()
   const { byId } = useAllItems()
   const { me } = useAuth()
   const navigate = useNavigate()
@@ -60,7 +62,7 @@ export function InventoryOverview({ locationId }: Props) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="Total items" value={all.data?.total ?? '-'} icon={Boxes} />
-        {all.data?.total_value !== undefined && <KpiCard label="Stock value" value={all.data.total_value.toFixed(3)} icon={Wallet} />}
+        {all.data?.total_value !== undefined && <KpiCard label="Stock value" value={money(all.data.total_value)} icon={Wallet} />}
         <KpiCard label="Below minimum" value={short.data?.total ?? '-'} tone={short.data?.total ? 'warn' : 'ok'} icon={TrendingDown} />
         <KpiCard label="Out of stock" value={short.data ? empty : '-'} tone={empty ? 'critical' : 'ok'} icon={PackageMinus} />
       </div>

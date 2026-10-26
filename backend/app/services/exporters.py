@@ -33,7 +33,8 @@ def _org_lines(org: dict | None) -> list[str]:
     contact = " | ".join(part for part in (org.get("phone"), org.get("email"), org.get("website")) if part)
     legal = org.get("legal_name") or ""
     registration = f"Reg. {org['registration_number']}" if org.get("registration_number") else ""
-    return [line for line in (org["name"], legal if legal != org["name"] else "", org.get("address") or "", contact, registration) if line]
+    amounts = f"Amounts in {org['currency']}" if org.get("currency") else ""
+    return [line for line in (org["name"], legal if legal != org["name"] else "", org.get("address") or "", contact, registration, amounts) if line]
 
 
 def _generated(report: dict) -> str:

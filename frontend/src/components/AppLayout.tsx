@@ -15,6 +15,7 @@ import { setDisplayTimeZone } from '@/lib/format'
 import { useTheme } from '@/lib/theme'
 import { useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
+import { setCurrency } from '@/lib/money'
 
 const ICONS: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -52,9 +53,11 @@ export function AppLayout() {
   const { me } = useAuth()
   const [theme, toggleTheme] = useTheme()
   const { pathname } = useLocation()
-  const org = useApi<{ name: string; logo: string | null; timezone: string }>('/organization')
+  const org = useApi<{ name: string; logo: string | null; timezone: string; currency: string }>('/organization')
   const reloadOrg = org.reload
   setDisplayTimeZone(org.data?.timezone)
+  const currency = org.data?.currency
+  useEffect(() => setCurrency(currency), [currency])
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [pathname])

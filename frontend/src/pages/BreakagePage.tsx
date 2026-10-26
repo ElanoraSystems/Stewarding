@@ -16,6 +16,7 @@ import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { BreakageReportForm } from '@/pages/BreakageReportForm'
+import { useMoney } from '@/lib/money'
 
 interface Incident {
   id: number
@@ -36,6 +37,7 @@ type Dialog = { kind: 'review' | 'reject' | 'approve'; incident: Incident } | nu
 const SIZE = 15
 
 export function BreakagePage() {
+  const money = useMoney()
   const { me } = useAuth()
   const run = useRun()
   const can = (p: string) => me?.permissions.includes(p) ?? false
@@ -125,7 +127,7 @@ export function BreakagePage() {
                 <StatusBadge status={i.status} />
               </div>
               <p className="text-sm">
-                {byId.get(i.item_id)?.name ?? i.item_id} <span className="text-ink-muted">x {i.qty}{i.est_cost != null ? ` - ${i.est_cost.toFixed(3)}` : ''}</span>
+                {byId.get(i.item_id)?.name ?? i.item_id} <span className="text-ink-muted">x {i.qty}{i.est_cost != null ? ` - ${money(i.est_cost)}` : ''}</span>
               </p>
               <p className="text-xs text-ink-muted">{label(i.incident_type)} - {places.get(i.location_id)} - {fmtDateTime(i.occurred_at)}</p>
               {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -144,7 +146,7 @@ export function BreakagePage() {
               <Td>{places.get(i.location_id)}</Td>
               <Td>{byId.get(i.item_id)?.name ?? i.item_id}</Td>
               <Td className="text-right tabular-nums">{i.qty}</Td>
-              <Td className="text-right tabular-nums">{i.est_cost != null ? i.est_cost.toFixed(3) : '-'}</Td>
+              <Td className="text-right tabular-nums">{i.est_cost != null ? money(i.est_cost) : '-'}</Td>
               <Td>{label(i.incident_type)}</Td>
               <Td><StatusBadge status={i.status} /></Td>
               {canList && (
@@ -158,7 +160,7 @@ export function BreakagePage() {
       {rows?.length === 0 && <EmptyState title="No incidents" />}
       {canList && list.data && list.data.total > 0 && (
         <p role="status" className="text-right text-sm">
-          Total breakage value for this selection <span className="ml-2 text-base font-semibold tabular-nums">{list.data.totals.cost.toFixed(3)}</span>
+          Total breakage value for this selection <span className="ml-2 text-base font-semibold tabular-nums">{money(list.data.totals.cost)}</span>
           <span className="ml-2 text-ink-muted">({list.data.totals.units} units, rejected excluded)</span>
         </p>
       )}

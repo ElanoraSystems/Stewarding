@@ -4,10 +4,12 @@ import { KpiCard } from '@/components/KpiCard'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/table'
 import { PRESETS, type Range } from '@/lib/dates'
 import { qs, useApi } from '@/lib/useApi'
+import { useMoney } from '@/lib/money'
 
 interface Analysis {
   spend_trend: { period: string; spend: number }[]
@@ -31,14 +33,17 @@ interface Insights {
 }
 
 export function InsightsTab() {
+  const money = useMoney()
   const [preset, setPreset] = useState('last30')
   const [locationId, setLocationId] = useState<number | null>(null)
-  const range = (PRESETS.find((p) => p.key === preset) ?? PRESETS[0]).range() as Range
+  const [custom, setCustom] = useState<Range>(() => (PRESETS[0].range() as Range))
+  const range = (preset === 'custom' ? custom : (PRESETS.find((p) => p.key === preset) ?? PRESETS[0]).range()) as Range
+  const rangeOk = range[0] !== '' && range[1] !== '' && range[0] <= range[1]
   const [dateBy, setDateBy] = useState<'invoice' | 'received'>('invoice')
   const query = qs({ location_id: locationId, date_from: range[0], date_to: range[1], date_by: dateBy })
-  const { data, error } = useApi<Insights>(`/stock/insights${query}`)
-  const analysis = useApi<Analysis>(`/stock/analysis${query}`).data
-  const money = (rows: { label: string; value: number }[]) => rows.map((r) => ({ ...r, sub: r.value.toFixed(3) }))
+  const { data, error } = useApi<Insights>(rangeOk ? `/stock/insights${query}` : null)
+  const analysis = useApi<Analysis>(rangeOk ? `/stock/analysis${query}` : null).data
+  const withMoney = (rows: { label: string; value: number }[]) => rows.map((r) => ({ ...r, sub: money(r.value) }))
 
   return (
     <div className="space-y-4">
@@ -46,12 +51,20 @@ export function InsightsTab() {
         {PRESETS.filter((p) => ['today', 'week', 'month', 'lastmonth', 'last30'].includes(p.key)).map((p) => (
           <Button key={p.key} size="sm" variant={preset === p.key ? 'default' : 'outline'} onClick={() => setPreset(p.key)}>{p.label}</Button>
         ))}
+        <Button size="sm" variant={preset === 'custom' ? 'default' : 'outline'} onClick={() => setPreset('custom')}>Custom period</Button>
+        {preset === 'custom' && (
+          <>
+            <Input aria-label="From date" type="date" className="w-auto" value={custom[0]} max={custom[1] || undefined} onChange={(e) => setCustom([e.target.value, custom[1]])} />
+            <Input aria-label="To date" type="date" className="w-auto" value={custom[1]} min={custom[0] || undefined} onChange={(e) => setCustom([custom[0], e.target.value])} />
+          </>
+        )}
         <LocationSelect allowAll value={locationId} onChange={setLocationId} />
         <Select aria-label="Date deliveries by" className="w-auto" value={dateBy} onChange={(e) => setDateBy(e.target.value as 'invoice' | 'received')}>
           <option value="invoice">Deliveries by invoice date</option>
           <option value="received">Deliveries by received date</option>
         </Select>
       </div>
+      {preset === 'custom' && !rangeOk && <p className="text-sm text-ink-muted">Choose a start date that is not after the end date.</p>}
       {error && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}
       {!data ? <Skeleton className="h-64 w-full" /> : (
         <>
@@ -91,16 +104,16 @@ export function InsightsTab() {
           {analysis && (
             <section aria-label="Purchasing and stock value" className="grid gap-4 lg:grid-cols-2">
               <Card>
-                <CardHeader><CardTitle>Purchases (value) {data.range.grain === 'month' ? 'by month' : 'by day'}: {analysis.total_spend.toFixed(3)}</CardTitle></CardHeader>
+                <CardHeader><CardTitle>Purchases (value) {data.range.grain === 'month' ? 'by month' : 'by day'}: {money(analysis.total_spend)}</CardTitle></CardHeader>
                 <CardContent><ColumnChart data={analysis.spend_trend} labelKey="period" series={[{ key: 'spend', label: 'Purchases', className: 'bg-brand' }]} /></CardContent>
               </Card>
               <Card>
                 <CardHeader><CardTitle>Spend by supplier</CardTitle></CardHeader>
-                <CardContent><QuantityBars items={money(analysis.spend_by_supplier)} /></CardContent>
+                <CardContent><QuantityBars items={withMoney(analysis.spend_by_supplier)} /></CardContent>
               </Card>
               <Card>
                 <CardHeader><CardTitle>Spend by category</CardTitle></CardHeader>
-                <CardContent><QuantityBars items={money(analysis.spend_by_category)} /></CardContent>
+                <CardContent><QuantityBars items={withMoney(analysis.spend_by_category)} /></CardContent>
               </Card>
               <Card>
                 <CardHeader><CardTitle>Most used items (units issued)</CardTitle></CardHeader>
@@ -108,7 +121,7 @@ export function InsightsTab() {
               </Card>
               <Card>
                 <CardHeader><CardTitle>Stock value held now, by category</CardTitle></CardHeader>
-                <CardContent><QuantityBars items={money(analysis.stock_value_by_category)} /></CardContent>
+                <CardContent><QuantityBars items={withMoney(analysis.stock_value_by_category)} /></CardContent>
               </Card>
             </section>
           )}

@@ -116,6 +116,7 @@ class Organization(Base):
     report_footer: Mapped[str | None] = mapped_column(String(300))
     logo: Mapped[str | None] = mapped_column(String(60))
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kuwait")  # shown on reports and used for new locations
+    currency: Mapped[str | None] = mapped_column(String(8))  # shown with amounts; none until set
 
 
 class ScanEvent(Base):

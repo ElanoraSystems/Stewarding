@@ -19,6 +19,7 @@ import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { useLineEntry } from '@/lib/useLineEntry'
+import { useMoney } from '@/lib/money'
 
 interface Doc {
   id: number
@@ -55,7 +56,6 @@ interface Line {
 
 const BLANK_LINE: Line = { item: '', qty: '', cost: '', discType: 'amount', disc: '' }
 
-const money = (n: number) => n.toFixed(3)
 const cut = (type: DiscountType, value: string, base: number) => Math.min(base, type === 'percent' ? (base * Number(value || 0)) / 100 : Number(value || 0))
 const lineGross = (l: Line) => Number(l.qty || 0) * Number(l.cost || 0)
 const lineComplete = (l: Line) => l.item !== '' && Number(l.qty) > 0
@@ -64,6 +64,7 @@ const SIZE = 10
 const LABEL = { receipt: 'Goods receipt', supplier_return: 'Return to supplier' }
 
 export function ReceivingTab() {
+  const money = useMoney()
   const { me } = useAuth()
   const run = useRun()
   const canVoid = me?.permissions.includes('stock.approve') ?? false
@@ -293,7 +294,7 @@ export function ReceivingTab() {
               <Td>{d.invoice_number}</Td>
               <Td>{d.invoice_date ? fmtDate(d.invoice_date) : '-'}</Td>
               <Td>{places.get(d.location_id)}</Td>
-              <Td className="text-right tabular-nums">{d.total != null ? d.total.toFixed(3) : '-'}</Td>
+              <Td className="text-right tabular-nums">{d.total != null ? money(d.total) : '-'}</Td>
               <Td><StatusBadge status={d.status} /></Td>
               <Td><div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => open(d)}>View</Button>
@@ -334,17 +335,17 @@ export function ReceivingTab() {
               <thead><tr><Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Unit cost</Th><Th className="text-right">Discount</Th><Th className="text-right">Line total</Th></tr></thead>
               <tbody>
                 {detail.lines?.map((l) => (
-                  <tr key={l.item_id}><Td>{l.code} - {l.name}</Td><Td className="text-right tabular-nums">{l.qty}</Td><Td className="text-right tabular-nums">{l.unit_cost != null ? l.unit_cost.toFixed(3) : '-'}</Td><Td className="text-right tabular-nums">{l.discount_amount ? `-${l.discount_amount.toFixed(3)}` : '-'}</Td><Td className="text-right tabular-nums">{l.line_total != null ? l.line_total.toFixed(3) : '-'}</Td></tr>
+                  <tr key={l.item_id}><Td>{l.code} - {l.name}</Td><Td className="text-right tabular-nums">{l.qty}</Td><Td className="text-right tabular-nums">{l.unit_cost != null ? money(l.unit_cost) : '-'}</Td><Td className="text-right tabular-nums">{l.discount_amount ? `-${money(l.discount_amount)}` : '-'}</Td><Td className="text-right tabular-nums">{l.line_total != null ? money(l.line_total) : '-'}</Td></tr>
                 ))}
               </tbody>
             </Table>
             {detail.total != null && (
               <dl className="ml-auto grid w-60 grid-cols-[1fr_auto] gap-x-6 gap-y-1">
-                <dt>Sub total</dt><dd className="text-right tabular-nums">{detail.subtotal?.toFixed(3)}</dd>
-                <dt>Line discounts</dt><dd className="text-right tabular-nums">-{(detail.line_discount_total ?? 0).toFixed(3)}</dd>
-                <dt>Invoice discount{detail.discount_type === 'percent' ? ` (${detail.discount_value}%)` : ''}</dt><dd className="text-right tabular-nums">-{(detail.discount_amount ?? 0).toFixed(3)}</dd>
-                <dt>Total discount</dt><dd className="text-right tabular-nums">-{(detail.total_discount ?? 0).toFixed(3)}</dd>
-                <dt className="border-t border-border pt-1 font-semibold">Total</dt><dd className="border-t border-border pt-1 text-right font-semibold tabular-nums">{detail.total.toFixed(3)}</dd>
+                <dt>Sub total</dt><dd className="text-right tabular-nums">{money(detail.subtotal ?? 0)}</dd>
+                <dt>Line discounts</dt><dd className="text-right tabular-nums">-{money(detail.line_discount_total ?? 0)}</dd>
+                <dt>Invoice discount{detail.discount_type === 'percent' ? ` (${detail.discount_value}%)` : ''}</dt><dd className="text-right tabular-nums">-{money(detail.discount_amount ?? 0)}</dd>
+                <dt>Total discount</dt><dd className="text-right tabular-nums">-{money(detail.total_discount ?? 0)}</dd>
+                <dt className="border-t border-border pt-1 font-semibold">Total</dt><dd className="border-t border-border pt-1 text-right font-semibold tabular-nums">{money(detail.total)}</dd>
               </dl>
             )}
             {detail.status === 'void' && <p className="rounded-md bg-surface-muted p-2">Voided: {detail.void_reason}</p>}

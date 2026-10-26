@@ -19,6 +19,7 @@ interface Organization {
   registration_number: string
   report_footer: string
   timezone: string
+  currency: string
   logo: string | null
 }
 
@@ -32,6 +33,7 @@ const FIELDS: [keyof Omit<Organization, 'logo'>, string][] = [
   ['registration_number', 'Registration or licence number'],
   ['report_footer', 'Report footer note'],
   ['timezone', 'Time zone'],
+  ['currency', 'Currency (for example KWD)'],
 ]
 
 export function SettingsOrganization() {
@@ -81,7 +83,7 @@ export function SettingsOrganization() {
                 <Field label={text}>
                   {key === 'timezone'
                     ? <TimezoneInput value={value(key)} onChange={(zone) => setDraft((d) => ({ ...d, timezone: zone }))} />
-                    : <Input required={key === 'name'} value={value(key)} maxLength={key === 'address' ? 500 : 160}
+                    : <Input required={key === 'name'} value={value(key)} maxLength={key === 'address' ? 500 : key === 'currency' ? 8 : 160}
                       onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))} />}
                 </Field>
               </div>

@@ -19,10 +19,12 @@ import { qs, useApi } from '@/lib/useApi'
 import type { Item } from '@/lib/useItems'
 import { useViewMode } from '@/lib/viewMode'
 import { ItemForm } from '@/pages/ItemForm'
+import { useMoney } from '@/lib/money'
 
 const SIZES = { cards: 12, grid: 24, list: 25 }
 
 export function SettingsItems() {
+  const money = useMoney()
   const run = useRun()
   const [categoryId, setCategoryId] = useState('')
   const [search, setSearch] = useState('')
@@ -97,9 +99,9 @@ export function SettingsItems() {
               facts={[
                 { label: 'Unit', value: i.unit },
                 { label: 'Supplier', value: i.supplier ?? '-' },
-                { label: 'Starting price', value: i.unit_cost != null ? i.unit_cost.toFixed(3) : '-' },
-                { label: 'Average cost', value: i.avg_cost != null ? i.avg_cost.toFixed(3) : '-' },
-                { label: 'Last purchase', value: i.last_purchase ? `${i.last_purchase.price.toFixed(3)} on ${fmtDate(i.last_purchase.date)}${i.last_purchase.supplier ? `, ${i.last_purchase.supplier}` : ''}` : '-' },
+                { label: 'Starting price', value: i.unit_cost != null ? money(i.unit_cost) : '-' },
+                { label: 'Average cost', value: i.avg_cost != null ? money(i.avg_cost) : '-' },
+                { label: 'Last purchase', value: i.last_purchase ? `${money(i.last_purchase.price)} on ${fmtDate(i.last_purchase.date)}${i.last_purchase.supplier ? `, ${i.last_purchase.supplier}` : ''}` : '-' },
                 { label: 'Minimum / target', value: `${i.min_level} / ${i.target_level ?? '-'}` },
               ]}
               actions={actionsOf(i)}
@@ -136,7 +138,7 @@ export function SettingsItems() {
                 <p className="truncate text-sm text-ink-muted">{i.code} - {i.category} - {i.unit}{i.supplier ? ` - ${i.supplier}` : ''}</p>
                 {i.avg_cost !== undefined && (
                   <p className="truncate text-sm text-ink-muted">
-                    Start {i.unit_cost != null ? i.unit_cost.toFixed(3) : '-'} - Average {i.avg_cost != null ? i.avg_cost.toFixed(3) : '-'} - Last bought {i.last_purchase ? `${i.last_purchase.price.toFixed(3)} (${fmtDate(i.last_purchase.date)})` : '-'}
+                    Start {i.unit_cost != null ? money(i.unit_cost) : '-'} - Average {i.avg_cost != null ? money(i.avg_cost) : '-'} - Last bought {i.last_purchase ? `${money(i.last_purchase.price)} (${fmtDate(i.last_purchase.date)})` : '-'}
                   </p>
                 )}
               </div>
