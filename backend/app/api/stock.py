@@ -391,7 +391,7 @@ def stock_cost(date_from: date, date_to: date, location_id: int | None = None,
             together[line["category"]]["items"] += line["items"]
             for key in MEASURES:
                 together[line["category"]][key] += Decimal(str(line[key]))
-    totals = {key: round(sum(p["totals"].get(key, 0) for p in per_place), 2) for key in MEASURES}
+    totals = {key: round(sum(p["totals"].get(key, 0) for p in per_place), 3) for key in MEASURES}
     return {**period, "locations": per_place, "totals": totals, "by_category": category_rows(together, Decimal(str(totals["cost_consumed"])))}
 
 

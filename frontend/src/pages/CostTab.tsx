@@ -40,7 +40,7 @@ interface Report {
   locations?: { location_id: number; location: string; totals: Totals }[]
 }
 
-const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 const thisMonth = () => new Date().toLocaleDateString('en-CA').slice(0, 7)
 
 function period(month: string) {

@@ -65,10 +65,10 @@ def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -
         for key in MEASURES:
             totals[key] += row[key]
             by_category[row["category"]][key] += row[key]
-            row[key] = round(float(row[key]), 2)
+            row[key] = round(float(row[key]), 3)
         by_category[row["category"]]["items"] += 1
         rows.append(row)
-    return {"rows": rows, "totals": {k: round(float(v), 2) for k, v in totals.items()}, "by_category": category_rows(by_category, totals["cost_consumed"])}
+    return {"rows": rows, "totals": {k: round(float(v), 3) for k, v in totals.items()}, "by_category": category_rows(by_category, totals["cost_consumed"])}
 
 
 def _by_invoice_date(db: Session, location_id: int, tz: str, start: datetime, end: datetime, invoice) -> list[tuple]:
@@ -91,7 +91,7 @@ def category_rows(by_category: dict[str, dict], consumed_total: Decimal) -> list
     """One line per category with its share of the cost consumed, largest first."""
     out = []
     for name, sums in sorted(by_category.items(), key=lambda kv: -kv[1]["cost_consumed"]):
-        out.append({"category": name, "items": int(sums["items"]), **{k: round(float(sums[k]), 2) for k in MEASURES},
+        out.append({"category": name, "items": int(sums["items"]), **{k: round(float(sums[k]), 3) for k in MEASURES},
                     "share": round(float(sums["cost_consumed"] / consumed_total * 100), 1) if consumed_total else 0.0})
     return out
 

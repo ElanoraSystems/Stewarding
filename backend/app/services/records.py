@@ -144,10 +144,10 @@ def _stock_cost_groups(db: Session, locations: list[Location], day_from: date, d
         if not report["rows"]:
             continue
         rows = [{"category": r["category"], "item": f"{r['code']} - {r['name']}", "average_cost": "" if r["average_cost"] is None else f"{r['average_cost']:.4f}",
-                 "opening_value": f"{r['opening_value']:.2f}", "purchases": f"{r['purchases']:.2f}",
-                 "net_transfers_returns": f"{r['returns'] + r['transfers_in'] - r['transfers_out']:.2f}",
-                 "closing_value": f"{r['closing_value']:.2f}", "cost_consumed": f"{r['cost_consumed']:.2f}", "issued": f"{r['issued']:.2f}",
-                 "breakage_damage": f"{r['breakage_damage']:.2f}", "count_adjustments": f"{r['count_adjustments']:.2f}"}
+                 "opening_value": f"{r['opening_value']:.3f}", "purchases": f"{r['purchases']:.3f}",
+                 "net_transfers_returns": f"{r['returns'] + r['transfers_in'] - r['transfers_out']:.3f}",
+                 "closing_value": f"{r['closing_value']:.3f}", "cost_consumed": f"{r['cost_consumed']:.3f}", "issued": f"{r['issued']:.3f}",
+                 "breakage_damage": f"{r['breakage_damage']:.3f}", "count_adjustments": f"{r['count_adjustments']:.3f}"}
                 for r in sorted(report["rows"], key=lambda r: (r["category"], r["code"]))]
         t = report["totals"]
         groups.append({
@@ -157,9 +157,9 @@ def _stock_cost_groups(db: Session, locations: list[Location], day_from: date, d
                         ("cost_consumed", "Cost consumed"), ("issued", "of which issued"), ("breakage_damage", "of which breakage and damage"),
                         ("count_adjustments", "Count gain (+) or loss (-)")],
             "rows": rows,
-            "totals": [("Opening value", f"{t['opening_value']:.2f}"), ("Purchases", f"{t['purchases']:.2f}"), ("Closing value", f"{t['closing_value']:.2f}"),
-                       ("Cost consumed", f"{t['cost_consumed']:.2f}"), ("Issued", f"{t['issued']:.2f}"), ("Breakage and damage", f"{t['breakage_damage']:.2f}"),
-                       ("Count gain (+) or loss (-)", f"{t['count_adjustments']:.2f}")]})
+            "totals": [("Opening value", f"{t['opening_value']:.3f}"), ("Purchases", f"{t['purchases']:.3f}"), ("Closing value", f"{t['closing_value']:.3f}"),
+                       ("Cost consumed", f"{t['cost_consumed']:.3f}"), ("Issued", f"{t['issued']:.3f}"), ("Breakage and damage", f"{t['breakage_damage']:.3f}"),
+                       ("Count gain (+) or loss (-)", f"{t['count_adjustments']:.3f}")]})
     return groups
 
 
@@ -191,11 +191,11 @@ def _stock_cost_category_groups(db: Session, locations: list[Location], day_from
 
 
 def _category_group(title: str, meta: list, columns: list, lines: list[dict], totals: dict) -> dict:
-    rows = [{**line, **{k: f"{line[k]:.2f}" for k in MEASURES}, "share": f"{line['share']:.1f}%"} for line in lines]
+    rows = [{**line, **{k: f"{line[k]:.3f}" for k in MEASURES}, "share": f"{line['share']:.1f}%"} for line in lines]
     return {"title": title, "meta": meta, "columns": columns, "rows": rows,
-            "totals": [("Opening value", f"{totals['opening_value']:.2f}"), ("Purchases", f"{totals['purchases']:.2f}"), ("Closing value", f"{totals['closing_value']:.2f}"),
-                       ("Cost consumed", f"{totals['cost_consumed']:.2f}"), ("Breakage and damage", f"{totals['breakage_damage']:.2f}"),
-                       ("Count gain (+) or loss (-)", f"{totals['count_adjustments']:.2f}")]}
+            "totals": [("Opening value", f"{totals['opening_value']:.3f}"), ("Purchases", f"{totals['purchases']:.3f}"), ("Closing value", f"{totals['closing_value']:.3f}"),
+                       ("Cost consumed", f"{totals['cost_consumed']:.3f}"), ("Breakage and damage", f"{totals['breakage_damage']:.3f}"),
+                       ("Count gain (+) or loss (-)", f"{totals['count_adjustments']:.3f}")]}
 
 
 def _checklist_groups(db: Session, locations: list[Location], day_from: date, day_to: date,

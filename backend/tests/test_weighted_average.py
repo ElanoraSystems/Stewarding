@@ -104,7 +104,7 @@ def test_the_cost_report_is_in_the_records_and_needs_the_inventory_module(client
     receive(client, login, db, item, sup, 10, 2.00, "W-X1")
     doc = client.get("/api/reports/records/stock_cost?date_from=2026-03-01&date_to=2026-03-31", headers=login(MGR)).json()
     group = next(g for g in doc["groups"] if "Main Kitchen" in g["title"])
-    assert dict(group["totals"])["Purchases"] == "20.00" and ("Costing method", "Weighted average cost") in [tuple(m) for m in group["meta"]]
+    assert dict(group["totals"])["Purchases"] == "20.000" and ("Costing method", "Weighted average cost") in [tuple(m) for m in group["meta"]]
     for fmt in ("pdf", "xlsx", "csv"):
         assert client.get(f"/api/reports/records/stock_cost/export?fmt={fmt}&date_from=2026-03-01&date_to=2026-03-31", headers=login(MGR)).status_code == 200
     assert client.get(f"{URL}?location_id=1&date_from=2026-03-01&date_to=2026-03-31", headers=login("steward.mk@example.test")).status_code == 403
@@ -175,3 +175,14 @@ def test_a_purchase_counts_in_the_period_of_its_invoice_date_not_the_day_it_was_
 
     assert purchases("2026-02-01", "2026-02-28") == (20.0, 0.0, 20.0)
     assert purchases("2026-03-01", "2026-03-31") == (15.0, 20.0, 35.0)
+
+
+def test_the_cost_report_keeps_a_third_decimal(client, login, db, clock):
+    item, sup = item_and_supplier(client, login, db)
+    receive(client, login, db, item, sup, 10, 2.345, "W-T1")
+    report = client.get(f"{URL}?location_id={loc_id(db, 'MK')}&date_from=2026-03-01&date_to=2026-03-31", headers=login(MGR)).json()
+    row = next(r for r in report["rows"] if r["item_id"] == item["id"])
+    assert row["purchases"] == 23.45 and row["closing_value"] == 23.45 and report["totals"]["purchases"] == 23.45
+    doc = client.get("/api/reports/records/stock_cost?date_from=2026-03-01&date_to=2026-03-31", headers=login(MGR)).json()
+    group = next(g for g in doc["groups"] if "Main Kitchen" in g["title"])
+    assert dict(group["totals"])["Purchases"] == "23.450"
