@@ -22,7 +22,7 @@ class BreakageIncident(Base):
     shift_id: Mapped[int | None] = mapped_column(ForeignKey("shift.id"))
     reported_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     photo_path: Mapped[str | None] = mapped_column(String(300))
-    est_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    est_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     status: Mapped[str] = mapped_column(String(20), default="reported", index=True)
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)

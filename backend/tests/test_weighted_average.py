@@ -186,3 +186,14 @@ def test_the_cost_report_keeps_a_third_decimal(client, login, db, clock):
     doc = client.get("/api/reports/records/stock_cost?date_from=2026-03-01&date_to=2026-03-31", headers=login(MGR)).json()
     group = next(g for g in doc["groups"] if "Main Kitchen" in g["title"])
     assert dict(group["totals"])["Purchases"] == "23.450"
+
+
+def test_a_breakage_cost_keeps_a_third_decimal(client, login, db, clock):
+    item, sup = item_and_supplier(client, login, db)
+    receive(client, login, db, item, sup, 10, 2.345, "W-B1")                 # average 2.345
+    incident = client.post("/api/breakage", headers=login("steward.mk@example.test"),
+                           json={"location_id": loc_id(db, "MK"), "item_id": item["id"], "qty": 3, "incident_type": "breakage", "reason": "dropped"}).json()
+    client.post(f"/api/breakage/{incident['id']}/review", headers=login(SUP), json={"qty": 3, "reason": "confirmed"})
+    listed = client.get("/api/breakage", headers=login(MGR)).json()
+    mine = next(i for i in listed["items"] if i["id"] == incident["id"])
+    assert mine["est_cost"] == 7.035 and listed["totals"]["cost"] == 7.035      # 3 x 2.345

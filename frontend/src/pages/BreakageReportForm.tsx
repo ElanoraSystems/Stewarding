@@ -12,7 +12,7 @@ import { qs, useApi } from '@/lib/useApi'
 import { useLookup } from '@/lib/useLookups'
 
 const OTHER = '__other__'
-const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 
 export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
   const run = useRun()

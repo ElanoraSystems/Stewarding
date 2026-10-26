@@ -59,10 +59,10 @@ function Section({ rows, flaggedOnly }: { rows: Row[]; flaggedOnly: boolean }) {
             <Td className="text-right tabular-nums">{r.transfers_in + r.transfers_out}</Td>
             <Td className="text-right tabular-nums">{r.adjustments}</Td>
             <Td className="text-right font-medium tabular-nums">{r.closing}</Td>
-            <Td className="text-right tabular-nums">{r.closing_value.toFixed(2)}</Td>
+            <Td className="text-right tabular-nums">{r.closing_value.toFixed(3)}</Td>
             <Td className="text-right tabular-nums">{r.counted_qty ?? '-'}</Td>
             <Td>
-              {r.count_variance ? <Badge tone={r.count_variance < 0 ? 'critical' : 'warn'}>{r.count_variance < 0 ? 'Short' : 'Over'} {Math.abs(r.count_variance)}{r.variance_value != null && ` (${r.variance_value.toFixed(2)})`}</Badge>
+              {r.count_variance ? <Badge tone={r.count_variance < 0 ? 'critical' : 'warn'}>{r.count_variance < 0 ? 'Short' : 'Over'} {Math.abs(r.count_variance)}{r.variance_value != null && ` (${r.variance_value.toFixed(3)})`}</Badge>
                 : r.counted_qty != null ? <Badge tone="ok">Matches</Badge> : <span className="text-ink-muted">Not counted</span>}
             </Td>
           </tr>
@@ -96,7 +96,7 @@ export function ReconciliationTab() {
             <>
               <Badge tone="critical">{data.variance.shortage_items} short ({data.variance.shortage_units} units)</Badge>
               <Badge tone="warn">{data.variance.surplus_items} over ({data.variance.surplus_units} units)</Badge>
-              <span>Net value {data.variance.net_value.toFixed(2)}</span>
+              <span>Net value {data.variance.net_value.toFixed(3)}</span>
             </>
           )}
           <label className="ml-auto flex items-center gap-2"><input type="checkbox" checked={flaggedOnly} onChange={(e) => setFlaggedOnly(e.target.checked)} /> Variances only</label>
@@ -107,11 +107,11 @@ export function ReconciliationTab() {
         <div className="space-y-6">
           {data.locations.map((l) => (
             <section key={l.location_id} aria-label={l.location} className="space-y-2">
-              <h2 className="flex flex-wrap items-baseline gap-3 text-base font-semibold">{l.location}<span className="text-sm font-normal text-ink-muted">closing {l.total_closing} units, value {l.closing_value.toFixed(2)}</span></h2>
+              <h2 className="flex flex-wrap items-baseline gap-3 text-base font-semibold">{l.location}<span className="text-sm font-normal text-ink-muted">closing {l.total_closing} units, value {l.closing_value.toFixed(3)}</span></h2>
               <Section rows={l.rows} flaggedOnly={flaggedOnly} />
             </section>
           ))}
-          <p className="text-right text-sm">All locations: closing <span className="font-semibold tabular-nums">{data.total_closing}</span> units, value <span className="ml-1 text-base font-semibold tabular-nums">{data.closing_value.toFixed(2)}</span></p>
+          <p className="text-right text-sm">All locations: closing <span className="font-semibold tabular-nums">{data.total_closing}</span> units, value <span className="ml-1 text-base font-semibold tabular-nums">{data.closing_value.toFixed(3)}</span></p>
         </div>
       )}
     </div>

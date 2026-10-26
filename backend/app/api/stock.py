@@ -410,7 +410,7 @@ def reconciliation(month: str, location_id: int | None = None,
     for location in _locations_in_scope(db, user):
         rows = reconcile(db, location, month)
         sections.append({"location_id": location.id, "location": location.name, "rows": rows, "variance": variance_summary(rows),
-                         "total_closing": sum(r["closing"] for r in rows), "closing_value": round(sum(r["closing_value"] for r in rows), 2)})
+                         "total_closing": sum(r["closing"] for r in rows), "closing_value": round(sum(r["closing_value"] for r in rows), 3)})
     everything = [r for s in sections for r in s["rows"]]
     return {"month": month, "locations": sections, "variance": variance_summary(everything), "total_closing": sum(s["total_closing"] for s in sections),
-            "closing_value": round(sum(s["closing_value"] for s in sections), 2)}
+            "closing_value": round(sum(s["closing_value"] for s in sections), 3)}

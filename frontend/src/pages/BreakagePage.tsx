@@ -125,7 +125,7 @@ export function BreakagePage() {
                 <StatusBadge status={i.status} />
               </div>
               <p className="text-sm">
-                {byId.get(i.item_id)?.name ?? i.item_id} <span className="text-ink-muted">x {i.qty}{i.est_cost != null ? ` - ${i.est_cost.toFixed(2)}` : ''}</span>
+                {byId.get(i.item_id)?.name ?? i.item_id} <span className="text-ink-muted">x {i.qty}{i.est_cost != null ? ` - ${i.est_cost.toFixed(3)}` : ''}</span>
               </p>
               <p className="text-xs text-ink-muted">{label(i.incident_type)} - {places.get(i.location_id)} - {fmtDateTime(i.occurred_at)}</p>
               {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -144,7 +144,7 @@ export function BreakagePage() {
               <Td>{places.get(i.location_id)}</Td>
               <Td>{byId.get(i.item_id)?.name ?? i.item_id}</Td>
               <Td className="text-right tabular-nums">{i.qty}</Td>
-              <Td className="text-right tabular-nums">{i.est_cost != null ? i.est_cost.toFixed(2) : '-'}</Td>
+              <Td className="text-right tabular-nums">{i.est_cost != null ? i.est_cost.toFixed(3) : '-'}</Td>
               <Td>{label(i.incident_type)}</Td>
               <Td><StatusBadge status={i.status} /></Td>
               {canList && (
@@ -158,7 +158,7 @@ export function BreakagePage() {
       {rows?.length === 0 && <EmptyState title="No incidents" />}
       {canList && list.data && list.data.total > 0 && (
         <p role="status" className="text-right text-sm">
-          Total breakage value for this selection <span className="ml-2 text-base font-semibold tabular-nums">{list.data.totals.cost.toFixed(2)}</span>
+          Total breakage value for this selection <span className="ml-2 text-base font-semibold tabular-nums">{list.data.totals.cost.toFixed(3)}</span>
           <span className="ml-2 text-ink-muted">({list.data.totals.units} units, rejected excluded)</span>
         </p>
       )}

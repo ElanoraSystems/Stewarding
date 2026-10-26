@@ -232,10 +232,10 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
         rows.append({
             "item_id": item.id, "code": item.code, "name": item.name, "opening": before[item.id], **movements,
             "closing": closing, "counted_qty": line.counted_qty if line else None,
-            "count_variance": variance, "variance_value": round(variance * cost, 2) if variance and cost is not None else None,
-            "opening_value": round(float(before_value[item.id]), 2), "closing_value": round(float(closing_value), 2),
-            **{k: round(float(v), 2) for k, v in values.items()},
-            "value": round(float(closing_value), 2) if closing_value or closing else None,
+            "count_variance": variance, "variance_value": round(variance * cost, 3) if variance and cost is not None else None,
+            "opening_value": round(float(before_value[item.id]), 3), "closing_value": round(float(closing_value), 3),
+            **{k: round(float(v), 3) for k, v in values.items()},
+            "value": round(float(closing_value), 3) if closing_value or closing else None,
         })
     return rows
 
@@ -247,7 +247,7 @@ def variance_summary(rows: list[dict]) -> dict:
     return {"counted_items": sum(1 for r in rows if r["counted_qty"] is not None), "shortage_items": len(short),
             "surplus_items": len(over), "shortage_units": -sum(r["count_variance"] for r in short),
             "surplus_units": sum(r["count_variance"] for r in over),
-            "net_value": round(sum(r["variance_value"] or 0 for r in rows), 2)}
+            "net_value": round(sum(r["variance_value"] or 0 for r in rows), 3)}
 
 
 def balance_matches_ledger(db: Session, item_id: int, location_id: int) -> bool:

@@ -385,7 +385,7 @@ def stock_insights(db: Session, wins: list[Win], d_from: date, d_to: date) -> di
         slot = breakage[key(day)]
         slot["incidents"] += 1
         slot["qty"] += inc.qty
-        slot["est_cost"] = round(slot["est_cost"] + float(inc.est_cost or 0), 2)
+        slot["est_cost"] = round(slot["est_cost"] + float(inc.est_cost or 0), 3)
         reasons[inc.reason or "No reason given"] += inc.qty
         top_items[names.get(inc.item_id, "Unknown item")] += inc.qty
     places = {w.loc.id: w.loc.name for w in wins}
@@ -411,4 +411,4 @@ def stock_insights(db: Session, wins: list[Win], d_from: date, d_to: date) -> di
             "breakage_trend": list(breakage.values()), "breakage_by_reason": top(reasons), "breakage_top_items": top(top_items),
             "transfers": transfers, "transfer_routes": [{"label": k, "value": v["qty"], "sub": f"{v['count']} transfer(s)"} for k, v in sorted(routes.items(), key=lambda kv: -kv[1]["qty"])[:6]],
             "totals": {"in": sum(m["in"] for m in moves.values()), "out": sum(m["out"] for m in moves.values()),
-                       "breakage_units": sum(b["qty"] for b in breakage.values()), "breakage_cost": round(sum(b["est_cost"] for b in breakage.values()), 2)}}
+                       "breakage_units": sum(b["qty"] for b in breakage.values()), "breakage_cost": round(sum(b["est_cost"] for b in breakage.values()), 3)}}

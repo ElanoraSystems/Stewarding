@@ -88,7 +88,7 @@ def _worth(db: Session, item: InventoryItem, location_id: int, qty: int) -> Deci
     """What the units are worth: the weighted average cost at the location, or the item's own cost until there is one."""
     average = db.scalar(select(InventoryBalance.avg_cost).where(InventoryBalance.item_id == item.id, InventoryBalance.location_id == location_id))
     unit = average if average is not None else item.unit_cost
-    return (unit * qty).quantize(Decimal("0.01")) if unit is not None else None
+    return (unit * qty).quantize(Decimal("0.001")) if unit is not None else None
 
 
 def _needs_approval(db: Session, qty: int, cost) -> bool:
@@ -124,7 +124,7 @@ def _deduct(db: Session, user: User, incident: BreakageIncident) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, f"{exc}. Only a manager can write off more than the books show; ask one to review it.") from None
     incident.transaction_id = txn.id
     if txn.unit_cost is not None:
-        incident.est_cost = (txn.unit_cost * incident.qty).quantize(Decimal("0.01"))  # the value is what the ledger took out
+        incident.est_cost = (txn.unit_cost * incident.qty).quantize(Decimal("0.001"))  # the value is what the ledger took out
 
 
 def _create(db: Session, user: User, now: datetime, item: InventoryItem, qty: int, cost: Decimal | None, **common) -> BreakageIncident:
@@ -216,7 +216,7 @@ def list_incidents(location_id: int | None = None, incident_status: str | None =
     cost, units = db.execute(select(func.coalesce(func.sum(BreakageIncident.est_cost), 0), func.coalesce(func.sum(BreakageIncident.qty), 0))
                              .where(*conds, BreakageIncident.status != "rejected")).one()
     return {"total": total, "items": [_serialize(i, names) for i in incidents],
-            "totals": {"cost": round(float(cost), 2), "units": int(units)}}
+            "totals": {"cost": round(float(cost), 3), "units": int(units)}}
 
 
 @router.post("/{incident_id}/review")

@@ -147,7 +147,7 @@ def sec_breakage_log(c: Ctx) -> dict:
     counted = [r for r in rows if r["status"] != "rejected"]
     return section("breakage", "Breakage and damage incidents", cols, rows,
                    [("Incidents (excluding rejected)", len(counted)), ("Units", sum(r["qty"] for r in counted)),
-                    ("Estimated cost", round(sum(r["cost"] or 0 for r in counted), 2))])
+                    ("Estimated cost", round(sum(r["cost"] or 0 for r in counted), 3))])
 
 
 def sec_inventory_movements(c: Ctx) -> dict:
@@ -253,10 +253,10 @@ def sec_breakage_summary(c: Ctx) -> dict:
         e["cost"] += float(i.est_cost or 0)
     rows = sorted(by_item.values(), key=lambda r: -r["qty"])
     for r in rows:
-        r["cost"] = round(r["cost"], 2)
+        r["cost"] = round(r["cost"], 3)
     return section("breakage_summary", "Breakage and damage by item",
                    [("item", "Item"), ("incidents", "Incidents"), ("qty", "Units"), ("cost", "Estimated cost")], rows,
-                   [("Units", sum(r["qty"] for r in rows)), ("Estimated cost", round(sum(r["cost"] for r in rows), 2))])
+                   [("Units", sum(r["qty"] for r in rows)), ("Estimated cost", round(sum(r["cost"] for r in rows), 3))])
 
 
 def sec_inventory_variance(c: Ctx) -> dict:
@@ -394,7 +394,7 @@ def sec_scorecard(c: Ctx) -> dict:
         rows.append({"location": w.loc.name, "attendance": ratio(att["present"], att["scheduled"]),
                      "checklists": ratio(chk["numerator"], chk["denominator"]), "monitoring": ratio(tmp["done"], tmp["due"]),
                      "failed": tmp["failed"], "breakage": sum(i.qty for i in incidents),
-                     "breakage_cost": round(sum(float(i.est_cost or 0) for i in incidents), 2),
+                     "breakage_cost": round(sum(float(i.est_cost or 0) for i in incidents), 3),
                      "low_stock": sum(1 for i in snap["low"] if i["location_id"] == w.loc.id), "open_issues": len(issues)})
     return section("scorecard", "Location operational scorecard",
                    [("location", "Location"), ("attendance", "Attendance"), ("checklists", "Checklists"),
