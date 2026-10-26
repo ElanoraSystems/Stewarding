@@ -46,6 +46,8 @@ def test_an_employee_can_be_added_without_a_location_and_works_at_every_one(clie
         assert client.post("/api/scan", json={"token": make_token("location", loc_id(db, code))}, headers=nina).status_code == 200
     kept = client.put(f"/api/employees/{r.json()['id']}", json={"location_ids": [loc_id(db, "MK")]}, headers=login(MGR))
     assert kept.json()["location_ids"] == [loc_id(db, "MK")]
+    cleared = client.put(f"/api/employees/{r.json()['id']}", json={"location_ids": []}, headers=login(MGR))   # taking every outlet off
+    assert cleared.status_code == 200 and cleared.json()["location_ids"] == []
 
 
 def test_a_shift_can_be_rostered_without_choosing_a_location(client, login, db):
