@@ -47,6 +47,7 @@ describe('SlideVideoEditor', () => {
     open()
     fireEvent.change(screen.getByLabelText('Points (one per line)'), { target: { value: 'Below 5\n\n  Log it  ' } })
     fireEvent.click(screen.getByRole('button', { name: /Make the video/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Make it without sound/ }))   // no voice-over was chosen, so it asks first
     await waitFor(() => expect(mocks.api).toHaveBeenCalledWith('/training/lessons/7/render', { method: 'POST' }))
     expect(mocks.api).toHaveBeenNthCalledWith(1, '/training/lessons/7/slides', {
       method: 'PUT', body: { slides: [{ id: null, title: 'Fridge temperatures', bullets: ['Below 5', 'Log it'], narration: null, voice: 'none', seconds: 6 }] },
@@ -69,5 +70,33 @@ describe('SlideVideoEditor', () => {
     expect(screen.getByText(/Being made/)).toBeTruthy()
     expect((screen.getByRole('button', { name: /Make the video/ }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByLabelText('Slide title') as HTMLInputElement).closest('fieldset')?.disabled).toBe(true)
+  })
+})
+
+describe('SlideVideoEditor sound', () => {
+  beforeEach(() => {
+    mocks.api.mockReset()
+    mocks.typed = false
+    mocks.status = null
+    mocks.slides = []
+  })
+
+  it('says how many slides have a voice-over', () => {
+    mocks.slides = [
+      { id: 'aaaaaaaaaaaa', title: 'One', bullets: [], narration: null, voice: 'none', seconds: 6, image: null, audio: null },
+      { id: 'bbbbbbbbbbbb', title: 'Two', bullets: [], narration: null, voice: 'upload', seconds: 6, image: null, audio: 'voice.wav' },
+    ]
+    open()
+    expect(screen.getByText(/Voice-over on 1 of 2 slides/)).toBeTruthy()
+  })
+
+  it('asks before making a video that would have no sound, and does nothing if the answer is no', async () => {
+    mocks.slides = [{ id: 'aaaaaaaaaaaa', title: 'One', bullets: [], narration: null, voice: 'none', seconds: 6, image: null, audio: null }]
+    open()
+    expect(screen.getByText(/No slide has a voice-over yet/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Make the video/ }))
+    expect(await screen.findByText(/the video will be silent/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(mocks.api).not.toHaveBeenCalled()
   })
 })

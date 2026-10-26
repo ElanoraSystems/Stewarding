@@ -80,6 +80,7 @@ function Editor({ lesson, typedVoice, refresh, onClose }: EditorProps) {
   const [progress, setProgress] = useState<number | null>(null)
   const [watching, setWatching] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  const [silent, setSilent] = useState(false)
   const picture = useRef<HTMLInputElement>(null)
   const recording = useRef<HTMLInputElement>(null)
 
@@ -130,10 +131,12 @@ function Editor({ lesson, typedVoice, refresh, onClose }: EditorProps) {
   }
 
   async function detach(kind: 'image' | 'audio') {
-    if (!slide.id) return
+    const saved = dirty ? await save() : null
+    const id = saved ? saved[index]?.id : slide.id
+    if (!id) return
     let result: AdminLesson | null = null
     const ok = await run(async () => {
-      result = await api<AdminLesson>(`/training/lessons/${lesson.id}/slides/${slide.id}/${kind}`, { method: 'DELETE' })
+      result = await api<AdminLesson>(`/training/lessons/${lesson.id}/slides/${id}/${kind}`, { method: 'DELETE' })
     }, kind === 'image' ? 'Picture removed' : 'Recording removed')
     if (ok && result) {
       adopt((result as AdminLesson).slides)
@@ -142,7 +145,10 @@ function Editor({ lesson, typedVoice, refresh, onClose }: EditorProps) {
     }
   }
 
-  async function make() {
+  const voiced = slides.filter((s) => s.voice !== 'none').length
+
+  async function make(sure = false) {
+    if (!sure && voiced === 0) return setSilent(true)  // nothing would be heard: check that is meant
     if (dirty && !(await save())) return
     if (await run(() => api(`/training/lessons/${lesson.id}/render`, { method: 'POST' }), 'Making the video. This takes a few minutes; you can close this window.')) refresh()
   }
@@ -152,14 +158,17 @@ function Editor({ lesson, typedVoice, refresh, onClose }: EditorProps) {
 
   return (
     <>
-      <Modal open={!watching && !leaving} size="xl" title={`Video from slides: ${lesson.title}`} onClose={close}
+      <Modal open={!watching && !leaving && !silent} size="xl" title={`Video from slides: ${lesson.title}`} onClose={close}
         description="Write each slide, add a picture if it helps, and choose how it is narrated. The video is made from the slides in order."
         footer={<>
           <Button type="button" variant="outline" onClick={close}>Close</Button>
           <Button type="button" variant="outline" disabled={!dirty || locked} onClick={save}>Save slides</Button>
-          <Button type="button" disabled={locked} onClick={make}><Clapperboard className="h-4 w-4" /> {status === 'ready' || status === 'outdated' ? 'Make the video again' : 'Make the video'}</Button>
+          <Button type="button" disabled={locked} onClick={() => make()}><Clapperboard className="h-4 w-4" /> {status === 'ready' || status === 'outdated' ? 'Make the video again' : 'Make the video'}</Button>
         </>}>
         <div className="space-y-5">
+          <p className={`text-sm ${voiced === 0 ? 'font-medium text-warn' : 'text-ink-muted'}`}>
+            {voiced === 0 ? 'No slide has a voice-over yet, so the video will have no sound.' : `Voice-over on ${voiced} of ${slides.length} ${slides.length === 1 ? 'slide' : 'slides'}; the others are silent.`}
+          </p>
           {status && (
             <div role="status" className={`flex flex-wrap items-center gap-3 rounded-xl p-3 text-sm ${status === 'failed' ? 'bg-danger-soft text-danger' : status === 'ready' ? 'bg-ok-soft text-ok' : 'bg-warn-soft text-warn'}`}>
               {making && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
@@ -252,6 +261,9 @@ function Editor({ lesson, typedVoice, refresh, onClose }: EditorProps) {
       </Modal>
 
       {watching && <MediaPreview lessonId={lesson.id} title={lesson.title} onClose={() => setWatching(false)} />}
+      <ConfirmDialog open={silent} title="Make a video with no sound?" confirmLabel="Make it without sound"
+        message="None of the slides has a voice-over, so the video will be silent. To add sound, choose Upload a recording (or a typed voice) on the slides that should be spoken."
+        onConfirm={() => { setSilent(false); void make(true) }} onCancel={() => setSilent(false)} />
       <ConfirmDialog open={leaving} title="Close without saving?" confirmLabel="Close without saving"
         message="You have changes to the slides that are not saved. If you close now they are lost."
         onConfirm={() => { setLeaving(false); onClose() }} onCancel={() => setLeaving(false)} />

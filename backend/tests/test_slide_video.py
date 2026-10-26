@@ -209,3 +209,20 @@ def test_deleting_a_lesson_takes_its_pictures_recordings_and_video_with_it(clien
     assert len(stored() - before) == 3
     assert client.delete(f"{URL}/lessons/{lesson_id}", headers=h).status_code == 200
     assert stored() == before
+
+
+def test_the_recording_is_really_heard_in_the_video_on_its_own_slide_and_only_there(client, login, monkeypatch, db):
+    """Not just that an audio track exists: the sound in it is the recording, where the slide's voice-over is, and silence elsewhere."""
+    import numpy as np
+
+    h = login(MGR)
+    _, lesson_id = setup(client, h, monkeypatch)
+    slides = put_slides(client, h, lesson_id, [{"title": "Silent", "voice": "none", "seconds": 3}, {"title": "Spoken", "voice": "upload", "seconds": 3}]).json()["slides"]
+    client.post(f"{URL}/lessons/{lesson_id}/slides/{slides[1]['id']}/audio", files={"file": ("voice.wav", tone(2.0), "audio/wav")}, headers=h)
+    client.post(f"{URL}/lessons/{lesson_id}/render", headers=h)
+    stored_file = engine.media_path(db.scalar(select(TrainingLesson.media_name).where(TrainingLesson.id == lesson_id)))
+    with av.open(str(stored_file)) as video:
+        sound = np.concatenate([frame.to_ndarray().astype(np.float32) for frame in video.decode(audio=0)], axis=1)
+    loudness = lambda start, end: float(np.sqrt((sound[:, int(start * 44100):int(end * 44100)] ** 2).mean()))
+    assert loudness(0.2, 2.8) < 0.001            # the first slide has no voice-over: silence
+    assert loudness(3.8, 5.2) > 0.05             # the second slide: the recording, after its half-second breath
