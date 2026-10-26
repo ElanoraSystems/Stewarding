@@ -69,8 +69,8 @@ def _transfer_dict(db: Session, transfer: InventoryTransfer) -> dict:
         cost = sent.get(ln.item_id) if transfer.status == "completed" else averages.get(ln.item_id)
         tags = list(db.scalars(select(TrackedAsset.asset_tag).where(TrackedAsset.id.in_(ln.asset_ids or [])).order_by(TrackedAsset.asset_tag)))
         out.append({**row(ln, "item_id", "qty"), "asset_tags": tags, "unit_cost": float(cost) if cost is not None else None,
-                    "value": round(float(cost) * ln.qty, 2) if cost is not None else None})
-    return {**row(transfer, *TRANSFER_FIELDS), "lines": out, "total_value": round(sum(l["value"] or 0 for l in out), 2)}
+                    "value": round(float(cost) * ln.qty, 3) if cost is not None else None})
+    return {**row(transfer, *TRANSFER_FIELDS), "lines": out, "total_value": round(sum(l["value"] or 0 for l in out), 3)}
 
 
 def _execute_transfer(db: Session, user: User, transfer: InventoryTransfer) -> None:

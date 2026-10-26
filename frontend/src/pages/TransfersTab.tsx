@@ -29,7 +29,7 @@ interface Transfer {
   total_value: number
 }
 
-const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 
 export function TransfersTab() {
   const { me } = useAuth()
