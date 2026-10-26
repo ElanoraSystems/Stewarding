@@ -13,6 +13,8 @@ import { SettingsRules } from '@/pages/settings/SettingsRules'
 import { SettingsSearch } from '@/pages/settings/SettingsSearch'
 import { SettingsShifts } from '@/pages/settings/SettingsShifts'
 import { SettingsSuppliers } from '@/pages/settings/SettingsSuppliers'
+import { SettingsTrainingCourses } from '@/pages/settings/SettingsTrainingCourses'
+import { SettingsTrainingProgress } from '@/pages/settings/SettingsTrainingProgress'
 import type { RulesSection } from '@/pages/settings/settingsRegistry'
 import { FIRST_SECTION, SECTION_GROUPS, resolveSection, type SectionKey } from '@/pages/settings/sections'
 
@@ -33,6 +35,8 @@ const PAGES: Record<SectionKey, ComponentType> = {
   items: SettingsItems,
   inventory: SettingsInventoryLists,
   suppliers: SettingsSuppliers,
+  'training-courses': SettingsTrainingCourses,
+  'training-progress': SettingsTrainingProgress,
   lists: SettingsLookups,
   roles: SettingsRoles,
 }

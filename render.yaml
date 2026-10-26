@@ -18,7 +18,7 @@ services:
     disk:
       name: uploads
       mountPath: /data
-      sizeGB: 1
+      sizeGB: 10  # training videos are large; this disk holds every upload and can only be made bigger
     envVars:
       - key: STW_DATABASE_URL
         fromDatabase:

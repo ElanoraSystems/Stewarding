@@ -40,7 +40,7 @@ describe('SettingsPage', () => {
     expect(where()).toBe('/settings/organization')
     expect(screen.getByText('Organization page')).toBeTruthy()
     const topics = screen.getByRole('navigation', { name: 'Settings topics' })
-    expect(Array.from(topics.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['Company', 'People', 'Food safety', 'Stock', 'Lists'])
+    expect(Array.from(topics.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['Company', 'People', 'Food safety', 'Stock', 'Training', 'Lists'])
     expect(screen.getByRole('link', { name: 'Company' }).getAttribute('aria-current')).toBe('page')
   })
 

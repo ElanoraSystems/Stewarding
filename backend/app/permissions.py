@@ -15,7 +15,7 @@ ALL_PERMISSIONS = [
     "stock.transfer", "stock.approve",
     "breakage.view", "breakage.report", "breakage.review", "breakage.approve",
     "lot.view", "lot.receive", "lot.split", "lot.manage",
-    "notification.view",
+    "notification.view", "training.view",
     "report.view", "report.export",
     "settings.manage",
     "audit.view",
@@ -28,12 +28,12 @@ SUPERVISOR_PERMISSIONS = [
     "inventory.module", "inventory.view", "inventory.count", "stock.transfer",
     "breakage.view", "breakage.report", "breakage.review",
     "lot.view", "lot.receive",
-    "notification.view", "report.view",
+    "notification.view", "training.view", "report.view",
 ]
 
 STEWARD_PERMISSIONS = [
     "dashboard.view", "attendance.self", "checklist.view", "checklist.complete",
-    "temp.view", "temp.record", "inventory.view", "breakage.report", "notification.view",
+    "temp.view", "temp.record", "inventory.view", "breakage.report", "notification.view", "training.view",
 ]
 
 ROLE_PERMISSIONS = {
@@ -64,6 +64,7 @@ PERMISSION_CATALOG = [
                   ("breakage.review", "Review breakage"), ("breakage.approve", "Approve high-value breakage")]),
     ("Food traceability", [("lot.view", "View lots and traces"), ("lot.receive", "Receive food and create lots"),
                            ("lot.split", "Split lots into portions (butcher)"), ("lot.manage", "Hold, discard and set shelf-life rules")]),
+    ("Training", [("training.view", "Take the training assigned to them")]),
     ("Reports and admin", [("notification.view", "See tasks and notifications"), ("report.view", "View reports"),
                            ("report.export", "Export reports"), ("settings.manage", "Manage settings and roles"),
                            ("audit.view", "View audit logs")]),
@@ -83,6 +84,7 @@ MODULES = [
     ("stock-movements", "Stock Movements & Transfers", "stock.transfer"),
     ("breakage", "Breakage & Damage Logs", "breakage.report"),
     ("traceability", "Food Traceability", "lot.view"),
+    ("training", "Training", "training.view"),
     ("tasks", "Tasks & Notifications", "notification.view"),
     ("reports", "Reports & Analytics", "report.view"),
     ("settings", "Settings", "settings.manage"),

@@ -90,3 +90,26 @@ See the README. Tests run on SQLite by default. To run them against PostgreSQL s
 
 ## Verification performed
 The compose stack was built and run end to end: migration, API through nginx, SPA fallback, security headers on every route type, seeding and sign-in. The full test suite passes on both SQLite and PostgreSQL 16, and `alembic check` reports no drift on PostgreSQL.
+
+## Training files
+
+Training videos, audio and documents are stored on the same disk as other uploads (`STW_UPLOAD_DIR`, in a `training` folder), not in the database, so back that disk up as well as the database. They stream to the browser with range requests, so a video starts quickly and can be skipped through.
+
+- **Size.** The largest file is `STW_TRAINING_MAX_MB` (500 by default). The web server's upload limit for the training upload address is 520 MB in `frontend/nginx.conf` and `frontend/nginx.render.conf`; keep it above `STW_TRAINING_MAX_MB` if you raise it.
+- **Disk.** `render.yaml` asks for a 10 GB disk for the API. A Render disk can be made bigger but never smaller, and a full disk makes uploads fail with a clear message. Check the usage from time to time.
+- **Time.** An upload of a large video over a slow connection can take many minutes; the web server allows 15 minutes per file.
+- **Video format.** Browsers play MP4 (H.264 with AAC audio), WebM and MOV from most phones. Convert unusual formats before uploading.
+
+## Videos made from slides
+
+A video lesson can be made from slides as well as uploaded: a manager writes slides (title, points, optional picture) and chooses a voice-over for each, and the server makes an ordinary MP4. It needs no software beyond the Python packages in `requirements.txt` (the video encoder comes with the `av` package) and nothing is sent to an outside service.
+
+- **Recorded voice-over** works straight away: upload an MP3, M4A, WAV or OGG per slide, and the slide stays up as long as the recording lasts.
+- **Typed voice-over** (a computer voice reads the text) needs one voice installed, once, because the voice files are not bundled:
+  1. Choose a voice from the Piper voices collection and read its model card: voices have different licences, so pick one that allows your use.
+  2. Put the `.onnx` file and its `.onnx.json` file side by side on the persistent disk, for example in `/data/voices/`.
+  3. Set `STW_TTS_VOICE` to the full path of the `.onnx` file, for example `/data/voices/en_US-amy-medium.onnx`, and restart. The slide editor then enables "Type what is said".
+  Loading a voice uses about 100 MB of memory. On a very small server, a bigger plan may be needed.
+- **One at a time.** Videos are made in the background, one at a time, at about 1280 by 720. A ten-minute video takes a few minutes on a small server. A restart during a render marks the video as failed so it can simply be made again.
+- **Text.** Slide text uses a built-in Latin font, so letters outside the Latin alphabet (for example Arabic) do not display correctly yet.
+- **Licence.** The Piper package (`piper-tts`) is GPL-3.0. Running it inside your own organisation is fine; if you ever give the software to another company, take advice first.

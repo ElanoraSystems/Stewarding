@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     scheduler_enabled: bool = True
     bcrypt_rounds: int = 12
+    training_max_mb: int = 500  # the largest training file (video, audio or document) that can be uploaded
+    tts_voice: str = ""  # path to a Piper voice (.onnx) so slide videos can read typed narration aloud; empty leaves typed voice-over off
     # browser push; create the pair with scripts/vapid_keys.py. Push stays off while the keys are empty.
     vapid_public_key: str = ""
     vapid_private_key: str = ""

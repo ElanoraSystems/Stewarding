@@ -22,6 +22,8 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { TasksPage } from '@/pages/TasksPage'
 import { StockMovementsPage } from '@/pages/StockMovementsPage'
 import { MonitoringPage } from '@/pages/MonitoringPage'
+import { TrainingCoursePage } from '@/pages/training/TrainingCoursePage'
+import { TrainingPage } from '@/pages/training/TrainingPage'
 
 export default function App() {
   const { me, loading } = useAuth()
@@ -49,6 +51,8 @@ export default function App() {
         <Route path="stock-movements" element={<RequireModule module="stock-movements"><StockMovementsPage /></RequireModule>} />
         <Route path="breakage" element={<RequireModule module="breakage"><BreakagePage /></RequireModule>} />
         <Route path="traceability" element={<RequireModule module="traceability"><TraceabilityPage /></RequireModule>} />
+        <Route path="training" element={<RequireModule module="training"><TrainingPage /></RequireModule>} />
+        <Route path="training/:assignmentId" element={<RequireModule module="training"><TrainingCoursePage /></RequireModule>} />
         <Route path="tasks" element={<RequireModule module="tasks"><TasksPage /></RequireModule>} />
         <Route path="reports" element={<RequireModule module="reports"><ReportsPage /></RequireModule>} />
         <Route path="settings" element={<RequireModule module="settings"><SettingsPage /></RequireModule>} />

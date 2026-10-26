@@ -16,3 +16,6 @@ reportlab
 psycopg[binary]
 pillow
 pywebpush
+av
+numpy
+piper-tts
