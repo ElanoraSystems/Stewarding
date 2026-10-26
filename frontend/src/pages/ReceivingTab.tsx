@@ -55,7 +55,7 @@ interface Line {
 
 const BLANK_LINE: Line = { item: '', qty: '', cost: '', discType: 'amount', disc: '' }
 
-const money = (n: number) => n.toFixed(2)
+const money = (n: number) => n.toFixed(3)
 const cut = (type: DiscountType, value: string, base: number) => Math.min(base, type === 'percent' ? (base * Number(value || 0)) / 100 : Number(value || 0))
 const lineGross = (l: Line) => Number(l.qty || 0) * Number(l.cost || 0)
 const lineComplete = (l: Line) => l.item !== '' && Number(l.qty) > 0
@@ -211,13 +211,13 @@ export function ReceivingTab() {
                         {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
                       </Select>
                       <Input aria-label="Quantity" type="number" min={1} value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} />
-                      <Input aria-label="Unit cost" type="number" step="0.01" min={0} value={line.cost} onChange={(e) => entry.update(i, { cost: e.target.value })} />
+                      <Input aria-label="Unit cost" type="number" step="0.001" min={0} value={line.cost} onChange={(e) => entry.update(i, { cost: e.target.value })} />
                       <div className="flex gap-1">
                         <Select aria-label="Discount type" className="w-[4.5rem] px-2" value={line.discType} onChange={(e) => entry.update(i, { discType: e.target.value as DiscountType })}>
                           <option value="amount">Amt</option>
                           <option value="percent">%</option>
                         </Select>
-                        <Input aria-label="Discount" type="number" step="0.01" min={0} value={line.disc} onChange={(e) => entry.update(i, { disc: e.target.value })} />
+                        <Input aria-label="Discount" type="number" step="0.001" min={0} value={line.disc} onChange={(e) => entry.update(i, { disc: e.target.value })} />
                       </div>
                       <output aria-label="Line total" className="flex h-10 items-center justify-end text-sm font-medium tabular-nums">
                         {line.cost !== '' && lineComplete(line) ? money(lineGross(line) - cut(line.discType, line.disc, lineGross(line))) : '-'}
@@ -246,7 +246,7 @@ export function ReceivingTab() {
                     <option value="amount">Amount</option>
                     <option value="percent">Percent</option>
                   </Select>
-                  <Input aria-label="Invoice discount" type="number" step="0.01" min={0} className="w-28" value={docDisc} onChange={(e) => setDocDisc(e.target.value)} />
+                  <Input aria-label="Invoice discount" type="number" step="0.001" min={0} className="w-28" value={docDisc} onChange={(e) => setDocDisc(e.target.value)} />
                 </div>
               </Field>
             </div>
@@ -298,7 +298,7 @@ export function ReceivingTab() {
               <Td>{d.invoice_number}</Td>
               <Td>{d.invoice_date ? fmtDate(d.invoice_date) : '-'}</Td>
               <Td>{places.get(d.location_id)}</Td>
-              <Td className="text-right tabular-nums">{d.total != null ? d.total.toFixed(2) : '-'}</Td>
+              <Td className="text-right tabular-nums">{d.total != null ? d.total.toFixed(3) : '-'}</Td>
               <Td><StatusBadge status={d.status} /></Td>
               <Td><div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => open(d)}>View</Button>
@@ -339,17 +339,17 @@ export function ReceivingTab() {
               <thead><tr><Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Unit cost</Th><Th className="text-right">Discount</Th><Th className="text-right">Line total</Th></tr></thead>
               <tbody>
                 {detail.lines?.map((l) => (
-                  <tr key={l.item_id}><Td>{l.code} - {l.name}</Td><Td className="text-right tabular-nums">{l.qty}</Td><Td className="text-right tabular-nums">{l.unit_cost != null ? l.unit_cost.toFixed(2) : '-'}</Td><Td className="text-right tabular-nums">{l.discount_amount ? `-${l.discount_amount.toFixed(2)}` : '-'}</Td><Td className="text-right tabular-nums">{l.line_total != null ? l.line_total.toFixed(2) : '-'}</Td></tr>
+                  <tr key={l.item_id}><Td>{l.code} - {l.name}</Td><Td className="text-right tabular-nums">{l.qty}</Td><Td className="text-right tabular-nums">{l.unit_cost != null ? l.unit_cost.toFixed(3) : '-'}</Td><Td className="text-right tabular-nums">{l.discount_amount ? `-${l.discount_amount.toFixed(3)}` : '-'}</Td><Td className="text-right tabular-nums">{l.line_total != null ? l.line_total.toFixed(3) : '-'}</Td></tr>
                 ))}
               </tbody>
             </Table>
             {detail.total != null && (
               <dl className="ml-auto grid w-60 grid-cols-[1fr_auto] gap-x-6 gap-y-1">
-                <dt>Sub total</dt><dd className="text-right tabular-nums">{detail.subtotal?.toFixed(2)}</dd>
-                <dt>Line discounts</dt><dd className="text-right tabular-nums">-{(detail.line_discount_total ?? 0).toFixed(2)}</dd>
-                <dt>Invoice discount{detail.discount_type === 'percent' ? ` (${detail.discount_value}%)` : ''}</dt><dd className="text-right tabular-nums">-{(detail.discount_amount ?? 0).toFixed(2)}</dd>
-                <dt>Total discount</dt><dd className="text-right tabular-nums">-{(detail.total_discount ?? 0).toFixed(2)}</dd>
-                <dt className="border-t border-border pt-1 font-semibold">Total</dt><dd className="border-t border-border pt-1 text-right font-semibold tabular-nums">{detail.total.toFixed(2)}</dd>
+                <dt>Sub total</dt><dd className="text-right tabular-nums">{detail.subtotal?.toFixed(3)}</dd>
+                <dt>Line discounts</dt><dd className="text-right tabular-nums">-{(detail.line_discount_total ?? 0).toFixed(3)}</dd>
+                <dt>Invoice discount{detail.discount_type === 'percent' ? ` (${detail.discount_value}%)` : ''}</dt><dd className="text-right tabular-nums">-{(detail.discount_amount ?? 0).toFixed(3)}</dd>
+                <dt>Total discount</dt><dd className="text-right tabular-nums">-{(detail.total_discount ?? 0).toFixed(3)}</dd>
+                <dt className="border-t border-border pt-1 font-semibold">Total</dt><dd className="border-t border-border pt-1 text-right font-semibold tabular-nums">{detail.total.toFixed(3)}</dd>
               </dl>
             )}
             {detail.status === 'void' && <p className="rounded-md bg-surface-muted p-2">Voided: {detail.void_reason}</p>}

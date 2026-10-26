@@ -49,7 +49,7 @@ class InventoryItem(Base):
     min_level: Mapped[int] = mapped_column(Integer, default=0)
     target_level: Mapped[int | None] = mapped_column(Integer)
     opening_qty: Mapped[int] = mapped_column(Integer, default=0)
-    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("supplier.id"), index=True)
     name_key: Mapped[str] = mapped_column(String(120), default="", index=True)  # normalised name for duplicate checks
     compact_key: Mapped[str] = mapped_column(String(120), default="", index=True)  # letters and digits only, set from the name
@@ -187,12 +187,12 @@ class Receipt(Base):
     received_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     note: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="posted")  # posted | void
-    subtotal: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # quantity x unit cost before any discount
-    line_discount_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    subtotal: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))  # quantity x unit cost before any discount
+    line_discount_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
     discount_type: Mapped[str | None] = mapped_column(String(10))  # amount | percent, as entered for the whole document
-    discount_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
-    discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # document discount in money
-    total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # subtotal less every discount
+    discount_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))  # document discount in money
+    total: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))  # subtotal less every discount
     voided_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     voided_at: Mapped[datetime | None] = mapped_column(DateTime)
     void_reason: Mapped[str | None] = mapped_column(Text)
@@ -204,9 +204,9 @@ class ReceiptLine(Base):
     receipt_id: Mapped[int] = mapped_column(ForeignKey("receipt.id"), index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), index=True)
     qty: Mapped[int] = mapped_column(Integer)
-    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     discount_type: Mapped[str | None] = mapped_column(String(10))
-    discount_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
-    discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
-    line_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))  # quantity x unit cost less the line discount
+    discount_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    line_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))  # quantity x unit cost less the line discount
     transaction_id: Mapped[int | None] = mapped_column(ForeignKey("stock_transaction.id"), unique=True)

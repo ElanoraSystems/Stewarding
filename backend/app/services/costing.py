@@ -109,6 +109,6 @@ def last_purchases(db: Session, item_ids: list[int]) -> dict[int, dict]:
                ReceiptLine.line_total > 0, ReceiptLine.qty > 0)
         .order_by(when, Receipt.id))
     # oldest first, so the last row seen for an item is its latest purchase
-    return {item_id: {"price": float((Decimal(str(total)) / qty).quantize(Decimal("0.01"))), "date": day.date().isoformat() if hasattr(day, "date") else str(day)[:10],
+    return {item_id: {"price": float((Decimal(str(total)) / qty).quantize(Decimal("0.001"))), "date": day.date().isoformat() if hasattr(day, "date") else str(day)[:10],
                       "supplier_id": supplier_id}
             for item_id, total, qty, day, supplier_id in rows}

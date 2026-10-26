@@ -272,3 +272,12 @@ def test_the_documents_list_can_filter_by_the_invoice_date_or_the_day_received(c
     url = "/api/receipts?date_from=2026-02-20&date_to=2026-02-28"
     assert client.get(url, headers=mgr).json()["total"] == 0
     assert client.get(url + "&date_by=received", headers=mgr).json()["total"] == 1
+
+
+def test_prices_discounts_and_totals_are_kept_to_a_thousandth(client, login, db, clock):
+    doc = receive(client, login(SUP), db, [{"item_id": item_id(db, "PL-001"), "qty": 10, "unit_cost": 29.745, "discount_type": "percent", "discount": 3}],
+                  invoice="THOU-1").json()
+    line = doc["lines"][0]
+    assert line["unit_cost"] == 29.745 and line["gross"] == 297.45
+    assert line["discount_amount"] == 8.924 and line["line_total"] == 288.526  # 3 percent of 297.450, kept to three places
+    assert doc["subtotal"] == 297.45 and doc["total"] == 288.526

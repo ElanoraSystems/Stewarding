@@ -26,7 +26,7 @@ FIELDS = ("id", "doc_type", "supplier_id", "location_id", "invoice_number", "rec
 
 
 DiscountType = Literal["amount", "percent"]
-TWO_PLACES = Decimal("0.01")
+THREE_PLACES = Decimal("0.001")  # prices, discounts and totals are kept to a thousandth
 
 
 class LineIn(BaseModel):
@@ -95,7 +95,7 @@ def _per_unit(total: Decimal | None, qty: int) -> Decimal | None:
 
 
 def _money(value: Decimal) -> Decimal:
-    return value.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+    return value.quantize(THREE_PLACES, rounding=ROUND_HALF_UP)
 
 
 def _discount(kind: str | None, value: Decimal | None, base: Decimal, label: str) -> Decimal:

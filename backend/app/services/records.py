@@ -396,7 +396,7 @@ def _hm(minutes: int | None) -> str:
 
 
 def _money(value) -> str:
-    return "" if value is None else f"{value:.2f}"
+    return "" if value is None else f"{value:.3f}"
 
 
 def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from: date, day_to: date) -> list[dict]:

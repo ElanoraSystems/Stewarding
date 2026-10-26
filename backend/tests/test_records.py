@@ -182,16 +182,16 @@ def test_receipts_record_totals_discounts_and_supplier_filter(client, login, db,
     group = doc["groups"][0]
     first = next(r for r in group["rows"] if r["invoice"] == "R-1")
     assert (first["supplier"], first["qty"], first["unit_cost"], first["discount"], first["line_total"], first["received_by"]) == (
-        "Gulf Catering Supplies", 10, "5.00", "5.00", "45.00", "Sam Supervisor")
+        "Gulf Catering Supplies", 10, "5.000", "5.000", "45.000", "Sam Supervisor")
     totals = dict(group["totals"])
-    assert totals["Documents"] == 2 and totals["Sub total"] == "60.00" and totals["Total discount"] == "5.00" and totals["Invoice total (posted receipts)"] == "55.00"
+    assert totals["Documents"] == 2 and totals["Sub total"] == "60.000" and totals["Total discount"] == "5.000" and totals["Invoice total (posted receipts)"] == "55.000"
     gulf = suppliers(client)["Gulf Catering Supplies"]
     filtered = get(client, mgr, "receipts", supplier_id=gulf, location_id=loc_id(db, "MK")).json()
     assert {r["invoice"] for g in filtered["groups"] for r in g["rows"]} == {"R-1"}
     rec = next(r["id"] for r in client.get("/api/receipts", headers=mgr).json()["items"] if r["invoice_number"] == "R-1")
     client.post(f"/api/receipts/{rec}/void", json={"reason": "Entered by mistake"}, headers=mgr)
     after = dict(get(client, mgr, "receipts", location_id=loc_id(db, "MK")).json()["groups"][0]["totals"])
-    assert after["Invoice total (posted receipts)"] == "10.00"
+    assert after["Invoice total (posted receipts)"] == "10.000"
 
 
 def test_movements_record_filters_by_type_and_totals_in_and_out(client, login, db, clock):

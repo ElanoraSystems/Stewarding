@@ -170,7 +170,7 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
         <section className="space-y-4 border-t border-border pt-6">
           <h3 className="text-sm font-semibold">Cost and stock levels</h3>
           <div className="grid gap-5 sm:grid-cols-3">
-            <Field label="Starting price"><Input type="number" step="0.01" min={0} value={form.unit_cost} onChange={(e) => set('unit_cost', e.target.value)} /></Field>
+            <Field label="Starting price"><Input type="number" step="0.001" min={0} value={form.unit_cost} onChange={(e) => set('unit_cost', e.target.value)} /></Field>
             <Field label="Minimum level"><Input type="number" min={0} value={form.min_level} onChange={(e) => set('min_level', e.target.value)} /></Field>
             <Field label="Target level"><Input type="number" min={0} value={form.target_level} onChange={(e) => set('target_level', e.target.value)} /></Field>
           </div>
