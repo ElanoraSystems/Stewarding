@@ -51,11 +51,31 @@ class Position(BaseModel):
 
 
 class CheckInIn(Position):
-    location_id: int
+    location_id: int | None = None  # left out when attendance is not by location: the server works it out from the position
 
 
 class CheckOutIn(Position):
     exception_reason: str | None = Field(default=None, max_length=500)
+
+
+def _place_by_position(db: Session, user: User, emp: Employee, where: Position) -> tuple[Location, float | None]:
+    """When staff do not choose a location: today's rostered one first, else any they may work at, whichever the position fits."""
+    allowed = scoped_locations(user, db)
+    query = select(Location).where(Location.active.is_(True)).order_by(Location.name)
+    if allowed is not None:
+        query = query.where(Location.id.in_(allowed))
+    places = list(db.scalars(query))
+    rostered = [r["location_id"] for r in rostered_today(db, emp, timeutil.utc_now()) if not r["week_off"]]
+    places.sort(key=lambda p: p.id not in rostered)
+    if not places:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to a location")
+    first_error = None
+    for place in places:
+        try:
+            return place, _enforce_geofence(db, place, where, "check in")
+        except HTTPException as err:
+            first_error = first_error or err
+    raise first_error
 
 
 def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -308,11 +328,16 @@ def snapshot(record_id: int, which: Literal["in", "out"], user: User = Depends(r
 @router.post("/check-in", status_code=201)
 def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), db: Session = Depends(get_db)):
     emp = _employee(user)
-    check_location(user, db, body.location_id)
-    location = db.get(Location, body.location_id)
-    if not location.active:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Location is not active")
-    away = _enforce_geofence(db, location, body, "check in")
+    if body.location_id is None:
+        if get_setting(db, "attendance.by_location"):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose a location to check in at")
+        location, away = _place_by_position(db, user, emp, body)
+    else:
+        check_location(user, db, body.location_id)
+        location = db.get(Location, body.location_id)
+        if not location.active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Location is not active")
+        away = _enforce_geofence(db, location, body, "check in")
     if _open_record(db, emp):
         raise HTTPException(status.HTTP_409_CONFLICT, "You are already checked in")
     photo = _snapshot_bytes(db, body) if get_setting(db, "attendance.face_required") else None

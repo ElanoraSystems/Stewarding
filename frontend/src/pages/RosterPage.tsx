@@ -1,7 +1,7 @@
 import { CalendarOff, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { WorkLocationSelect } from '@/components/WorkLocationSelect'
+import { LocationSelect } from '@/components/LocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -89,8 +89,8 @@ export function RosterPage() {
 
   const today = useApi<Today[]>(locationId ? `/roster/today${qs({ location_id: locationId })}` : null)
   const shifts = useApi<Shift[]>('/roster/shifts')
-  const assignments = useApi<Assignment[]>(locationId ? `/roster/assignments${qs({ location_id: locationId })}` : null)
-  const people = useApi<{ items: EmployeeRow[] }>(locationId ? `/employees${qs({ location_id: locationId, status: 'active', size: 200 })}` : null)
+  const assignments = useApi<Assignment[]>(`/roster/assignments${qs({ location_id: locationId })}`)
+  const people = useApi<{ items: EmployeeRow[] }>(`/employees${qs({ location_id: locationId, status: 'active', size: 200 })}`)
   const names = new Map(people.data?.items.map((e) => [e.id, e.full_name]))
   const shiftById = new Map(shifts.data?.map((s) => [s.id, s]))
 
@@ -150,15 +150,15 @@ export function RosterPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Shift &amp; Duty Roster</h1>
         <div className="flex flex-wrap items-center gap-3">
-          <WorkLocationSelect value={locationId} onChange={setLocationId} />
-          {canManage && <Button disabled={!locationId} onClick={() => setDraft({ ...BLANK })}><Plus className="h-4 w-4" /> Assign shift</Button>}
+          <LocationSelect allowAll value={locationId} onChange={setLocationId} />
+          {canManage && <Button onClick={() => setDraft({ ...BLANK })}><Plus className="h-4 w-4" /> Assign shift</Button>}
         </div>
       </div>
 
       <Card>
         <CardHeader className="p-6 pb-3"><CardTitle className="text-lg">Scheduled today</CardTitle></CardHeader>
         <CardContent className="p-6 pt-2">
-          {today.data?.length === 0 ? <EmptyState title="Nobody is scheduled today" /> : (
+          {!locationId ? <p className="text-sm text-ink-muted">Choose a location to see who is scheduled there today.</p> : today.data?.length === 0 ? <EmptyState title="Nobody is scheduled today" /> : (
             <ul className="divide-y divide-border">
               {today.data?.map((p) => (
                 <li key={`${p.employee_id}-${p.shift}`} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
@@ -216,7 +216,7 @@ export function RosterPage() {
           </CardGrid>
         )}
         {groups.length > shown && <Button variant="outline" onClick={() => setShown((n) => n + PAGE)}>Show more ({groups.length - shown} left)</Button>}
-        {assignments.data && groups.length === 0 && <EmptyState title={assignments.data.length === 0 ? 'No assignments at this location' : 'No assignment matches'} />}
+        {assignments.data && groups.length === 0 && <EmptyState title={assignments.data.length === 0 ? 'No assignments' : 'No assignment matches'} />}
       </section>
 
       <Modal
@@ -236,7 +236,7 @@ export function RosterPage() {
             <div className="grid gap-5 sm:grid-cols-2">
               <Field label="Employee">
                 <Select required disabled={editing} value={draft.employee_id} onChange={(e) => setDraft({ ...draft, employee_id: e.target.value })}>
-                  <option value="">{people.data?.items.length === 0 ? 'No employees at this location' : 'Select'}</option>
+                  <option value="">{people.data?.items.length === 0 ? 'No employees' : 'Select'}</option>
                   {people.data?.items.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
                 </Select>
               </Field>

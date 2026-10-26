@@ -45,7 +45,7 @@ class ShiftIn(BaseModel):
 class AssignmentIn(BaseModel):
     employee_id: int
     shift_id: int
-    location_id: int
+    location_id: int | None = None  # left out: the first location the employee works at
     weekdays: list[int] = Field(min_length=1)
     valid_from: date
     valid_to: date | None = None
@@ -143,6 +143,13 @@ def _meeting(db: Session, body: "AssignmentIn", *conditions) -> bool:
     return any((week - body.cycle_week) % gcd(weeks, body.cycle_weeks) == 0 for weeks, week in found)
 
 
+def _fill_location(db: Session, body: AssignmentIn) -> None:
+    if body.location_id is None:
+        own = select(EmployeeLocation.location_id).where(EmployeeLocation.employee_id == body.employee_id)
+        query = select(Location.id).where(Location.active.is_(True)).order_by(Location.name)
+        body.location_id = db.scalar(query.where(Location.id.in_(own))) or db.scalar(query)  # nothing set: the first location
+
+
 def _check_assignment(db: Session, body: AssignmentIn, ignore: set[int]) -> None:
     """Refuses an assignment the employee cannot take: a retired shift, another location, a repeat or a clash; `ignore` are rows being replaced."""
     if any(d < 0 or d > 6 for d in body.weekdays):
@@ -152,7 +159,7 @@ def _check_assignment(db: Session, body: AssignmentIn, ignore: set[int]) -> None
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or retired shift")
     works_here = db.scalar(select(EmployeeLocation.employee_id).where(
         EmployeeLocation.employee_id == body.employee_id, EmployeeLocation.location_id == body.location_id))
-    if works_here is None:
+    if works_here is None and db.scalar(select(EmployeeLocation.employee_id).where(EmployeeLocation.employee_id == body.employee_id)) is not None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Employee is not assigned to that location")
     overlaps = (ShiftAssignment.weekday.in_(set(body.weekdays)), ShiftAssignment.id.not_in(ignore),
                 or_(ShiftAssignment.valid_to.is_(None), ShiftAssignment.valid_to >= body.valid_from),
@@ -186,6 +193,7 @@ def _insert_assignments(db: Session, body: AssignmentIn) -> list[int]:
 @router.post("/assignments", status_code=201)
 def create_assignments(body: AssignmentIn, user: User = Depends(require("roster.manage")),
                        db: Session = Depends(get_db)):
+    _fill_location(db, body)
     _check_assignment(db, body, set())
     created = _insert_assignments(db, body)
     audit(db, user, "roster.assign", "shift_assignment", created[0], None, body.model_dump(mode="json"))

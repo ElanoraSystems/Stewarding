@@ -47,7 +47,6 @@ class ReceiptIn(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
     discount_type: DiscountType | None = None
     discount: Decimal | None = Field(default=None, ge=0)
-    update_costs: bool = False
     lines: list[LineIn] = Field(min_length=1, max_length=200)
 
 
@@ -199,9 +198,8 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
             db.add(ReceiptLine(receipt_id=receipt.id, item_id=item.id, qty=ln.qty, unit_cost=ln.unit_cost,
                                discount_type=ln.discount_type if ln.discount else None, discount_value=ln.discount or None,
                                discount_amount=cut if gross is not None else None, line_total=net, transaction_id=txn.id))
-            if body.update_costs and body.doc_type == "receipt" and net_unit is not None and item.unit_cost != net_unit:
-                cost_changes[item.code] = {"from": f"{item.unit_cost:.2f}" if item.unit_cost is not None else None,
-                                           "to": f"{net_unit:.2f}"}
+            if body.doc_type == "receipt" and net_unit is not None and item.unit_cost is None:  # the starting price is filled once, then left to be set by hand
+                cost_changes[item.code] = {"from": None, "to": f"{net_unit:.3f}"}
                 item.unit_cost = net_unit
     except StockError as exc:
         db.rollback()

@@ -16,6 +16,7 @@ from .traceability import CONDITIONS, GROUPS
 from .costing import MEASURES, category_rows, cost_report
 from .monitoring import describe
 from .reference import user_names
+from .settings import get_setting
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
          "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements",
@@ -345,6 +346,14 @@ def _attendance_groups(db: Session, now: datetime, scope, f: Filters, day_from: 
             "rows": rows,
             "totals": [("Scheduled", stats["scheduled"]), ("Present", sum(1 for r in stats["rows"] if r["status"] in PRESENT_STATUSES)), ("Late", stats["late"]),
                        ("Absent", stats["absent"]), ("On leave", stats["on_leave"]), ("Week off", stats["week_off"])]})
+    if len(groups) > 1 and not get_setting(db, "attendance.by_location"):
+        totals: dict[str, int] = {}
+        for g in groups:
+            for label, n in g["totals"]:
+                totals[label] = totals.get(label, 0) + n
+        return [{"title": "Attendance", "meta": [], "columns": groups[0]["columns"], "rows": [r for g in groups for r in g["rows"]], "totals": list(totals.items())}]
+    if groups and not get_setting(db, "attendance.by_location"):
+        groups[0]["title"], groups[0]["meta"] = "Attendance", []
     return groups
 
 

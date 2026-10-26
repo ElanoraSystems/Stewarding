@@ -99,9 +99,8 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
       description={editing ? `${employee.employee_code} - ${employee.full_name}` : 'They sign in with the email and the password you set here.'}
       onClose={onClose}
       footer={<>
-        {form.location_ids.length === 0 && <span className="mr-auto text-sm text-warn">Choose at least one location.</span>}
         <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button type="submit" form="employee-form" disabled={busy || form.location_ids.length === 0}>{busy ? 'Saving...' : editing ? 'Save employee' : 'Add employee'}</Button>
+        <Button type="submit" form="employee-form" disabled={busy}>{busy ? 'Saving...' : editing ? 'Save employee' : 'Add employee'}</Button>
       </>}
     >
       <form id="employee-form" onSubmit={submit} className="space-y-7">
@@ -165,8 +164,8 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
             </Select>
           </Field>
           <fieldset>
-            <legend className="mb-2 text-sm font-medium">Locations they can work at</legend>
-            <p className="mb-2 text-sm text-ink-muted">Which location they work at each day is set in the Shift &amp; Duty Roster.</p>
+            <legend className="mb-2 text-sm font-medium">Locations they can work at (optional)</legend>
+            <p className="mb-2 text-sm text-ink-muted">Leave all unticked for every location. Which location they work at each day can be set in the Shift &amp; Duty Roster.</p>
             <div className="flex flex-wrap gap-2">
               {me?.locations.map((location) => (
                 <label key={location.id} className={`cursor-pointer rounded-full border px-4 py-1.5 text-sm transition-colors ${form.location_ids.includes(location.id) ? 'border-brand bg-brand-soft font-semibold text-brand-deep' : 'border-border hover:bg-surface-muted'}`}>

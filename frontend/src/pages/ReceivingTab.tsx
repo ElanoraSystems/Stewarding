@@ -89,7 +89,6 @@ export function ReceivingTab() {
   const [invoiceDate, setInvoiceDate] = useState(() => iso(new Date()))  // follows the received date until it is changed by hand
   const [invoiceDateTouched, setInvoiceDateTouched] = useState(false)
   const [note, setNote] = useState('')
-  const [updateCosts, setUpdateCosts] = useState(false)
   const [docDiscType, setDocDiscType] = useState<DiscountType>('amount')
   const [docDisc, setDocDisc] = useState('')
   const entry = useLineEntry<Line>(BLANK_LINE, lineComplete)
@@ -114,7 +113,7 @@ export function ReceivingTab() {
   async function post() {
     const ok = await run(() => api('/receipts', { body: {
       doc_type: docType, supplier_id: Number(supplierId), location_id: locationId, invoice_number: invoice,
-      invoice_date: invoiceDate || null, received_on: receivedOn || null, note: note || null, update_costs: updateCosts && docType === 'receipt',
+      invoice_date: invoiceDate || null, received_on: receivedOn || null, note: note || null,
       discount_type: docDisc ? docDiscType : null, discount: docDisc ? Number(docDisc) : null,
       lines: filled.map((l) => ({
         item_id: Number(l.item), qty: Number(l.qty), unit_cost: l.cost === '' ? null : Number(l.cost),
@@ -127,7 +126,6 @@ export function ReceivingTab() {
       setInvoiceDate(iso(new Date()))
       setInvoiceDateTouched(false)
       setNote('')
-      setUpdateCosts(false)
       setDocDisc('')
       entry.reset()
       list.reload()
@@ -237,9 +235,6 @@ export function ReceivingTab() {
 
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-3">
-              {docType === 'receipt' && (
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={updateCosts} onChange={(e) => setUpdateCosts(e.target.checked)} /> Update item costs to these prices</label>
-              )}
               <Field label="Invoice discount">
                 <div className="flex gap-1">
                   <Select aria-label="Invoice discount type" className="w-24" value={docDiscType} onChange={(e) => setDocDiscType(e.target.value as DiscountType)}>

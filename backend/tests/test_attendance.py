@@ -78,6 +78,22 @@ def test_check_in_and_out_are_limited_to_the_geofence(client, login, db, clock):
     assert client.post(out, json={"latitude": 29.3760, "longitude": 47.9775, "exception_reason": "Tasks done elsewhere"}, headers=h).status_code == 200
 
 
+def test_without_attendance_by_location_the_position_picks_the_place(client, login, db, clock):
+    fence(db)
+    assert client.put("/api/settings", json={"values": {"attendance.by_location": 0}}, headers=login(MGR)).status_code == 200
+    h = login(STEWARD)
+    assert client.get("/api/auth/me", headers=h).json()["by_location"] is False
+    url = "/api/attendance/check-in"
+    assert client.post(url, json={}, headers=h).status_code == 400                                    # position still needed
+    assert client.post(url, json={"latitude": 29.3859, "longitude": 47.9774}, headers=h).status_code == 403   # 1.1 km away
+    ok = client.post(url, json={"latitude": 29.3760, "longitude": 47.9775}, headers=h)
+    assert ok.status_code == 201 and ok.json()["location_id"] == loc_id(db, "MK")
+
+
+def test_choosing_a_location_is_still_required_when_attendance_is_by_location(client, login, db, clock):
+    assert client.post("/api/attendance/check-in", json={}, headers=login(STEWARD)).status_code == 422
+
+
 def test_a_location_without_a_geofence_needs_no_position(client, login, db, clock):
     assert check_in(client, login(STEWARD), db).status_code == 201
 

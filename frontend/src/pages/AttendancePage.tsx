@@ -69,6 +69,7 @@ export function AttendancePage() {
     ? `/attendance${qs({ location_id: locationId, date_from: from, date_to: to, page, size: SIZE })}`
     : `/attendance/mine${qs({ page, size: SIZE })}`
   const { data, loading, reload } = useApi<Listing>(path)
+  const byLocation = me?.by_location !== false
   const locationNames = new Map(me?.locations.map((l) => [l.id, l.name]))
 
   function startCorrection(r: Record) {
@@ -138,7 +139,7 @@ export function AttendancePage() {
         </div>
         {canView && (
           <div className="filter-bar">
-            <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />
+            {byLocation && <LocationSelect allowAll value={locationId} onChange={(id) => { setLocationId(id); setPage(1) }} />}
             <Input aria-label="From date" type="date" className="w-auto" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
             <Input aria-label="To date" type="date" className="w-auto" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
           </div>
@@ -150,7 +151,7 @@ export function AttendancePage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{canView ? r.employee_name : fmtDate(r.local_date)}</p>
-                  <p className="text-sm text-ink-muted">{canView ? `${fmtDate(r.local_date)}, ` : ''}{locationNames.get(r.location_id)}</p>
+                  <p className="text-sm text-ink-muted">{canView ? fmtDate(r.local_date) : ''}{canView && byLocation ? ', ' : ''}{byLocation && locationNames.get(r.location_id)}</p>
                 </div>
                 <span className="flex shrink-0 items-center gap-1.5 text-sm font-medium"><Clock aria-hidden className="h-4 w-4 text-ink-muted" />{fmtTime(r.check_in_at)} - {r.open ? 'On duty' : fmtTime(r.check_out_at)}</span>
               </div>
@@ -170,7 +171,7 @@ export function AttendancePage() {
               <tr>
                 <Th>Date</Th>
                 {canView && <Th>Employee</Th>}
-                <Th>Location</Th>
+                {byLocation && <Th>Location</Th>}
                 <Th>In</Th>
                 <Th>Out</Th>
                 <Th>Worked</Th>
@@ -180,11 +181,11 @@ export function AttendancePage() {
               </tr>
             </thead>
             <tbody>
-              {loading && !data ? <SkeletonRows cols={8} /> : data?.items.map((r) => (
+              {loading && !data ? <SkeletonRows cols={byLocation ? 8 : 7} /> : data?.items.map((r) => (
                 <tr key={r.id}>
                   <Td>{fmtDate(r.local_date)}</Td>
                   {canView && <Td className="font-medium">{r.employee_name}</Td>}
-                  <Td>{locationNames.get(r.location_id)}</Td>
+                  {byLocation && <Td>{locationNames.get(r.location_id)}</Td>}
                   <Td>{fmtTime(r.check_in_at)}</Td>
                   <Td>{r.open ? 'On duty' : fmtTime(r.check_out_at)}</Td>
                   <Td>{hoursMinutes(r.payable_minutes)}</Td>

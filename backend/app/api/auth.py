@@ -14,6 +14,7 @@ from ..models import Employee, Location, Role, User
 from ..permissions import MODULES, STEWARD
 from ..security import check_password_rules, create_token, hash_password, verify_password
 from .. import timeutil
+from ..services.settings import get_setting
 from .employees import next_code
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -141,6 +142,7 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     if allowed is not None:
         query = query.where(Location.id.in_(allowed))
     return {
+        "by_location": bool(get_setting(db, "attendance.by_location")),
         "id": user.id,
         "email": user.email,
         "change_required": user.must_change_password,

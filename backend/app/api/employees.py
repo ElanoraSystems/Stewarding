@@ -68,7 +68,7 @@ class EmployeeIn(BaseModel):
     emergency_contact: str | None = Field(default=None, max_length=200)
     date_joined: date | None = None
     supervisor_id: int | None = None
-    location_ids: list[int] = Field(min_length=1)
+    location_ids: list[int] = Field(default_factory=list)  # none chosen: not tied to an outlet, so every location
     weekly_schedule: dict | None = None
 
     _names = field_validator("full_name", "job_title")(_name)
@@ -96,7 +96,7 @@ class EmployeeUpdate(BaseModel):
     emergency_contact: str | None = Field(default=None, max_length=200)
     date_joined: date | None = None
     supervisor_id: int | None = None
-    location_ids: list[int] | None = Field(default=None, min_length=1)
+    location_ids: list[int] | None = None
     weekly_schedule: dict | None = None
 
     _names = field_validator("full_name", "job_title")(_name)
@@ -133,7 +133,7 @@ def _get_visible(db: Session, user: User, employee_id: int) -> Employee:
     if not emp:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
     allowed = scoped_locations(user, db)
-    if allowed is not None and not (set(_location_ids(emp)) & allowed):
+    if allowed is not None and emp.locations and not (set(_location_ids(emp)) & allowed):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Employee is outside your locations")
     return emp
 
@@ -163,7 +163,7 @@ def list_employees(
             subq = subq.where(EmployeeLocation.location_id.in_(allowed))
         if location_id is not None:
             subq = subq.where(EmployeeLocation.location_id == location_id)
-        stmt = stmt.where(Employee.id.in_(subq))
+        stmt = stmt.where(or_(Employee.id.in_(subq), Employee.id.not_in(select(EmployeeLocation.employee_id))))  # no outlet = everywhere
     if search:
         like = f"%{search.strip()}%"
         stmt = stmt.where(or_(Employee.full_name.ilike(like), Employee.employee_code.ilike(like), Employee.company.ilike(like)))
@@ -194,7 +194,8 @@ def next_code(db: Session) -> str:
 
 @router.post("", status_code=201)
 def create_employee(body: EmployeeIn, user: User = Depends(require("employee.manage")), db: Session = Depends(get_db)):
-    _validate_refs(db, body.location_ids, body.supervisor_id)
+    location_ids = body.location_ids
+    _validate_refs(db, location_ids, body.supervisor_id)
     role = _assignable_role(db, user, body.role)
     try:
         account = User(email=str(body.email).lower(), password_hash=hash_password(body.password), role_id=role.id,
@@ -205,7 +206,7 @@ def create_employee(body: EmployeeIn, user: User = Depends(require("employee.man
             employee_code=body.employee_code or next_code(db), user_id=account.id, full_name=body.full_name, job_title=body.job_title, company=body.company,
             email=str(body.email).lower(), phone=body.phone, emergency_contact=body.emergency_contact,
             date_joined=body.date_joined, supervisor_id=body.supervisor_id, weekly_schedule=body.weekly_schedule)
-        emp.locations = [EmployeeLocation(location_id=i) for i in set(body.location_ids)]
+        emp.locations = [EmployeeLocation(location_id=i) for i in set(location_ids)]
         db.add(emp)
         db.flush()
     except IntegrityError:

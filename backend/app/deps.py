@@ -50,14 +50,15 @@ def require(permission: str):
 
 
 def scoped_locations(user: User, db: Session) -> set[int] | None:
-    """Location ids the user may touch; None means every location (manager)."""
+    """Location ids the user may touch; None means every location (a manager, or an employee tied to no outlet)."""
     if user.role.tier == MANAGER:
         return None
     if not user.employee:
         return set()
     employee_id = user.employee.id
-    return memo(db, ("scope", employee_id), lambda: set(db.scalars(
+    placed = memo(db, ("scope", employee_id), lambda: set(db.scalars(
         select(EmployeeLocation.location_id).where(EmployeeLocation.employee_id == employee_id))))
+    return placed or None  # an employee with no outlets is not tied to one: every location, including ones added later
 
 
 def check_location(user: User, db: Session, location_id: int) -> None:

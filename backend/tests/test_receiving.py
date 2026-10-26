@@ -1,5 +1,5 @@
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.models import AuditLog, InventoryItem, Receipt, StockTransaction
@@ -101,16 +101,21 @@ def test_inactive_supplier_or_item_cannot_be_received(client, login, db):
     assert r.status_code == 400 and "inactive" in r.json()["detail"]
 
 
-def test_costs_update_only_when_asked_and_the_change_is_audited(client, login, db):
+def test_the_starting_cost_is_filled_from_the_first_priced_invoice_and_then_left_alone(client, login, db):
     h, m = login(SUP), login(MGR)
     line = [{"item_id": item_id(db, "PL-001"), "qty": 10, "unit_cost": 3.10}]
     receive(client, h, db, line, invoice="C-1")
-    assert float(db.scalar(select(InventoryItem.unit_cost).where(InventoryItem.code == "PL-001"))) == 2.50
-    receive(client, h, db, line, invoice="C-2", update_costs=True)
+    assert float(db.scalar(select(InventoryItem.unit_cost).where(InventoryItem.code == "PL-001"))) == 2.50   # already set: kept
+    db.execute(update(InventoryItem).where(InventoryItem.code == "PL-001").values(unit_cost=None))
+    db.commit()
+    receive(client, h, db, line, invoice="C-2")
     db.expire_all()
-    assert float(db.scalar(select(InventoryItem.unit_cost).where(InventoryItem.code == "PL-001"))) == 3.10
-    log = db.scalar(select(AuditLog).where(AuditLog.action == "receipt.post").order_by(AuditLog.id.desc()))
-    assert log.after["cost_updates"] == {"PL-001": {"from": "2.50", "to": "3.10"}}
+    assert float(db.scalar(select(InventoryItem.unit_cost).where(InventoryItem.code == "PL-001"))) == 3.10   # blank: filled
+    receive(client, h, db, [{**line[0], "unit_cost": 9}], invoice="C-3")
+    db.expire_all()
+    assert float(db.scalar(select(InventoryItem.unit_cost).where(InventoryItem.code == "PL-001"))) == 3.10   # then not overwritten
+    log = db.scalar(select(AuditLog).where(AuditLog.action == "receipt.post", AuditLog.after["invoice"].as_string() == "C-2"))
+    assert log.after["cost_updates"] == {"PL-001": {"from": None, "to": "3.100"}}
     assert client.get("/api/inventory/items", headers=m).json()["total_value"] > 0
 
 
@@ -211,9 +216,11 @@ def test_discount_rules_are_enforced(client, login, db):
     assert bad("D-5", {"unit_cost": 5, "discount_type": "amount", "discount": 10}) == 201  # a full discount is allowed
 
 
-def test_item_cost_follows_the_net_price_after_the_line_discount(client, login, db):
+def test_the_filled_cost_is_the_net_price_after_the_line_discount(client, login, db):
+    db.execute(update(InventoryItem).where(InventoryItem.code == "PL-001").values(unit_cost=None))
+    db.commit()
     lines = [{"item_id": item_id(db, "PL-001"), "qty": 10, "unit_cost": 5, "discount_type": "percent", "discount": 20}]
-    assert receive(client, login(MGR), db, lines, invoice="NET-1", update_costs=True).status_code == 201
+    assert receive(client, login(MGR), db, lines, invoice="NET-1").status_code == 201
     item = client.get("/api/inventory/items?search=dinner", headers=login(MGR)).json()["items"][0]
     assert item["unit_cost"] == 4
 
@@ -281,3 +288,24 @@ def test_prices_discounts_and_totals_are_kept_to_a_thousandth(client, login, db,
     assert line["unit_cost"] == 29.745 and line["gross"] == 297.45
     assert line["discount_amount"] == 8.924 and line["line_total"] == 288.526  # 3 percent of 297.450, kept to three places
     assert doc["subtotal"] == 297.45 and doc["total"] == 288.526
+
+
+def test_the_migration_fills_blank_starting_costs_from_the_latest_priced_invoice(client, login, db):
+    import importlib.util, pathlib
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    pl, pn = item_id(db, "PL-001"), item_id(db, "PN-001")
+    receive(client, login(MGR), db, [{"item_id": pl, "qty": 10, "unit_cost": 3.0}], invoice="M-1", invoice_date="2026-01-10")
+    receive(client, login(MGR), db, [{"item_id": pl, "qty": 10, "unit_cost": 4.0, "discount_type": "percent", "discount": 25}], invoice="M-2", invoice_date="2026-02-10")
+    db.execute(update(InventoryItem).where(InventoryItem.id.in_([pl, pn])).values(unit_cost=None))
+    db.commit()
+    path = pathlib.Path(__file__).parent.parent / "alembic" / "versions" / "n8b2d6f0c4e7_fill_blank_start_costs.py"
+    spec = importlib.util.spec_from_file_location("fill", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    connection = db.connection()
+    with Operations.context(MigrationContext.configure(connection)):
+        module.upgrade()
+    db.expire_all()
+    assert float(db.get(InventoryItem, pl).unit_cost) == 3.0       # newest invoice 4.00 less 25%
+    assert db.get(InventoryItem, pn).unit_cost is None              # never bought: stays blank

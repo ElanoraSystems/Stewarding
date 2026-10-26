@@ -48,6 +48,10 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const locationId = picked ?? working[0]?.location_id ?? null
   const locked = new Set(working.map((r) => r.location_id)).size === 1 && !elsewhere
   const { me } = useAuth()
+  const byLocation = me?.by_location !== false
+  // without a chosen location the server finds the one the position fits, so send the position when any of mine has a boundary
+  const fencedFor = (id: number | null) => (byLocation ? me?.locations.find((l) => l.id === id)?.geofence : me?.locations.some((l) => l.geofence))
+  const placeFor = (id: number | null) => (byLocation ? { location_id: id } : {})
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [faceFor, setFaceFor] = useState<'in' | 'out' | null>(null)
@@ -81,8 +85,8 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
     const faceBody = { face: template, ...(challenge ? { challenge: challenge.token, liveness: evidence.liveness, snapshot: evidence.snapshot } : {}) }
     try {
       if (faceFor === 'in') {
-        const fenced = me?.locations.find((l) => l.id === locationId)?.geofence
-        await api('/attendance/check-in', { body: { location_id: locationId, ...faceBody, ...(fenced ? await currentPosition() : {}) } })
+        const fenced = fencedFor(locationId)
+        await api('/attendance/check-in', { body: { ...placeFor(locationId), ...faceBody, ...(fenced ? await currentPosition() : {}) } })
         toast('ok', 'Checked in')
       } else {
         const where = data?.location?.geofence ? await currentPosition() : {}
@@ -104,10 +108,10 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   }
 
   async function checkIn() {
-    if (locationId === null) return
+    if (byLocation && locationId === null) return
     if (data?.face_required) return needFace('in')
-    const fenced = me?.locations.find((l) => l.id === locationId)?.geofence
-    const ok = await run(async () => api('/attendance/check-in', { body: { location_id: locationId, ...(fenced ? await currentPosition() : {}) } }), 'Checked in')
+    const fenced = fencedFor(locationId)
+    const ok = await run(async () => api('/attendance/check-in', { body: { ...placeFor(locationId), ...(fenced ? await currentPosition() : {}) } }), 'Checked in')
     if (ok) refresh()
   }
 
@@ -141,7 +145,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
       <CardContent className="space-y-6 p-6">
         {data.checked_in && data.record && data.location ? (
           <>
-            <p className="text-base">Checked in at <span className="font-semibold">{fmtTime(data.record.check_in_at, data.location.timezone)}</span> at {data.location.name}.</p>
+            <p className="text-base">Checked in at <span className="font-semibold">{fmtTime(data.record.check_in_at, data.location.timezone)}</span>{byLocation && <> at {data.location.name}</>}.</p>
             <dl className="grid grid-cols-2 gap-4 text-sm">
               <div><dt className="text-ink-muted">Shift</dt><dd className="text-base font-medium">{data.shift ?? 'Unscheduled'}</dd></div>
               <div><dt className="text-ink-muted">Open tasks</dt><dd className="text-base font-medium">{data.incomplete_task_count}</dd></div>
@@ -157,11 +161,11 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
               <p className="font-medium">Today</p>
               {rostered.length === 0 ? <p className="text-ink-muted">You are not on the roster today.</p> : rostered.map((r) => (
                 <p key={`${r.location_id}-${r.shift}`} className="text-ink-muted">
-                  {r.week_off ? <>Week off at {r.location_name}</> : <>{r.shift}, {r.start} to {r.end}, at <span className="font-medium text-ink">{r.location_name}</span></>}
+                  {r.week_off ? <>Week off{byLocation && <> at {r.location_name}</>}</> : <>{r.shift}, {r.start} to {r.end}{byLocation && <>, at <span className="font-medium text-ink">{r.location_name}</span></>}</>}
                 </p>
               ))}
             </div>
-            {locked ? (
+            {!byLocation ? null : locked ? (
               <div className="space-y-1">
                 <p className="text-sm font-medium">Where are you working?</p>
                 <p className="flex min-h-12 items-center rounded-lg border border-border bg-surface-muted px-3 text-base font-medium">{working[0].location_name} (rostered today)</p>
@@ -170,7 +174,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
             ) : (
               <Field label="Where are you working?"><LocationSelect className="h-12 w-full text-base" value={locationId} preferred={working.map((r) => r.location_id)} onChange={setPicked} /></Field>
             )}
-            <Button className="h-14 w-full text-base" disabled={locationId === null} onClick={checkIn}>
+            <Button className="h-14 w-full text-base" disabled={byLocation && locationId === null} onClick={checkIn}>
               <LogIn className="h-5 w-5" /> Check in
             </Button>
           </>

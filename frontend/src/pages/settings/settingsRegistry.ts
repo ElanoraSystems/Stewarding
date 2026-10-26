@@ -20,6 +20,7 @@ export const SECTION_TITLES: Record<RulesSection, string> = {
 export const SETTINGS: SettingDef[] = [
   { key: 'attendance.face_required', section: 'attendance', kind: 'toggle', label: 'Require face verification to check in and out' },
   { key: 'attendance.face_liveness', section: 'attendance', kind: 'toggle', label: 'Live head-turn check, with a snapshot kept' },
+  { key: 'attendance.by_location', section: 'attendance', kind: 'toggle', label: 'Staff choose a location to check in, and attendance is shown by location' },
   { key: 'attendance.missed_checkout_hours', section: 'attendance', kind: 'number', label: 'Missed check-out after', unit: 'hours' },
   { key: 'attendance.max_accuracy_m', section: 'attendance', kind: 'number', label: 'Largest location error accepted', unit: 'metres' },
   { key: 'attendance.snapshot_days', section: 'attendance', kind: 'number', label: 'Keep face snapshots for (0 = keep them)', unit: 'days' },
