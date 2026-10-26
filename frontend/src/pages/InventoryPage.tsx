@@ -66,7 +66,7 @@ export function InventoryPage() {
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={lowOnly} onChange={(e) => { setLowOnly(e.target.checked); setPage(1) }} /> Low stock only
         </label>
-        {data?.total_value !== undefined && <Badge>Stock value {data.total_value.toFixed(2)}</Badge>}
+        {data?.total_value !== undefined && <Badge>Stock value {data.total_value.toFixed(3)}</Badge>}
       </div>
 
       <Table>
@@ -82,7 +82,7 @@ export function InventoryPage() {
               <Td>{i.unit}</Td>
               <Td className="text-right tabular-nums">{i.qty}</Td>
               <Td><MinimumCell item={i} locationId={locationId} canEdit={can('inventory.count')} onSaved={refresh} /></Td>
-              {showCost && <Td className="text-right tabular-nums">{i.value != null ? i.value.toFixed(2) : '-'}</Td>}
+              {showCost && <Td className="text-right tabular-nums">{i.value != null ? i.value.toFixed(3) : '-'}</Td>}
               <Td>{i.low ? <Badge tone="critical">Low stock</Badge> : <Badge tone="ok">OK</Badge>}</Td>
               <Td className="space-x-2 text-right">
                 {can('stock.transfer') && <Button size="sm" variant="outline" onClick={() => setPosting(i)}>Stock</Button>}

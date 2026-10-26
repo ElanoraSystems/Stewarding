@@ -303,6 +303,7 @@ def stock_snapshot(db: Session, scope: set[int] | None, location_id: int | None 
             low.append({"item_id": item.id, "code": item.code, "name": item.name,
                         "location_id": balance.location_id, "qty": balance.qty, "min_level": minimum,
                         "target_level": item.target_level})
+    total["value"] = round(total["value"], 3)
     return {"total": total, "low": low}
 
 

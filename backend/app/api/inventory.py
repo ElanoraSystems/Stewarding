@@ -257,7 +257,7 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
             entry["avg_cost"] = round(float(sum(q * c for q, c in stocked) / sum(q for q, _ in stocked)), 3) if stocked else (float(kept[0]) if kept else None)
             purchase = last.get(item.id)
             entry["last_purchase"] = {**purchase, "supplier": suppliers.get(purchase["supplier_id"])} if purchase else None
-            entry["value"] = round(sum(float(q * c) for q, c in held if c is not None), 2) if any(c is not None for _, c in held) else None
+            entry["value"] = round(sum(float(q * c) for q, c in held if c is not None), 3) if any(c is not None for _, c in held) else None
         out.append(entry)
     return out
 
@@ -298,7 +298,7 @@ def list_items(search: str | None = None, category_id: int | None = None, locati
                  .select_from(InventoryBalance).join(InventoryItem, InventoryItem.id == InventoryBalance.item_id))
         if scope is not None:
             worth = worth.where(InventoryBalance.location_id.in_(scope))
-        result["total_value"] = float(db.scalar(worth))
+        result["total_value"] = round(float(db.scalar(worth)), 3)
     return result
 
 

@@ -197,3 +197,12 @@ def test_a_breakage_cost_keeps_a_third_decimal(client, login, db, clock):
     listed = client.get("/api/breakage", headers=login(MGR)).json()
     mine = next(i for i in listed["items"] if i["id"] == incident["id"])
     assert mine["est_cost"] == 7.035 and listed["totals"]["cost"] == 7.035      # 3 x 2.345
+
+
+def test_the_stock_value_keeps_a_third_decimal(client, login, db, clock):
+    item, sup = item_and_supplier(client, login, db)
+    receive(client, login, db, item, sup, 10, 2.345, "W-V1")
+    page = client.get(f"/api/inventory/items?location_id={loc_id(db, 'MK')}&size=200", headers=login(MGR)).json()
+    row = next(i for i in page["items"] if i["id"] == item["id"])
+    assert row["avg_cost"] == 2.345 and row["value"] == 23.45
+    assert page["total_value"] == round(page["total_value"], 3) and page["total_value"] >= 23.45

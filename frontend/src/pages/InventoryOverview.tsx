@@ -60,7 +60,7 @@ export function InventoryOverview({ locationId }: Props) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="Total items" value={all.data?.total ?? '-'} icon={Boxes} />
-        {all.data?.total_value !== undefined && <KpiCard label="Stock value" value={all.data.total_value.toFixed(2)} icon={Wallet} />}
+        {all.data?.total_value !== undefined && <KpiCard label="Stock value" value={all.data.total_value.toFixed(3)} icon={Wallet} />}
         <KpiCard label="Below minimum" value={short.data?.total ?? '-'} tone={short.data?.total ? 'warn' : 'ok'} icon={TrendingDown} />
         <KpiCard label="Out of stock" value={short.data ? empty : '-'} tone={empty ? 'critical' : 'ok'} icon={PackageMinus} />
       </div>
