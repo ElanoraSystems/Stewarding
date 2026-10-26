@@ -31,8 +31,10 @@ interface Draft {
 let counter = 0
 const blank = (title = ''): Draft => ({ key: ++counter, id: null, title, bulletsText: '', narration: '', voice: 'none', seconds: '6', image: null, audio: null })
 const toDraft = (s: Slide): Draft => ({ key: ++counter, id: s.id, title: s.title, bulletsText: s.bullets.join('\n'), narration: s.narration ?? '', voice: s.voice, seconds: String(s.seconds), image: s.image, audio: s.audio })
+/** One line per point, with a line over the server's 160-character limit cut at a word instead of being refused. */
+const toPoints = (text: string) => text.split('\n').flatMap((line) => line.trim().match(/.{1,160}(?:\s|$)|\S{1,160}/g) ?? []).map((b) => b.trim()).filter(Boolean)
 const toBody = (d: Draft) => ({
-  id: d.id, title: d.title, bullets: d.bulletsText.split('\n').map((b) => b.trim()).filter(Boolean), narration: d.narration.trim() || null, voice: d.voice,
+  id: d.id, title: d.title, bullets: toPoints(d.bulletsText), narration: d.narration.trim() || null, voice: d.voice,
   seconds: Math.min(120, Math.max(2, Number(d.seconds) || 6)),
 })
 

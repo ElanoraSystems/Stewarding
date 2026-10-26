@@ -148,7 +148,7 @@ export function BreakagePage() {
               <Td>{label(i.incident_type)}</Td>
               <Td><StatusBadge status={i.status} /></Td>
               {canList && (
-                <Td className="space-x-2 text-right">{rowActions(i)}</Td>
+                <Td><div className="flex items-center justify-end gap-2 whitespace-nowrap">{rowActions(i)}</div></Td>
               )}
             </tr>
           ))}

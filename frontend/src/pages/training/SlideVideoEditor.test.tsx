@@ -100,3 +100,18 @@ describe('SlideVideoEditor sound', () => {
     expect(mocks.api).not.toHaveBeenCalled()
   })
 })
+
+describe('SlideVideoEditor long points', () => {
+  it('cuts a point over 160 characters into shorter ones instead of sending one the server refuses', async () => {
+    mocks.api.mockReset()
+    mocks.slides = []
+    mocks.api.mockResolvedValue({ slides: [] })
+    open()
+    fireEvent.change(screen.getByLabelText('Points (one per line)'), { target: { value: 'word '.repeat(70) } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Save slides' })[0])
+    await waitFor(() => expect(mocks.api).toHaveBeenCalled())
+    const sent = (mocks.api.mock.calls[0][1] as { body: { slides: { bullets: string[] }[] } }).body.slides[0].bullets
+    expect(sent.length).toBeGreaterThan(1)
+    expect(sent.every((b) => b.length <= 160)).toBe(true)
+  })
+})

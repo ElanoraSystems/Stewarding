@@ -84,9 +84,11 @@ export function InventoryPage() {
               <Td><MinimumCell item={i} locationId={locationId} canEdit={can('inventory.count')} onSaved={refresh} /></Td>
               {showCost && <Td className="text-right tabular-nums">{i.value != null ? i.value.toFixed(3) : '-'}</Td>}
               <Td>{i.low ? <Badge tone="critical">Low stock</Badge> : <Badge tone="ok">OK</Badge>}</Td>
-              <Td className="space-x-2 text-right">
+              <Td>
+                <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                 {can('stock.transfer') && <Button size="sm" variant="outline" onClick={() => setPosting(i)}>Stock</Button>}
                 {can('inventory.manage') && <Button size="sm" variant="outline" onClick={() => { setFormItem(i); setFormOpen(true) }}>Edit</Button>}
+                </div>
               </Td>
             </tr>
           ))}
