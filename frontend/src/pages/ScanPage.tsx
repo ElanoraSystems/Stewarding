@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/table'
 import { api } from '@/lib/api'
+import { ScanSummary } from '@/pages/ScanSummary'
 
 interface Place {
   kind: 'equipment' | 'location'
@@ -53,6 +54,7 @@ export function ScanPage() {
           )}
         </CardContent></Card>
       )}
+      {place && <ScanSummary locationId={place.location_id} />}
     </div>
   )
 }

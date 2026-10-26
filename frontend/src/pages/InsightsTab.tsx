@@ -4,9 +4,19 @@ import { KpiCard } from '@/components/KpiCard'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/table'
 import { PRESETS, type Range } from '@/lib/dates'
 import { qs, useApi } from '@/lib/useApi'
+
+interface Analysis {
+  spend_trend: { period: string; spend: number }[]
+  spend_by_supplier: { label: string; value: number }[]
+  spend_by_category: { label: string; value: number }[]
+  most_used_items: { label: string; value: number }[]
+  stock_value_by_category: { label: string; value: number }[]
+  total_spend: number
+}
 
 interface Insights {
   range: { grain: 'day' | 'month' }
@@ -24,7 +34,11 @@ export function InsightsTab() {
   const [preset, setPreset] = useState('last30')
   const [locationId, setLocationId] = useState<number | null>(null)
   const range = (PRESETS.find((p) => p.key === preset) ?? PRESETS[0]).range() as Range
-  const { data, error } = useApi<Insights>(`/stock/insights${qs({ location_id: locationId, date_from: range[0], date_to: range[1] })}`)
+  const [dateBy, setDateBy] = useState<'invoice' | 'received'>('invoice')
+  const query = qs({ location_id: locationId, date_from: range[0], date_to: range[1], date_by: dateBy })
+  const { data, error } = useApi<Insights>(`/stock/insights${query}`)
+  const analysis = useApi<Analysis>(`/stock/analysis${query}`).data
+  const money = (rows: { label: string; value: number }[]) => rows.map((r) => ({ ...r, sub: r.value.toFixed(3) }))
 
   return (
     <div className="space-y-4">
@@ -33,6 +47,10 @@ export function InsightsTab() {
           <Button key={p.key} size="sm" variant={preset === p.key ? 'default' : 'outline'} onClick={() => setPreset(p.key)}>{p.label}</Button>
         ))}
         <LocationSelect allowAll value={locationId} onChange={setLocationId} />
+        <Select aria-label="Date deliveries by" className="w-auto" value={dateBy} onChange={(e) => setDateBy(e.target.value as 'invoice' | 'received')}>
+          <option value="invoice">Deliveries by invoice date</option>
+          <option value="received">Deliveries by received date</option>
+        </Select>
       </div>
       {error && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}
       {!data ? <Skeleton className="h-64 w-full" /> : (
@@ -46,7 +64,7 @@ export function InsightsTab() {
           </section>
           <section aria-label="Charts" className="grid gap-4 lg:grid-cols-2">
             <Card>
-              <CardHeader><CardTitle>Stock in and out {data.range.grain === 'month' ? 'by month' : 'by day'} (date entered)</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Stock in and out {data.range.grain === 'month' ? 'by month' : 'by day'} ({dateBy === 'invoice' ? 'invoice date' : 'received date'})</CardTitle></CardHeader>
               <CardContent><ColumnChart data={data.movement} labelKey="date" series={[{ key: 'in', label: 'In', className: 'bg-ok' }, { key: 'out', label: 'Out', className: 'bg-brand' }]} /></CardContent>
             </Card>
             <Card>
@@ -70,6 +88,30 @@ export function InsightsTab() {
               <CardContent><QuantityBars items={data.breakage_top_items} /></CardContent>
             </Card>
           </section>
+          {analysis && (
+            <section aria-label="Purchasing and stock value" className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader><CardTitle>Purchases (value) {data.range.grain === 'month' ? 'by month' : 'by day'}: {analysis.total_spend.toFixed(3)}</CardTitle></CardHeader>
+                <CardContent><ColumnChart data={analysis.spend_trend} labelKey="period" series={[{ key: 'spend', label: 'Purchases', className: 'bg-brand' }]} /></CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Spend by supplier</CardTitle></CardHeader>
+                <CardContent><QuantityBars items={money(analysis.spend_by_supplier)} /></CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Spend by category</CardTitle></CardHeader>
+                <CardContent><QuantityBars items={money(analysis.spend_by_category)} /></CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Most used items (units issued)</CardTitle></CardHeader>
+                <CardContent><QuantityBars items={analysis.most_used_items} /></CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Stock value held now, by category</CardTitle></CardHeader>
+                <CardContent><QuantityBars items={money(analysis.stock_value_by_category)} /></CardContent>
+              </Card>
+            </section>
+          )}
         </>
       )}
     </div>

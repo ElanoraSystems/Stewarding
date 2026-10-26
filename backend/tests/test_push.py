@@ -23,7 +23,7 @@ def keys(monkeypatch):
 def sent(monkeypatch):
     """Captures what would be pushed and runs the background send on the spot."""
     out = []
-    monkeypatch.setattr(push, "_send", lambda info, payload, urgent: out.append((info["endpoint"], payload)))
+    monkeypatch.setattr(push, "_send", lambda info, payload: out.append((info["endpoint"], payload)))
 
     class Inline:
         def __init__(self, target, args, daemon):
@@ -74,7 +74,7 @@ def test_a_device_the_push_service_has_forgotten_is_removed(client, login, db, k
     class Gone:
         status_code = 410
 
-    def boom(info, payload, urgent):
+    def boom(info, payload):
         raise WebPushException("gone", response=Gone())
 
     monkeypatch.setattr(push, "_send", boom)

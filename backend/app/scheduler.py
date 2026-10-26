@@ -24,6 +24,7 @@ def run_cycle(db: Session, now=None) -> dict:
         created += checklists.generate_for_location(db, location, now)
     overdue = checklists.mark_overdue(db, now)
     alerts = run_alerts(db, now)
+    db.commit()  # alerts go out now, not after the slower housekeeping below
     stock = snapshots.refresh(db, now)
     faces = purge_face_snapshots(db, now)
     db.commit()
@@ -33,8 +34,10 @@ def run_cycle(db: Session, now=None) -> dict:
 def _loop() -> None:
     while True:
         try:
+            started = time.monotonic()
             with SessionLocal() as db:
-                log.info("scheduler cycle %s", run_cycle(db))
+                result = run_cycle(db)
+            log.info("scheduler cycle took %.1fs: %s", time.monotonic() - started, result)
         except Exception:
             log.exception("scheduler cycle failed")
         time.sleep(INTERVAL_SECONDS)

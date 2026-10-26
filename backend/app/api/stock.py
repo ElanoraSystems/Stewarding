@@ -1,4 +1,5 @@
 import re
+from typing import Literal
 from collections import defaultdict
 from datetime import date, time, timedelta
 from decimal import Decimal
@@ -344,8 +345,23 @@ def post_count(count_id: int, user: User = Depends(require("inventory.count")), 
 
 @router.get("/insights")
 def insights(location_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
+             date_by: Literal["invoice", "received"] = "invoice",
              user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
-    """Stock in and out, breakage and transfers for charts; the last 30 days unless dates are given."""
+    """Stock in and out, breakage and transfers for charts; the last 30 days unless dates are given.
+
+    Deliveries sit on the invoice date (or the received date when `date_by` says so), not on the day they were entered."""
+    return _insights_with(metrics.stock_insights, location_id, date_from, date_to, date_by, user, db)
+
+
+@router.get("/analysis")
+def analysis(location_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
+             date_by: Literal["invoice", "received"] = "invoice",
+             user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
+    """Purchases, suppliers, most used items and what stock is worth, for the same places and dates as the insights."""
+    return _insights_with(metrics.stock_analysis, location_id, date_from, date_to, date_by, user, db)
+
+
+def _insights_with(build, location_id, date_from, date_to, date_by, user, db):
     now = timeutil.utc_now()
     if location_id is not None:
         check_location(user, db, location_id)
@@ -359,7 +375,7 @@ def insights(location_id: int | None = None, date_from: date | None = None, date
         wins = metrics.windows(db, now, scope, location_id, day_from, day_to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
-    return metrics.stock_insights(db, wins, day_from, day_to)
+    return build(db, wins, day_from, day_to, date_by)
 
 
 def _locations_in_scope(db: Session, user: User) -> list[Location]:

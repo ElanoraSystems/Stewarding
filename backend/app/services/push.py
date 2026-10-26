@@ -32,9 +32,10 @@ def allowed_endpoint(endpoint: str) -> bool:
     return url.scheme == "https" and any(host == h or host.endswith("." + h) for h in PUSH_HOSTS)
 
 
-def _send(info: dict, payload: dict, urgent: bool) -> None:
+def _send(info: dict, payload: dict) -> None:
+    # always high urgency: phones hold back "normal" pushes while idle (Android Doze, iOS), which is how a reminder arrives minutes late
     webpush(subscription_info=info, data=json.dumps(payload), vapid_private_key=settings.vapid_private_key,
-            vapid_claims={"sub": settings.vapid_subject}, ttl=86400, headers={"Urgency": "high" if urgent else "normal"}, timeout=10)
+            vapid_claims={"sub": settings.vapid_subject}, ttl=86400, headers={"Urgency": "high"}, timeout=10)
 
 
 def deliver(items: list[dict]) -> int:
@@ -46,7 +47,7 @@ def deliver(items: list[dict]) -> int:
             for sub in subs:
                 try:
                     _send({"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}},
-                          {k: item[k] for k in ("title", "body", "link", "tag")}, item["priority"] != "normal")
+                          {k: item[k] for k in ("title", "body", "link", "tag")})
                     sent += 1
                 except WebPushException as exc:
                     if exc.response is not None and exc.response.status_code in (404, 410):

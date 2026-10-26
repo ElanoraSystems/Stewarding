@@ -309,3 +309,23 @@ def test_the_migration_fills_blank_starting_costs_from_the_latest_priced_invoice
     db.expire_all()
     assert float(db.get(InventoryItem, pl).unit_cost) == 3.0       # newest invoice 4.00 less 25%
     assert db.get(InventoryItem, pn).unit_cost is None              # never bought: stays blank
+
+
+def test_the_stock_chart_puts_a_late_entered_invoice_on_its_invoice_date_or_received_date(client, login, db, clock):
+    clock.set(2026, 3, 20, 9, 0)                                                        # entered on 20 March
+    m = login(MGR)
+    r = receive(client, m, db, [{"item_id": item_id(db, "PL-001"), "qty": 40, "unit_cost": 2.0}], invoice="LATE-1",
+                invoice_date="2026-03-02", received_on="2026-03-03")
+    assert r.status_code == 201
+    mk = loc_id(db, "MK")
+
+    def moved(by, day_from, day_to):
+        data = client.get(f"/api/stock/insights?location_id={mk}&date_from={day_from}&date_to={day_to}&date_by={by}", headers=m).json()
+        return {p["date"]: p["in"] for p in data["movement"] if p["in"]}
+
+    assert moved("invoice", "2026-03-01", "2026-03-05") == {"2026-03-02": 40}
+    assert moved("received", "2026-03-01", "2026-03-05") == {"2026-03-03": 40}
+    assert moved("invoice", "2026-03-18", "2026-03-22") == {}                          # not on the day it was typed in
+    spend = client.get(f"/api/stock/analysis?location_id={mk}&date_from=2026-03-01&date_to=2026-03-05", headers=m).json()
+    assert spend["total_spend"] == 80.0 and spend["spend_by_supplier"][0]["value"] == 80.0
+    assert [p["period"] for p in spend["spend_trend"] if p["spend"]] == ["2026-03-02"]

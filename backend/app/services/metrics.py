@@ -4,13 +4,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, ChecklistTemplate,
-                      CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryItem,
-                      InventoryTransfer, InventoryTransferLine, Location, Shift, ShiftAssignment, StockTransaction, TemperatureReading)
+                      CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryCategory, InventoryItem,
+                      InventoryTransfer, InventoryTransferLine, Location, Receipt, ReceiptLine, Shift, ShiftAssignment, StockTransaction, Supplier, TemperatureReading)
 from .inventory import level_map
 from .settings import get_setting
 from .monitoring import CLOSED_ACTIONS, expected_slots, has_reading, window_low
@@ -326,17 +326,43 @@ def day_finder(win: Win):
     return lambda moment: days[bisect_right(starts, moment) - 1]
 
 
-def movements(db: Session, wins: list[Win]) -> list[Move]:
-    """Stock movements in the windows with their local day; only the columns used are read, as plain tuples."""
+RECEIPT_REFS = ("receipt", "receipt_void")
+
+
+def receipt_window(win: Win, date_by: str, entered_at=StockTransaction.occurred_at):
+    """Which receipts fall in the window by the date a person means (invoice or received), else by when they were entered."""
+    entered = and_(entered_at >= win.start, entered_at < win.end)
+    if date_by == "received":
+        return or_(and_(Receipt.received_on.is_not(None), Receipt.received_on >= win.d_from, Receipt.received_on <= win.d_to),
+                   and_(Receipt.received_on.is_(None), entered))
+    first, after = datetime.combine(win.d_from, time.min), datetime.combine(win.d_to + timedelta(days=1), time.min)
+    return or_(and_(Receipt.invoice_date.is_not(None), Receipt.invoice_date >= first, Receipt.invoice_date < after),
+               and_(Receipt.invoice_date.is_(None), entered))
+
+
+def movements(db: Session, wins: list[Win], date_by: str | None = None) -> list[Move]:
+    """Stock movements in the windows with their local day; only the columns used are read, as plain tuples.
+
+    With `date_by` ("invoice" or "received") a delivery and its voiding sit on the invoice or received date of the
+    document instead of the moment it was entered, so a late-entered invoice lands on the day it belongs to.
+    """
     out = []
     for win in wins:
         day_of = day_finder(win)
-        for txn_type, qty_delta, occurred_at, item_id in db.execute(
-                select(StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.occurred_at,
-                       StockTransaction.item_id).where(
-                    StockTransaction.location_id == win.loc.id, StockTransaction.occurred_at >= win.start,
-                    StockTransaction.occurred_at < win.end)):
+        columns = (StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.occurred_at, StockTransaction.item_id)
+        plain = select(*columns).where(StockTransaction.location_id == win.loc.id, StockTransaction.occurred_at >= win.start,
+                                       StockTransaction.occurred_at < win.end)
+        if date_by:
+            plain = plain.where(or_(StockTransaction.ref_type.is_(None), StockTransaction.ref_type.not_in(RECEIPT_REFS)))
+        for txn_type, qty_delta, occurred_at, item_id in db.execute(plain):
             out.append(Move(txn_type, qty_delta, day_of(occurred_at), win.loc.id, item_id))
+        if not date_by:
+            continue
+        documents = select(*columns, Receipt.invoice_date, Receipt.received_on).join(Receipt, Receipt.id == StockTransaction.ref_id).where(
+            StockTransaction.location_id == win.loc.id, StockTransaction.ref_type.in_(RECEIPT_REFS), receipt_window(win, date_by))
+        for txn_type, qty_delta, occurred_at, item_id, invoiced, received_on in db.execute(documents):
+            made = invoiced.date() if date_by == "invoice" and invoiced else received_on if date_by == "received" and received_on else None
+            out.append(Move(txn_type, qty_delta, made or day_of(occurred_at), win.loc.id, item_id))
     return out
 
 
@@ -363,14 +389,14 @@ def open_actions(db: Session, location_ids: set[int] | None) -> int:
 DAILY_GRAIN_DAYS = 62
 
 
-def stock_insights(db: Session, wins: list[Win], d_from: date, d_to: date) -> dict:
+def stock_insights(db: Session, wins: list[Win], d_from: date, d_to: date, date_by: str = "invoice") -> dict:
     """Stock in and out, breakage and transfers over a range, grouped by day or by month for long ranges."""
     monthly = (d_to - d_from).days >= DAILY_GRAIN_DAYS
     key = (lambda d: d.strftime("%Y-%m")) if monthly else (lambda d: d.isoformat())
     periods = sorted({key(d) for d in daterange(d_from, d_to)})
     moves = {p: {"date": p, "in": 0, "out": 0} for p in periods}
     by_type: Counter = Counter()
-    for move in movements(db, wins):
+    for move in movements(db, wins, date_by):
         if move.txn_type == "opening":
             continue
         by_type[move.txn_type] += abs(move.qty_delta)
@@ -413,3 +439,44 @@ def stock_insights(db: Session, wins: list[Win], d_from: date, d_to: date) -> di
             "transfers": transfers, "transfer_routes": [{"label": k, "value": v["qty"], "sub": f"{v['count']} transfer(s)"} for k, v in sorted(routes.items(), key=lambda kv: -kv[1]["qty"])[:6]],
             "totals": {"in": sum(m["in"] for m in moves.values()), "out": sum(m["out"] for m in moves.values()),
                        "breakage_units": sum(b["qty"] for b in breakage.values()), "breakage_cost": round(sum(b["est_cost"] for b in breakage.values()), 3)}}
+
+
+def stock_analysis(db: Session, wins: list[Win], d_from: date, d_to: date, date_by: str = "invoice") -> dict:
+    """What was bought, from whom, what was used most, and what stock is worth now, for the chosen places and dates."""
+    monthly = (d_to - d_from).days >= DAILY_GRAIN_DAYS
+    key = (lambda d: d.strftime("%Y-%m")) if monthly else (lambda d: d.isoformat())
+    spend = {p: {"period": p, "spend": 0.0} for p in sorted({key(d) for d in daterange(d_from, d_to)})}
+    by_supplier: Counter = Counter()
+    by_category: Counter = Counter()
+    categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
+    names = {i.id: (i.name, i.category_id) for i in db.scalars(select(InventoryItem))}
+    suppliers = {s.id: s.name for s in db.scalars(select(Supplier))}
+    for win in wins:
+        day_of = day_finder(win)
+        found = db.execute(select(Receipt.id, Receipt.supplier_id, Receipt.total, Receipt.invoice_date, Receipt.received_on, Receipt.received_at)
+                           .where(Receipt.location_id == win.loc.id, Receipt.doc_type == "receipt", Receipt.status == "posted",
+                                  Receipt.total.is_not(None), receipt_window(win, date_by, Receipt.received_at))).all()
+        days = {}
+        for rid, supplier_id, total, invoiced, received_on, received_at in found:
+            day = invoiced.date() if date_by == "invoice" and invoiced else received_on if date_by == "received" and received_on else day_of(received_at)
+            days[rid] = day
+            spend[key(day)]["spend"] = round(spend[key(day)]["spend"] + float(total), 3)
+            by_supplier[suppliers.get(supplier_id, "Unknown supplier")] += float(total)
+        if days:
+            for item_id, line_total in db.execute(select(ReceiptLine.item_id, ReceiptLine.line_total).where(ReceiptLine.receipt_id.in_(days), ReceiptLine.line_total.is_not(None))):
+                by_category[categories.get(names.get(item_id, ("", None))[1], "Uncategorised")] += float(line_total)
+    used: Counter = Counter()
+    for move in movements(db, wins, date_by):
+        if move.txn_type == "issue" and move.qty_delta < 0:
+            used[names.get(move.item_id, ("Unknown item", None))[0]] += abs(move.qty_delta)
+    held: Counter = Counter()
+    ids = [w.loc.id for w in wins]
+    for item_id, qty, avg in db.execute(select(InventoryBalance.item_id, InventoryBalance.qty, InventoryBalance.avg_cost).where(InventoryBalance.location_id.in_(ids))):
+        if qty > 0:
+            item = db.get(InventoryItem, item_id)
+            price = avg if avg is not None else item.unit_cost
+            held[categories.get(item.category_id, "Uncategorised")] += float(qty * (price or 0))
+    top = lambda counter, n=6: [{"label": k, "value": round(v, 3)} for k, v in counter.most_common(n) if v]  # noqa: E731
+    return {"range": {"grain": "month" if monthly else "day"}, "date_by": date_by, "spend_trend": list(spend.values()),
+            "spend_by_supplier": top(by_supplier), "spend_by_category": top(by_category), "most_used_items": top(used),
+            "stock_value_by_category": top(held, 8), "total_spend": round(sum(p["spend"] for p in spend.values()), 3)}
