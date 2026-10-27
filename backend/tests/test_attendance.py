@@ -244,3 +244,24 @@ def test_flags_show_in_the_attendance_listing_and_record(client, login, db, cloc
     doc = client.get("/api/reports/records/attendance?date_from=2026-03-02&date_to=2026-03-02", headers=m).json()
     sid = next(r for g in doc["groups"] for r in g["rows"] if r["employee"] == "Sid Steward")
     assert sid["location_check"] == "No accuracy reported"
+
+
+def test_my_schedule_lists_each_day_of_the_month_with_shifts_week_offs_and_leave(client, login, db, clock):
+    h = login(STEWARD)
+    month = client.get("/api/attendance/me/schedule?month=2026-03", headers=h).json()
+    assert month["month"] == "2026-03" and len(month["days"]) == 31
+    monday = next(d for d in month["days"] if d["date"] == "2026-03-02")
+    assert [s["name"] for s in monday["shifts"]] and monday["shifts"][0]["location"] and not monday["shifts"][0]["week_off"]
+    assert client.get("/api/attendance/me/schedule?month=nonsense", headers=h).status_code == 422
+    assert len(client.get("/api/attendance/me/schedule", headers=h).json()["days"]) >= 28        # this month by default
+
+
+def test_my_schedule_marks_what_happened_on_past_days(client, login, db, clock):
+    h = login(STEWARD)
+    assert check_in(client, h, db).status_code == 201                                  # Monday 2 March, on time
+    clock.set(2026, 3, 9, 7, 0)                                                         # a week later
+    month = {d["date"]: d for d in client.get("/api/attendance/me/schedule?month=2026-03", headers=h).json()["days"]}
+    assert month["2026-03-02"]["outcome"] == "on_duty" and month["2026-03-02"]["worked"][0]["check_in_at"]
+    assert month["2026-03-09"]["outcome"] is None                                       # today, nothing punched yet
+    unpunched = [d for d in month.values() if d["date"] < "2026-03-09" and not d["worked"] and any(not s["week_off"] for s in d["shifts"])]
+    assert unpunched and all(d["outcome"] == "missed" for d in unpunched)                # rostered, no punch, no leave

@@ -27,6 +27,7 @@ from ..services.checklists import DONE
 from ..services.deletion import blockers
 from ..services.settings import get_setting
 from ..services.notify import notify
+from ..services.organization import get_organization
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
@@ -392,6 +393,43 @@ def check_out(body: CheckOutIn, user: User = Depends(require("attendance.self"))
               {"reason": reason, "incomplete_instance_ids": [t.id for t in pending]})
     db.commit()
     return _serialize(record, now)
+
+
+@router.get("/me/schedule")
+def my_schedule(month: str | None = None, user: User = Depends(require("attendance.self")), db: Session = Depends(get_db)):
+    """The signed-in employee's rostered shifts, week offs and recorded leave for each day of a month (YYYY-MM, this month by default)."""
+    emp = _employee(user)
+    today = timeutil.local_date(timeutil.utc_now(), get_organization(db)["timezone"])
+    try:
+        first = date.fromisoformat(f"{month}-01") if month else today.replace(day=1)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "month must be YYYY-MM") from None
+    last = (first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    rostered = db.execute(
+        select(ShiftAssignment, Shift, Location).join(Shift, Shift.id == ShiftAssignment.shift_id)
+        .join(Location, Location.id == ShiftAssignment.location_id)
+        .where(ShiftAssignment.employee_id == emp.id, Shift.active.is_(True), Location.active.is_(True))).all()
+    leave = {a.local_date: a.absence_type for a in db.scalars(select(AbsenceRecord).where(
+        AbsenceRecord.employee_id == emp.id, AbsenceRecord.local_date >= first, AbsenceRecord.local_date <= last,
+        AbsenceRecord.voided_at.is_(None)))}
+    punches: dict[date, list[AttendanceRecord]] = {}
+    for rec in db.scalars(select(AttendanceRecord).where(AttendanceRecord.employee_id == emp.id, AttendanceRecord.local_date >= first,
+                                                         AttendanceRecord.local_date <= last).order_by(AttendanceRecord.check_in_at)):
+        punches.setdefault(rec.local_date, []).append(rec)
+    days = []
+    for n in range((last - first).days + 1):
+        day = first + timedelta(days=n)
+        shifts = [{"name": shift.name, "start": f"{shift.start_time:%H:%M}", "end": f"{shift.end_time:%H:%M}",
+                   "week_off": shift.kind == "weekoff", "location": location.name}
+                  for assignment, shift, location in sorted(rostered, key=lambda r: r[1].start_time) if assignment.applies_on(day)]
+        worked = [{"check_in_at": iso(r.check_in_at), "check_out_at": iso(r.check_out_at) if r.check_out_at else None,
+                   "late_minutes": r.late_minutes, "open": r.open_flag == 1} for r in punches.get(day, [])]
+        expected = any(not s["week_off"] for s in shifts) and not leave.get(day)
+        # what happened: on a past day a rostered working day with no punch and no leave was missed
+        outcome = ("on_duty" if any(w["open"] for w in worked) else "late" if any(w["late_minutes"] for w in worked) else "worked") if worked \
+            else "missed" if expected and day < today else None
+        days.append({"date": day.isoformat(), "shifts": shifts, "leave": leave.get(day), "worked": worked, "outcome": outcome})
+    return {"month": first.strftime("%Y-%m"), "today": today.isoformat(), "days": days}
 
 
 @router.get("/me/status")

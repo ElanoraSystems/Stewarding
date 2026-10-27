@@ -75,6 +75,7 @@ MODULES = [
     ("dashboard", "Dashboard", "dashboard.view"),
     ("employees", "Employees", "employee.view"),
     ("check-in", "Check in & out", "attendance.self"),
+    ("my-schedule", "My Schedule", "attendance.self"),
     ("attendance", "Attendance", "attendance.self"),
     ("roster", "Shift & Duty Roster", "roster.view"),
     ("checklists", "Checklists", "checklist.view"),

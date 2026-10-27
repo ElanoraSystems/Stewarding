@@ -165,3 +165,33 @@ def test_built_in_roles_report_their_default_permissions_so_an_edit_can_be_undon
     client.put(f"/api/roles/{listed['steward']['id']}", headers=m, json={"permissions": ["dashboard.view"]})
     changed = {r["name"]: r for r in client.get("/api/roles", headers=m).json()}["steward"]
     assert changed["permissions"] == ["dashboard.view"] and changed["defaults"] == listed["steward"]["defaults"]
+
+
+def apply_head_chef_migration(db):
+    import importlib.util, pathlib
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    path = pathlib.Path(__file__).parent.parent / "alembic" / "versions" / "p0d4f8b2e6a9_head_chef_role.py"
+    spec = importlib.util.spec_from_file_location("head_chef", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with Operations.context(MigrationContext.configure(db.connection())):
+        module.upgrade()
+    db.commit()
+    db.expire_all()
+
+
+def test_the_head_chef_role_approves_monitoring_and_sees_nothing_of_stock_staff_or_pay(client, login, db, clock):
+    apply_head_chef_migration(db)
+    apply_head_chef_migration(db)                                                    # running it again changes nothing
+    assert db.scalars(select(Role).where(Role.name == "head_chef")).all().__len__() == 1
+    chef = hire(client, db, login(MGR), "head_chef", "headchef@example.com")
+    for url in ("/api/monitoring/due", "/api/monitoring/readings", "/api/monitoring/corrective-actions", "/api/checklists/instances", "/api/notifications"):
+        assert client.get(url, headers=chef).status_code == 200, url
+    assert client.post("/api/monitoring/readings/review", json={"reading_ids": [999]}, headers=chef).status_code == 200   # may approve logs
+    assert client.post("/api/monitoring/corrective-actions/999/decision", json={"decision": "approve"}, headers=chef).status_code != 403
+    for url in ("/api/inventory/items", "/api/employees", "/api/attendance", "/api/roster/assignments", "/api/stock/insights",
+                "/api/reports/catalog", "/api/roles", "/api/settings", "/api/breakage"):
+        assert client.get(url, headers=chef).status_code == 403, url
+    modules = {m["key"] for m in client.get("/api/auth/me", headers=chef).json()["modules"]}
+    assert modules == {"dashboard", "checklists", "monitoring", "training", "tasks"}

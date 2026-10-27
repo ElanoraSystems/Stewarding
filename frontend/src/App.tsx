@@ -8,6 +8,7 @@ import { BreakagePage } from '@/pages/BreakagePage'
 import { TraceabilityPage } from '@/pages/TraceabilityPage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { CheckInPage } from '@/pages/CheckInPage'
+import { SchedulePage } from '@/pages/SchedulePage'
 import { ChecklistsPage } from '@/pages/ChecklistsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { EmployeesPage } from '@/pages/EmployeesPage'
@@ -37,6 +38,7 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="employees" element={<RequireModule module="employees"><EmployeesPage /></RequireModule>} />
         <Route path="check-in" element={<RequireModule module="check-in"><CheckInPage /></RequireModule>} />
+        <Route path="my-schedule" element={<RequireModule module="my-schedule"><SchedulePage /></RequireModule>} />
         <Route path="attendance" element={<RequireModule module="attendance"><AttendancePage /></RequireModule>} />
         <Route path="roster" element={<RequireModule module="roster"><RosterPage /></RequireModule>} />
         <Route path="checklists" element={<RequireModule module="checklists"><ChecklistsPage /></RequireModule>} />

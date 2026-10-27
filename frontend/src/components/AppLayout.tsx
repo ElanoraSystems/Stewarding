@@ -21,6 +21,7 @@ const ICONS: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
   employees: Users,
   'check-in': LogIn,
+  'my-schedule': CalendarDays,
   attendance: Clock,
   roster: CalendarDays,
   checklists: ClipboardCheck,
@@ -39,7 +40,7 @@ const ICONS: Record<string, LucideIcon> = {
 
 const GROUPS: { title: string; keys: string[] }[] = [
   { title: 'Overview', keys: ['dashboard', 'tasks'] },
-  { title: 'People', keys: ['check-in', 'employees', 'attendance', 'roster', 'training'] },
+  { title: 'People', keys: ['check-in', 'my-schedule', 'employees', 'attendance', 'roster', 'training'] },
   { title: 'Daily operations', keys: ['checklists'] },
   { title: 'Food safety', keys: ['monitoring', 'traceability'] },
   { title: 'Stock', keys: ['inventory', 'stock-movements', 'breakage'] },
