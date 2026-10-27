@@ -18,6 +18,7 @@ import { fmtDate, fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { ItemPicker } from '@/components/ItemPicker'
 import { useLineEntry } from '@/lib/useLineEntry'
 import { useMoney } from '@/lib/money'
 
@@ -205,10 +206,7 @@ export function ReceivingTab() {
                 {entry.rows.map((line, i) => (
                   <div key={i} {...entry.rowProps(i)} className="space-y-1">
                     <div className="grid grid-cols-[minmax(14rem,1fr)_6rem_6rem_11rem_6rem_1.25rem_2.5rem] items-center gap-2">
-                      <Select aria-label="Item" value={line.item} onChange={(e) => pickItem(i, e.target.value)}>
-                        <option value="">Select item</option>
-                        {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
-                      </Select>
+                      <ItemPicker items={items} value={line.item} onChange={(id) => pickItem(i, id)} />
                       <Input aria-label="Quantity" type="number" min={1} value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} />
                       <Input aria-label="Unit cost" type="number" step="0.001" min={0} value={line.cost} onChange={(e) => entry.update(i, { cost: e.target.value })} />
                       <div className="flex gap-1">

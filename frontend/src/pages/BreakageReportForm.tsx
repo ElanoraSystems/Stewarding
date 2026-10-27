@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/select'
 import { api, uploadFile } from '@/lib/api'
 import { useRun } from '@/lib/toast'
 import { useAllItems } from '@/lib/useItems'
+import { ItemPicker } from '@/components/ItemPicker'
 import { qs, useApi } from '@/lib/useApi'
 import { useLookup } from '@/lib/useLookups'
 
@@ -73,10 +74,7 @@ export function BreakageReportForm({ onSaved }: { onSaved: () => void }) {
         </div>
         {lines.map((l, i) => (
           <div key={i} className="grid grid-cols-[1fr_4.5rem_2.5rem] items-center gap-2 sm:grid-cols-[minmax(12rem,1fr)_5rem_5.5rem_6rem_2.5rem]">
-            <Select aria-label="Item" required value={l.item} onChange={(e) => patch(i, { item: e.target.value })}>
-              <option value="">Select item</option>
-              {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
-            </Select>
+            <ItemPicker items={items} value={l.item} onChange={(id) => patch(i, { item: id })} />
             <Input aria-label="Quantity" required type="number" min={1} inputMode="numeric" value={l.qty} onChange={(e) => patch(i, { qty: e.target.value })} />
             <div className="order-2 col-span-3 flex justify-between text-sm sm:contents">
               <output aria-label="Unit cost" className="text-sm tabular-nums sm:text-right">{priced && l.item && cost.get(Number(l.item)) != null ? <><span className="text-ink-muted sm:hidden">Unit cost </span>{money(cost.get(Number(l.item))!)}</> : ''}</output>

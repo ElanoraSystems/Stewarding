@@ -1,6 +1,8 @@
 from sqlalchemy import select
 
-from app.models import CorrectiveAction, Notification, User
+from datetime import datetime, time
+
+from app.models import AttendanceRecord, CorrectiveAction, Employee, Equipment, Notification, Shift, User
 from app.scheduler import run_cycle
 from app.services.alerts import run_alerts
 
@@ -212,3 +214,40 @@ def test_other_locations_are_not_alerted_for_mk_tasks(client, login, db, clock):
     run(db, clock)
     recipients_ = emails(db, [n for n in notes(db, "task_overdue") if n.location_id == loc_id(db, "MK")])
     assert recipients_ and not {"sup.rb@example.test", "steward.rb@example.test"} & recipients_
+
+
+def test_a_night_shift_is_not_reported_as_unchecked_out_before_it_ends(client, login, db, clock):
+    client.put("/api/settings", json={"values": {"attendance.missed_checkout_hours": 1}}, headers=login(MGR))   # even a short no-shift limit
+    night = Shift(name="Night", start_time=time(17, 0), end_time=time(5, 0), kind="work")
+    db.add(night)
+    db.flush()
+    emp = db.scalar(select(Employee).where(Employee.email == "steward.mk@example.test"))
+    db.add(AttendanceRecord(employee_id=emp.id, location_id=loc_id(db, "MK"), shift_id=night.id, local_date=datetime(2026, 3, 2).date(),
+                            check_in_at=datetime(2026, 3, 2, 14, 0), open_flag=1))                  # 18:00 Dubai
+    db.commit()
+    clock.set(2026, 3, 2, 16, 0)                                                                      # 20:00 Dubai: only two hours in
+    run(db, clock)
+    clock.set(2026, 3, 3, 0, 30)                                                                      # 04:30 Dubai: still before 05:00
+    run(db, clock)
+    assert notes(db, "missed_checkout") == []
+    clock.set(2026, 3, 3, 3, 30)                                                                      # 07:30 Dubai: two hours past the end
+    run(db, clock)
+    assert emails(db, notes(db, "missed_checkout")) >= {"manager@example.test", "steward.mk@example.test"}
+
+
+def test_turning_off_a_monitoring_point_stops_its_alerts_and_closes_the_open_ones(client, login, db, clock):
+    from app.models import EquipmentSchedule
+    eq = db.scalar(select(Equipment).where(Equipment.location_id == loc_id(db, "MK"), Equipment.active.is_(True)))
+    sched = db.scalar(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id, EquipmentSchedule.active.is_(True)))
+    clock.set(2026, 3, 2, 12, 0)
+    run(db, clock)
+    assert [n for n in notes(db, "monitoring_overdue") if f":{sched.id}:" in n.dedupe_key]            # the check went overdue
+    eq.active = False
+    db.commit()
+    run(db, clock)
+    stale = [n for n in notes(db, "monitoring_overdue") if f":{sched.id}:" in n.dedupe_key]
+    assert stale and all(n.resolved_at is not None and n.read_at is not None for n in stale)           # closed, no longer pending
+    clock.advance(hours=3)
+    before = len(notes(db, "monitoring_overdue"))
+    run(db, clock)
+    assert len(notes(db, "monitoring_overdue")) == before                                              # and nothing new while it is off

@@ -1,4 +1,5 @@
-import { useApi } from '@/lib/useApi'
+import { useEffect, useMemo, useState } from 'react'
+import { api } from '@/lib/api'
 
 export interface Item {
   id: number
@@ -31,9 +32,28 @@ export interface Item {
   value?: number | null
 }
 
-/** Every active item, for pickers and name lookups. */
+const PAGE = 200  // the most the server returns in one page
+
+/** Every active item, for pickers and name lookups: pages are fetched until the last one, so none beyond the first 200 is missing. */
 export function useAllItems(): { items: Item[]; byId: Map<number, Item> } {
-  const all = useApi<{ items: Item[] }>('/inventory/items?size=200')
-  const items = all.data?.items ?? []
-  return { items, byId: new Map(items.map((i) => [i.id, i])) }
+  const [items, setItems] = useState<Item[]>([])
+
+  useEffect(() => {
+    let live = true
+    ;(async () => {
+      const found: Item[] = []
+      for (let page = 1; ; page++) {
+        const got = await api<{ total: number; items: Item[] }>(`/inventory/items?size=${PAGE}&page=${page}`)
+        found.push(...got.items)
+        if (!live || got.items.length < PAGE || found.length >= got.total) break
+      }
+      if (live) setItems(found)
+    })().catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
+  return { items, byId }
 }

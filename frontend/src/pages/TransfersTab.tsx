@@ -15,6 +15,7 @@ import { fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { ItemPicker } from '@/components/ItemPicker'
 import { useLineEntry } from '@/lib/useLineEntry'
 
 interface Transfer {
@@ -91,10 +92,7 @@ export function TransfersTab() {
             {entry.rows.map((line, i) => (
               <div key={i} {...entry.rowProps(i)} className="flex flex-wrap items-end gap-2">
                 <Field label={i === 0 ? 'Item' : ''}>
-                  <Select aria-label="Item" value={line.item} onChange={(e) => entry.update(i, { item: e.target.value, tags: [] })}>
-                    <option value="">Select item</option>
-                    {items.map((it) => <option key={it.id} value={it.id}>{it.code} - {it.name}</option>)}
-                  </Select>
+                  <ItemPicker className="w-64" items={items} value={line.item} onChange={(id) => entry.update(i, { item: id, tags: [] })} />
                 </Field>
                 <Field label={i === 0 ? 'Qty' : ''}><Input aria-label="Quantity" type="number" min={1} className="w-24" value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value, tags: line.tags.slice(0, Number(e.target.value) || 0) })} /></Field>
                 <Field label={i === 0 ? 'Available' : ''}><output aria-label="Available" className="flex h-10 w-20 items-center justify-end text-sm tabular-nums">{line.item ? available(Number(line.item)) : '-'}</output></Field>

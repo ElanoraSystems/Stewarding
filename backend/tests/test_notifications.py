@@ -125,4 +125,4 @@ def test_pending_summary_lists_verification_breakage_and_transfers(client, login
 
 def test_run_alerts_returns_counts(db, clock):
     totals = run_alerts(db, clock.now)
-    assert set(totals) == {"checkins", "checklists", "monitoring", "summary", "checkouts", "corrective", "low_stock", "pending_time_outs"}
+    assert set(totals) == {"checkins", "checklists", "monitoring", "summary", "checkouts", "corrective", "low_stock", "pending_time_outs", "closed"}

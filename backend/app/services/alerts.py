@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee, Equipment,
-                      Location, Shift, ShiftAssignment, TemperatureReading)
+                      EquipmentSchedule, Location, Notification, Shift, ShiftAssignment, TemperatureReading)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
 from .checklists import OPEN
@@ -52,10 +52,17 @@ def missing_checkins(db: Session, location: Location, now: datetime) -> int:
 
 
 def missed_checkouts(db: Session, now: datetime) -> int:
+    """Someone still checked in well after their shift should have ended (or, with no shift, a long time after checking in)."""
     limit = timedelta(hours=get_setting(db, "attendance.missed_checkout_hours"))
+    after_shift = timedelta(hours=get_setting(db, "attendance.missed_checkout_after_shift_hours"))
     created = 0
     for rec in db.scalars(select(AttendanceRecord).where(AttendanceRecord.open_flag == 1)):
-        if now - rec.check_in_at <= limit:
+        shift = db.get(Shift, rec.shift_id) if rec.shift_id else None
+        if shift:
+            ends = timeutil.shift_end_utc(rec.local_date, shift.start_time, shift.end_time, db.get(Location, rec.location_id).timezone)
+            if now <= max(ends, rec.check_in_at) + after_shift:
+                continue  # a night shift is not over until the morning
+        elif now - rec.check_in_at <= limit:
             continue
         emp = db.get(Employee, rec.employee_id)
         targets = recipients(db, rec.location_id, SUPERVISOR, MANAGER) + ([emp.user_id] if emp.user_id else [])
@@ -140,7 +147,9 @@ def corrective_alerts(db: Session, now: datetime) -> int:
     created = 0
     rows = db.execute(select(CorrectiveAction, TemperatureReading).join(
         TemperatureReading, TemperatureReading.id == CorrectiveAction.reading_id)
-        .where(CorrectiveAction.status.in_(("action_required", "retest_due", "retest_failed")))).all()
+        .join(Equipment, Equipment.id == TemperatureReading.equipment_id).join(Location, Location.id == TemperatureReading.location_id)
+        .where(CorrectiveAction.status.in_(("action_required", "retest_due", "retest_failed")),
+               Equipment.active.is_(True), Location.active.is_(True))).all()  # a point or place that is turned off sends nothing
     for action, reading in rows:
         if action.status == "retest_due" and action.retest_due_at and action.retest_due_at < now:
             created += notify(db, recipients(db, reading.location_id, SUPERVISOR) + [action.taken_by], "retest_due",
@@ -193,6 +202,41 @@ def daily_summary(db: Session, location: Location, now: datetime) -> int:
                   key=f"summary:{location.id}:{day}", location_id=location.id, link="/tasks")
 
 
+def close_stale_alerts(db: Session, now: datetime) -> int:
+    """Closes open alerts whose cause is gone: a check, point or place turned off, or a checkout that has since happened."""
+    live_equipment = set(db.scalars(select(Equipment.id).join(Location, Location.id == Equipment.location_id).where(
+        Equipment.active.is_(True), Location.active.is_(True))))
+    live_schedules = set(db.scalars(select(EquipmentSchedule.id).where(EquipmentSchedule.active.is_(True),
+                                                                      EquipmentSchedule.equipment_id.in_(live_equipment or {0}))))
+    still_open = set(db.scalars(select(AttendanceRecord.id).where(AttendanceRecord.open_flag == 1)))
+    closed = 0
+    for n in db.scalars(select(Notification).where(Notification.resolved_at.is_(None), Notification.kind.in_(
+            ("monitoring_due", "monitoring_overdue", "retest_due", "monitoring_escalated", "time_out_missing", "missed_checkout")))):
+        prefix, _, rest = n.dedupe_key.partition(":")
+        ident = rest.partition(":")[0]
+        if not ident.isdigit():
+            continue
+        number = int(ident)
+        if prefix in ("checkdue", "checkover"):
+            gone = number not in live_schedules
+        elif prefix in ("retest", "check_esc"):
+            equipment_id = db.scalar(select(TemperatureReading.equipment_id).join(CorrectiveAction, CorrectiveAction.reading_id == TemperatureReading.id)
+                                     .where(CorrectiveAction.id == number))
+            gone = equipment_id not in live_equipment
+        elif prefix == "pending_out":
+            equipment_id = db.scalar(select(TemperatureReading.equipment_id).where(TemperatureReading.id == number))
+            gone = equipment_id not in live_equipment
+        elif prefix == "missedout":
+            gone = number not in still_open
+        else:
+            continue
+        if gone:
+            n.resolved_at = now
+            n.read_at = n.read_at or now
+            closed += 1
+    return closed
+
+
 def run_alerts(db: Session, now: datetime) -> dict[str, int]:
     totals = {"checkins": 0, "checklists": 0, "monitoring": 0, "summary": 0}
     for location in db.scalars(select(Location).where(Location.active.is_(True))):
@@ -203,5 +247,6 @@ def run_alerts(db: Session, now: datetime) -> dict[str, int]:
     totals["checkouts"] = missed_checkouts(db, now)
     totals["corrective"] = corrective_alerts(db, now)
     totals["low_stock"] = low_stock(db, now)
+    totals["closed"] = close_stale_alerts(db, now)
     totals["pending_time_outs"] = pending_time_outs(db, now)
     return totals

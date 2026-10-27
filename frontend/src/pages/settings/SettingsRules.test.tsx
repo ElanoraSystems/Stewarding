@@ -7,8 +7,8 @@ const mocks = vi.hoisted(() => ({ reload: vi.fn(), api: vi.fn(async () => ({})) 
 vi.mock('@/lib/useApi', () => ({
   useApi: () => ({
     data: {
-      settings: { 'attendance.face_required': 0, 'attendance.face_liveness': 1, 'attendance.missed_checkout_hours': 16, 'attendance.max_accuracy_m': 100, 'attendance.snapshot_days': 90, 'attendance.face_match_max': 45, 'breakage.approval_qty': 5 },
-      limits: { 'attendance.face_required': [0, 1], 'attendance.face_liveness': [0, 1], 'attendance.missed_checkout_hours': [1, 72], 'attendance.max_accuracy_m': [0, 5000], 'attendance.snapshot_days': [0, 3650], 'attendance.face_match_max': [10, 80], 'breakage.approval_qty': [0, 100000] },
+      settings: { 'attendance.face_required': 0, 'attendance.face_liveness': 1, 'attendance.missed_checkout_hours': 16, 'attendance.missed_checkout_after_shift_hours': 2, 'attendance.max_accuracy_m': 100, 'attendance.snapshot_days': 90, 'attendance.face_match_max': 45, 'breakage.approval_qty': 5 },
+      limits: { 'attendance.face_required': [0, 1], 'attendance.face_liveness': [0, 1], 'attendance.missed_checkout_hours': [1, 72], 'attendance.missed_checkout_after_shift_hours': [0, 24], 'attendance.max_accuracy_m': [0, 5000], 'attendance.snapshot_days': [0, 3650], 'attendance.face_match_max': [10, 80], 'breakage.approval_qty': [0, 100000] },
     },
     reload: mocks.reload,
   }),
@@ -28,7 +28,7 @@ describe('SettingsRules', () => {
     expect(screen.getByRole('switch', { name: /Require face verification/ }).getAttribute('aria-checked')).toBe('false')
     expect(screen.getByRole('switch', { name: /Live head-turn/ }).getAttribute('aria-checked')).toBe('true')
     expect((screen.getByLabelText(/Missed check-out after/) as HTMLInputElement).value).toBe('16')
-    expect(screen.getByText('hours')).toBeTruthy()
+    expect(screen.getAllByText('hours').length).toBe(2)
     expect(screen.queryByText(/Approval needed from this quantity/)).toBeNull()
     expect(screen.queryByRole('region', { name: 'Unsaved changes' })).toBeNull()
   })

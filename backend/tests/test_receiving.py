@@ -329,3 +329,21 @@ def test_the_stock_chart_puts_a_late_entered_invoice_on_its_invoice_date_or_rece
     spend = client.get(f"/api/stock/analysis?location_id={mk}&date_from=2026-03-01&date_to=2026-03-05", headers=m).json()
     assert spend["total_spend"] == 80.0 and spend["spend_by_supplier"][0]["value"] == 80.0
     assert [p["period"] for p in spend["spend_trend"] if p["spend"]] == ["2026-03-02"]
+
+
+def test_price_history_lists_each_invoice_price_with_the_change_and_a_summary(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    pl = item_id(db, "PL-001")
+    receive(client, m, db, [{"item_id": pl, "qty": 10, "unit_cost": 2.0}], invoice="P-1", invoice_date="2026-01-10")
+    receive(client, m, db, [{"item_id": pl, "qty": 30, "unit_cost": 5.0, "discount_type": "percent", "discount": 20}], invoice="P-2", invoice_date="2026-02-10")
+    receive(client, m, db, [{"item_id": pl, "qty": 10, "unit_cost": 1.5}], invoice="P-0", invoice_date="2025-12-01")   # entered last, dated first
+    data = client.get(f"/api/inventory/items/{pl}/price-history", headers=m).json()
+    assert [(p["invoice"], p["price"]) for p in data["points"]] == [("P-0", 1.5), ("P-1", 2.0), ("P-2", 4.0)]
+    assert [p["change_pct"] for p in data["points"]] == [None, 33.3, 100.0]
+    s = data["summary"]
+    assert (s["first"], s["latest"], s["lowest"], s["highest"], s["count"], s["change_pct"]) == (1.5, 4.0, 1.5, 4.0, 3, 166.7)
+    assert s["average"] == round((1.5 * 10 + 2.0 * 10 + 4.0 * 30) / 50, 3)
+    assert client.get(f"/api/inventory/items/{pl}/price-history", headers=sup).status_code == 200      # supervisors post receipts
+    assert client.get("/api/inventory/items/9999/price-history", headers=m).status_code == 404
+    assert client.get(f"/api/inventory/items/{pl}/price-history", headers=login("steward.mk@example.test")).status_code == 403   # prices are not for stewards
+    assert client.get(f"/api/inventory/items/{item_id(db, 'PN-001')}/price-history", headers=m).json()["summary"] is None
