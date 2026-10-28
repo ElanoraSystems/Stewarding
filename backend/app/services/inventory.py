@@ -162,6 +162,17 @@ def received_to_date(db: Session, location_id: int, item_ids: list[int]) -> dict
     return {item_id: max(sum(parts.values()), 0) for item_id, parts in received_breakdown(db, location_id, item_ids).items()}
 
 
+def ledger_kind(split_writeoffs: bool = False):
+    """What a ledger row means for the reports: goods sent back to a supplier are returns, and a voided invoice or return reverses its own kind,
+    rather than being read as stock used up or a count adjustment. With `split_writeoffs`, stock reported missing or written off is its own kind."""
+    return case(
+        *([(and_(StockTransaction.ref_type == "breakage", StockTransaction.txn_type == "adjustment"), "writeoff")] if split_writeoffs else []),
+        (and_(StockTransaction.ref_type == "receipt", StockTransaction.txn_type == "issue"), "return"),
+        (and_(StockTransaction.ref_type == "receipt_void", StockTransaction.qty_delta < 0), "receipt"),
+        (StockTransaction.ref_type == "receipt_void", "return"),
+        else_=StockTransaction.txn_type)
+
+
 def reconcile(db: Session, location: Location, month: str) -> list[dict]:
     """Per item: opening + movements = closing, plus the latest posted physical count in the month.
 
@@ -184,9 +195,10 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
         window.append(StockTransaction.occurred_at >= _month_bounds(location.timezone, base_month)[1])
     seen_before_start = set(before)
     worth = func.sum(StockTransaction.qty_delta * func.coalesce(StockTransaction.unit_cost, 0))
+    kind = ledger_kind()
     sums = db.execute(
-        select(StockTransaction.item_id, StockTransaction.txn_type, in_month.label("in_month"), func.sum(StockTransaction.qty_delta), worth)
-        .where(*window).group_by(StockTransaction.item_id, StockTransaction.txn_type, in_month)).all()
+        select(StockTransaction.item_id, kind, in_month.label("in_month"), func.sum(StockTransaction.qty_delta), worth)
+        .where(*window).group_by(StockTransaction.item_id, kind, in_month)).all()
     during: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     during_value: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     for item_id, txn_type, inside, total, total_value in sums:

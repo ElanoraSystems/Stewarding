@@ -329,6 +329,15 @@ def day_finder(win: Win):
 RECEIPT_REFS = ("receipt", "receipt_void")
 
 
+def movement_kind(txn_type: str, ref_type: str | None) -> str:
+    """The name a movement goes by in charts and reports: a supplier return and a voided invoice are not 'issue' or 'adjustment'."""
+    if ref_type == "receipt" and txn_type == "issue":
+        return "supplier_return"
+    if ref_type == "receipt_void":
+        return "receipt_void"
+    return txn_type
+
+
 def receipt_window(win: Win, date_by: str, entered_at=StockTransaction.occurred_at):
     """Which receipts fall in the window by the date a person means (invoice or received), else by when they were entered."""
     entered = and_(entered_at >= win.start, entered_at < win.end)
@@ -349,20 +358,26 @@ def movements(db: Session, wins: list[Win], date_by: str | None = None) -> list[
     out = []
     for win in wins:
         day_of = day_finder(win)
-        columns = (StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.occurred_at, StockTransaction.item_id)
+        columns = (StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.occurred_at, StockTransaction.item_id, StockTransaction.ref_type)
         plain = select(*columns).where(StockTransaction.location_id == win.loc.id, StockTransaction.occurred_at >= win.start,
                                        StockTransaction.occurred_at < win.end)
         if date_by:
-            plain = plain.where(or_(StockTransaction.ref_type.is_(None), StockTransaction.ref_type.not_in(RECEIPT_REFS)))
-        for txn_type, qty_delta, occurred_at, item_id in db.execute(plain):
-            out.append(Move(txn_type, qty_delta, day_of(occurred_at), win.loc.id, item_id))
+            plain = plain.where(or_(StockTransaction.ref_type.is_(None), StockTransaction.ref_type.not_in((*RECEIPT_REFS, "breakage"))))
+        for txn_type, qty_delta, occurred_at, item_id, ref_type in db.execute(plain):
+            out.append(Move(movement_kind(txn_type, ref_type), qty_delta, day_of(occurred_at), win.loc.id, item_id))
         if not date_by:
             continue
+        # breakage counts on the day it was reported, not the day it was approved
+        for txn_type, qty_delta, _, item_id, ref_type, reported in db.execute(
+                select(*columns, BreakageIncident.occurred_at).join(BreakageIncident, BreakageIncident.id == StockTransaction.ref_id)
+                .where(StockTransaction.location_id == win.loc.id, StockTransaction.ref_type == "breakage",
+                       BreakageIncident.occurred_at >= win.start, BreakageIncident.occurred_at < win.end)):
+            out.append(Move(movement_kind(txn_type, ref_type), qty_delta, day_of(reported), win.loc.id, item_id))
         documents = select(*columns, Receipt.invoice_date, Receipt.received_on).join(Receipt, Receipt.id == StockTransaction.ref_id).where(
             StockTransaction.location_id == win.loc.id, StockTransaction.ref_type.in_(RECEIPT_REFS), receipt_window(win, date_by))
-        for txn_type, qty_delta, occurred_at, item_id, invoiced, received_on in db.execute(documents):
+        for txn_type, qty_delta, occurred_at, item_id, ref_type, invoiced, received_on in db.execute(documents):
             made = invoiced.date() if date_by == "invoice" and invoiced else received_on if date_by == "received" and received_on else None
-            out.append(Move(txn_type, qty_delta, made or day_of(occurred_at), win.loc.id, item_id))
+            out.append(Move(movement_kind(txn_type, ref_type), qty_delta, made or day_of(occurred_at), win.loc.id, item_id))
     return out
 
 
@@ -463,8 +478,12 @@ def stock_analysis(db: Session, wins: list[Win], d_from: date, d_to: date, date_
             spend[key(day)]["spend"] = round(spend[key(day)]["spend"] + float(total), 3)
             by_supplier[suppliers.get(supplier_id, "Unknown supplier")] += float(total)
         if days:
-            for item_id, line_total in db.execute(select(ReceiptLine.item_id, ReceiptLine.line_total).where(ReceiptLine.receipt_id.in_(days), ReceiptLine.line_total.is_not(None))):
-                by_category[categories.get(names.get(item_id, ("", None))[1], "Uncategorised")] += float(line_total)
+            # what each line really cost, as the ledger holds it, so the invoice discount is spread over the categories and they add up to the supplier total
+            for item_id, qty, ledger_cost, line_total in db.execute(
+                    select(ReceiptLine.item_id, ReceiptLine.qty, StockTransaction.unit_cost, ReceiptLine.line_total)
+                    .outerjoin(StockTransaction, StockTransaction.id == ReceiptLine.transaction_id)
+                    .where(ReceiptLine.receipt_id.in_(days), ReceiptLine.line_total.is_not(None))):
+                by_category[categories.get(names.get(item_id, ("", None))[1], "Uncategorised")] += float(qty * ledger_cost) if ledger_cost is not None else float(line_total)
     used: Counter = Counter()
     for move in movements(db, wins, date_by):
         if move.txn_type == "issue" and move.qty_delta < 0:

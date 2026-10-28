@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { CostTab } from '@/pages/CostTab'
 
-const totals = { opening_value: 2241, purchases: 20, returns: -4.952, transfers_in: 0, transfers_out: 0, closing_value: 2256.048, cost_consumed: 5.412, issued: 0, breakage_damage: 0, count_adjustments: -5.412 }
+const totals = { opening_value: 2241, purchases: 20, returns: -4.952, transfers_in: 0, transfers_out: 0, closing_value: 2256.048, cost_consumed: 5.412, issued: 0, breakage_damage: 0, missing_written_off: 0, count_adjustments: -5.412 }
 vi.mock('@/components/LocationSelect', () => ({ LocationSelect: () => null }))
 vi.mock('@/lib/useApi', () => ({
   qs: () => '',

@@ -420,3 +420,49 @@ def test_cost_consumed_ignores_supplier_returns_and_voided_invoices_but_counts_r
     assert after_void["cost_consumed"] == 0 and after_void["purchases"] == 0                            # the void took its own purchase out
     assert client.post("/api/inventory/transactions", json={"item_id": pl, "location_id": mk, "txn_type": "issue", "qty": 3, "reason": "used"}, headers=m).status_code == 201
     assert report()["cost_consumed"] > 0 and report()["issued"] == report()["cost_consumed"]            # real use still counts
+
+
+def test_the_price_shown_includes_the_invoice_discount_and_the_spend_charts_agree(client, login, db, clock):
+    m = login(MGR)
+    kn = item_id(db, "KN-001")
+    receive(client, m, db, [{"item_id": kn, "qty": 4, "unit_cost": 10.0, "discount_type": "percent", "discount": 10}], invoice="DD-1",
+            discount_type="amount", discount=2)                                    # 4 x 10, less 10% = 36, less 2 off the invoice = 34, so 8.5 each
+    point = client.get(f"/api/inventory/items/{kn}/price-history", headers=m).json()["points"][0]
+    assert point["price"] == 8.5
+    listed = [i for i in client.get("/api/inventory/items?size=200", headers=m).json()["items"] if i["id"] == kn][0]
+    assert listed["last_purchase"]["price"] == 8.5
+    an = client.get("/api/stock/analysis?date_from=2026-03-01&date_to=2026-03-31", headers=m).json()
+    assert round(sum(x["value"] for x in an["spend_by_supplier"]), 2) == round(sum(x["value"] for x in an["spend_by_category"]), 2) == 34.0
+
+
+def test_a_locked_month_cannot_be_changed_by_posting_editing_voiding_or_a_catch_up(client, login, db, clock):
+    m = login(MGR)
+    pl = item_id(db, "PL-001")
+    first = receive(client, m, db, [{"item_id": pl, "qty": 5, "unit_cost": 2.0}], invoice="LK-1", invoice_date="2026-01-20").json()
+    assert client.put("/api/settings", json={"values": {"stock.lock_through": 202601}}, headers=m).status_code == 200
+    late = receive(client, m, db, [{"item_id": pl, "qty": 5, "unit_cost": 2.0}], invoice="LK-2", invoice_date="2026-01-25")
+    assert late.status_code == 409 and "locked" in late.json()["detail"]                                # nothing new can land in January
+    assert client.post(f"/api/receipts/{first['id']}/void", json={"reason": "was a mistake"}, headers=m).status_code == 409
+    assert client.put(f"/api/receipts/{first['id']}", json={"invoice_date": "2026-02-02"}, headers=m).status_code == 409   # nor leave it
+    ok = receive(client, m, db, [{"item_id": pl, "qty": 5, "unit_cost": 2.0}], invoice="LK-3", invoice_date="2026-02-03")
+    assert ok.status_code == 201                                                                         # February is open
+    client.put("/api/settings", json={"values": {"stock.lock_through": 0}}, headers=m)
+    assert client.post(f"/api/receipts/{first['id']}/void", json={"reason": "was a mistake"}, headers=m).status_code == 200   # unlocked again
+
+
+def test_missing_and_written_off_stock_is_shown_apart_from_breakage_and_dated_when_reported(client, login, db, clock):
+    m = login(MGR)
+    mk, pl = loc_id(db, "MK"), item_id(db, "PL-001")
+
+    def report():
+        return client.get(f"/api/stock/cost-report?date_from=2026-03-01&date_to=2026-03-31&location_id={mk}", headers=m).json()["totals"]
+
+    for kind, qty in (("breakage", 2), ("missing", 3)):
+        made = client.post("/api/breakage", json={"location_id": mk, "item_id": pl, "qty": qty, "incident_type": kind, "reason": "test"}, headers=login("steward.mk@example.test"))
+        assert made.status_code == 201, made.text
+        done = client.post(f"/api/breakage/{made.json()['id']}/review", json={"qty": qty, "reason": "ok", "preventive_action": "none"}, headers=login("sup.mk@example.test"))
+        if done.json()["status"] == "pending_approval":
+            assert client.post(f"/api/breakage/{made.json()['id']}/approve", json={"note": "ok"}, headers=m).status_code == 200
+    totals = report()
+    assert totals["breakage_damage"] > 0 and totals["missing_written_off"] > 0
+    assert round(totals["cost_consumed"], 3) == round(totals["breakage_damage"] + totals["missing_written_off"], 3)

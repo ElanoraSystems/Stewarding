@@ -129,8 +129,8 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
     temp_range = [metrics.monitoring_stats(db, w, now, equipment_id) for w in range_wins]
     movement: dict[date, dict] = defaultdict(lambda: {"in": 0, "out": 0})
     for move in metrics.movements(db, range_wins):
-        if move.txn_type in ("receipt", "return"):
-            movement[move.day]["in"] += move.qty_delta
+        if move.txn_type in ("receipt", "return", "receipt_void"):
+            movement[move.day]["in"] += move.qty_delta  # a voided invoice takes its own delivery back out
         elif move.txn_type in ("issue", "breakage", "damage"):
             movement[move.day]["out"] += -move.qty_delta
 

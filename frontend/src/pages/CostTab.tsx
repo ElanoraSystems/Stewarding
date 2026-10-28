@@ -17,6 +17,7 @@ interface Totals {
   cost_consumed: number
   issued: number
   breakage_damage: number
+  missing_written_off: number
   count_adjustments: number
 }
 
@@ -75,9 +76,9 @@ export function CostTab() {
 
       {t && (() => {
         const shortage = -t.count_adjustments  // a count that finds less than the books is use that was never written down
-        const other = t.cost_consumed - t.issued - t.breakage_damage - shortage
-        const parts = [['Stock issued', t.issued], ['Breakage and damage', t.breakage_damage], [shortage >= 0 ? 'Count shortages' : 'Count surpluses', shortage],
-          ['Other differences', Math.abs(other) < 0.0005 ? 0 : other]] as [string, number][]
+        const other = t.cost_consumed - t.issued - t.breakage_damage - t.missing_written_off - shortage
+        const parts = [['Stock issued', t.issued], ['Breakage and damage', t.breakage_damage], ['Missing and written off', t.missing_written_off],
+          [shortage >= 0 ? 'Count shortages' : 'Count surpluses', shortage], ['Other differences', Math.abs(other) < 0.0005 ? 0 : other]] as [string, number][]
         return (
           <Card>
             <CardContent className="space-y-2 py-4 text-sm">
@@ -87,8 +88,12 @@ export function CostTab() {
                 {' '}- transfers out {money(t.transfers_out)} - closing {money(t.closing_value)} = <span className="font-semibold text-ink">{money(t.cost_consumed)}</span>
               </p>
               <p className="text-ink-muted">
-                It is made up of: {parts.filter(([, v]) => v !== 0).map(([label, v]) => `${label} ${money(v)}`).join(', ') || 'nothing at all'}.
-                {parts[3][1] !== 0 && ' Other differences are usually a price difference between what was bought and the average cost, or stock entered without a price.'}
+                It is made up of: {parts.map(([label, v]) => `${label} ${money(v)}`).join(', ')}.
+                {parts[4][1] !== 0 && ' Other differences are usually a price difference between what was bought and the average cost, or stock entered without a price.'}
+              </p>
+              <p className="text-xs text-ink-muted">
+                Purchases count on their invoice date and breakage on the day it was reported. The closing value is added up from every stock movement, while the Inventory page
+                multiplies today's quantity by today's average cost, so the two can differ by a few cents from rounding.
               </p>
             </CardContent>
           </Card>

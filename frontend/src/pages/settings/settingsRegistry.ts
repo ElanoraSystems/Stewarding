@@ -46,5 +46,6 @@ export const SETTINGS: SettingDef[] = [
   { key: 'breakage.approval_qty', section: 'breakage', kind: 'number', label: 'Approval needed from this quantity', unit: 'units' },
   { key: 'breakage.approval_cost', section: 'breakage', kind: 'number', label: 'Approval needed from this estimated cost' },
 
+  { key: 'stock.lock_through', section: 'receiving', kind: 'number', label: 'Lock stock figures up to this month (0 = no lock)', unit: 'YYYYMM, such as 202609' },
   { key: 'receiving.allow_old_invoices', section: 'receiving', kind: 'toggle', label: 'Allow receiving against invoices older than two years' },
 ]

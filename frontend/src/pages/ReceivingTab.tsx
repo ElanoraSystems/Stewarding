@@ -314,6 +314,9 @@ export function ReceivingTab() {
                         </p>
                       )
                     })()}
+                    {docType === 'receipt' && line.item && Number(line.qty) > 0 && line.cost === '' && (
+                      <p role="status" className="text-xs text-warn">No price entered: this stock will be valued at zero, which lowers the stock value and the average cost until a price is set.</p>
+                    )}
                     {entry.incomplete === i && <p role="alert" className="text-xs text-danger">Choose an item and a quantity, then press Enter.</p>}
                   </div>
                 ))}

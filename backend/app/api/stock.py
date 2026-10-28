@@ -22,6 +22,7 @@ from ..services.costing import MEASURES, category_rows, cost_report
 from ..services.inventory import StockError, post_txn, received_breakdown, received_to_date, reconcile, variance_summary
 from ..services.notify import holders_of, notify, recipients
 from .inventory import get_item_or_404
+from .receipts import check_month_open
 
 router = APIRouter(prefix="/api/stock", tags=["stock"])
 
@@ -141,6 +142,7 @@ def _catch_up_time(db: Session, user: User, body: TransferIn) -> datetime:
     today = timeutil.local_date(now, source.timezone)
     if body.moved_on > today or body.moved_on < today - timedelta(days=CATCH_UP_DAYS):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"The move must be dated today or within the last {CATCH_UP_DAYS} days")
+    check_month_open(db, body.moved_on)
     moved = min(timeutil.local_to_utc(body.moved_on, time(12, 0), source.timezone), now)
     counted = db.scalar(select(func.max(InventoryCount.counted_at)).where(
         InventoryCount.status == "posted", InventoryCount.location_id.in_([body.from_location_id, body.to_location_id])))

@@ -120,6 +120,18 @@ def _get(db: Session, user: User, receipt_id: int) -> Receipt:
     return receipt
 
 
+def check_month_open(db: Session, day: date | None) -> None:
+    """Refuses to change a month a manager has locked (Settings > Receiving), so closed figures stay as they were reported."""
+    locked = get_setting(db, "stock.lock_through")
+    if day and locked and day.year * 100 + day.month <= locked:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{day:%B %Y} is locked: stock figures up to {locked // 100}-{locked % 100:02d} cannot change. "
+                            "A manager can change the lock in Settings > Receiving")
+
+
+def _document_day(receipt: Receipt) -> date:
+    return receipt.invoice_date.date() if receipt.invoice_date else receipt.received_on or receipt.received_at.date()
+
+
 def _check_dates(db: Session, today: date, invoice_date: date | None, received_on: date | None) -> None:
     if invoice_date and invoice_date > today:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "The invoice date cannot be in the future")
@@ -147,6 +159,7 @@ def _post(db: Session, user: User, body: ReceiptIn) -> Receipt:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the invoice number")
     today = timeutil.local_date(timeutil.utc_now(), db.get(Location, body.location_id).timezone)
     _check_dates(db, today, body.invoice_date, body.received_on)
+    check_month_open(db, body.invoice_date or body.received_on or today)
     duplicate = db.scalar(select(Receipt).where(Receipt.supplier_id == supplier.id, Receipt.invoice_number == invoice,
                                                 Receipt.status == "posted"))
     if duplicate:
@@ -192,7 +205,7 @@ def _post(db: Session, user: User, body: ReceiptIn) -> Receipt:
     try:
         for ln, (gross, cut, net) in zip(body.lines, priced):
             item = items[ln.item_id]
-            net_unit = _money(net / ln.qty) if net is not None else None
+            net_unit = _money(_per_unit(net * keep, ln.qty)) if net is not None else None  # what one unit really cost: after its line discount and its share of the invoice discount
             if body.doc_type == "receipt" and item.supplier_id != supplier.id and not db.get(ItemSupplier, (item.id, supplier.id)):
                 db.add(ItemSupplier(item_id=item.id, supplier_id=supplier.id))  # bought from them now, so they are one of its suppliers
             txn = post_txn(db, user, item, body.location_id, txn_type, ln.qty, reason, "receipt", receipt.id,
@@ -271,6 +284,10 @@ def edit_receipt(receipt_id: int, body: EditIn, user: User = Depends(require("st
         data.pop("received_on", None)  # the day goods arrived is always set; leaving it out keeps it
     today = timeutil.local_date(timeutil.utc_now(), db.get(Location, receipt.location_id).timezone)
     _check_dates(db, today, data.get("invoice_date"), data.get("received_on"))
+    if "invoice_date" in data or "received_on" in data:
+        check_month_open(db, _document_day(receipt))  # moving a document out of a locked month is as much a change as moving one in
+        if data.get("invoice_date") or data.get("received_on"):
+            check_month_open(db, data.get("invoice_date") or data.get("received_on"))
     if "invoice_number" in data and data["invoice_number"] != receipt.invoice_number:
         if db.scalar(select(Receipt.id).where(Receipt.supplier_id == receipt.supplier_id, Receipt.invoice_number == data["invoice_number"],
                                               Receipt.status == "posted", Receipt.id != receipt.id)):
@@ -302,6 +319,7 @@ def void_receipt(receipt_id: int, body: VoidIn, user: User = Depends(require("st
 def _void(db: Session, user: User, receipt: Receipt, why: str, action: str = "receipt.void") -> None:
     if receipt.status != "posted":
         raise HTTPException(status.HTTP_409_CONFLICT, "Document is already void")
+    check_month_open(db, _document_day(receipt))
     sign = -1 if receipt.doc_type == "receipt" else 1
     reason = f"Void of {LABEL[receipt.doc_type].lower()} #{receipt.id}: {why}"
     for ln in db.scalars(select(ReceiptLine).where(ReceiptLine.receipt_id == receipt.id)):

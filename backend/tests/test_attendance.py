@@ -284,3 +284,41 @@ def test_leave_and_missed_attendance_can_be_recorded_without_choosing_a_location
     # naming a location the employee does not work at is still refused
     other = next(i for i in range(1, 10) if i not in emp["location_ids"])
     assert client.post("/api/absences", json={"employee_id": emp["id"], "location_id": other, "day": "2026-03-05", "absence_type": "day_off"}, headers=m).status_code == 400
+
+
+def night_roster(db, code="MK"):
+    from datetime import date, time
+    from app.models import Employee, Shift, ShiftAssignment
+    emp = db.scalar(select(Employee).where(Employee.email == "steward.mk@example.test"))
+    for a in db.scalars(select(ShiftAssignment).where(ShiftAssignment.employee_id == emp.id)):
+        db.delete(a)
+    night = Shift(name="Night", start_time=time(17, 0), end_time=time(5, 0), kind="work", grace_minutes=10)
+    db.add(night)
+    db.flush()
+    for weekday in range(7):
+        db.add(ShiftAssignment(employee_id=emp.id, shift_id=night.id, location_id=loc_id(db, code), weekday=weekday, valid_from=date(2026, 1, 1)))
+    db.commit()
+    return emp, night
+
+
+def test_a_night_shift_worker_arriving_after_midnight_is_late_for_last_nights_shift_not_early_for_tonights(client, login, db, clock):
+    from app.services import metrics
+    emp, night = night_roster(db)
+    clock.set(2026, 3, 2, 20, 30)                                         # 00:30 on Tuesday 3 March in Dubai
+    status_now = client.get("/api/attendance/me/status", headers=login(STEWARD)).json()
+    assert [r["shift"] for r in status_now["rostered_today"]] == ["Night"]                              # shown once, as the shift they are on
+    r = client.post("/api/attendance/check-in", json={"location_id": loc_id(db, "MK")}, headers=login(STEWARD))
+    assert r.status_code == 201
+    assert r.json()["local_date"] == "2026-03-02" and r.json()["late_minutes"] == 450 and r.json()["shift_id"] == night.id   # Monday's shift, 7.5 h late
+    clock.set(2026, 3, 3, 2, 0)
+    days = {}
+    for win in metrics.windows(db, clock.now, None, loc_id(db, "MK"), datetime(2026, 3, 2).date(), datetime(2026, 3, 3).date()):
+        days.update({row["day"].isoformat(): row["status"] for row in metrics.attendance_stats(db, win, clock.now, emp.id)["rows"]})
+    assert days["2026-03-02"] != "absent"                                                                # Monday is not a false absence
+
+
+def test_check_in_before_the_evening_start_still_belongs_to_that_evenings_shift(client, login, db, clock):
+    night_roster(db)
+    clock.set(2026, 3, 3, 12, 0)                                           # 16:00 Dubai on Tuesday, an hour before the shift
+    r = client.post("/api/attendance/check-in", json={"location_id": loc_id(db, "MK")}, headers=login(STEWARD))
+    assert r.json()["local_date"] == "2026-03-03" and r.json()["late_minutes"] == 0

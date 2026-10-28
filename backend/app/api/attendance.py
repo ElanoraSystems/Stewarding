@@ -220,29 +220,47 @@ def _open_record(db: Session, emp: Employee) -> AttendanceRecord | None:
                                                     AttendanceRecord.open_flag == 1))
 
 
-def _pick_shift(db: Session, emp: Employee, location: Location, now: datetime) -> Shift | None:
-    day = timeutil.local_date(now, location.timezone)
-    candidates = [shift for shift, assignment in db.execute(
-        select(Shift, ShiftAssignment).join(ShiftAssignment, ShiftAssignment.shift_id == Shift.id)
-        .where(ShiftAssignment.employee_id == emp.id, ShiftAssignment.location_id == location.id,
-               ShiftAssignment.weekday == day.weekday(), Shift.active.is_(True), Shift.kind == "work")
-    ) if assignment.applies_on(day)]
-    if not candidates:
-        return None
-    return min(candidates, key=lambda s: abs((now - timeutil.local_to_utc(day, s.start_time, location.timezone))
-                                             .total_seconds()))
+def _pick_shift(db: Session, emp: Employee, location: Location, now: datetime) -> tuple[Shift | None, date]:
+    """The shift a check-in belongs to and the day that shift started on.
+
+    That is today's shift starting nearest to now, or yesterday's overnight shift that has not ended yet: someone
+    arriving at 00:30 for a 17:00 to 05:00 shift is late for last night's shift, not early for tonight's."""
+    today = timeutil.local_date(now, location.timezone)
+    found = []
+    for day in (today - timedelta(days=1), today):
+        for shift, assignment in db.execute(
+                select(Shift, ShiftAssignment).join(ShiftAssignment, ShiftAssignment.shift_id == Shift.id)
+                .where(ShiftAssignment.employee_id == emp.id, ShiftAssignment.location_id == location.id,
+                       ShiftAssignment.weekday == day.weekday(), Shift.active.is_(True), Shift.kind == "work")):
+            if not assignment.applies_on(day):
+                continue
+            if day < today and not (shift.end_time <= shift.start_time and now <= timeutil.shift_end_utc(day, shift.start_time, shift.end_time, location.timezone)):
+                continue  # yesterday counts only while its overnight shift is still running
+            found.append((shift, day))
+    if not found:
+        return None, today
+    return min(found, key=lambda f: abs((now - timeutil.local_to_utc(f[1], f[0].start_time, location.timezone)).total_seconds()))
 
 
 def rostered_today(db: Session, emp: Employee, now: datetime) -> list[dict]:
-    """Where and when the employee is rostered today, or marked off, at each location, earliest shift first."""
+    """Where and when the employee is rostered today, or marked off, at each location, earliest shift first.
+
+    Includes yesterday's overnight shift while it is still running, so the check-in screen shows the shift they are really on."""
     found = db.execute(
         select(ShiftAssignment, Shift, Location).join(Shift, Shift.id == ShiftAssignment.shift_id)
         .join(Location, Location.id == ShiftAssignment.location_id)
         .where(ShiftAssignment.employee_id == emp.id, Shift.active.is_(True), Location.active.is_(True)))
-    today = [(shift, location) for assignment, shift, location in found if assignment.applies_on(timeutil.local_date(now, location.timezone))]
+    today: dict[tuple[int, int], tuple[Shift, Location]] = {}
+    for assignment, shift, location in found:
+        day = timeutil.local_date(now, location.timezone)
+        if assignment.applies_on(day):
+            today[(shift.id, location.id)] = (shift, location)
+        elif (shift.kind == "work" and shift.end_time <= shift.start_time and assignment.applies_on(day - timedelta(days=1))
+              and now <= timeutil.shift_end_utc(day - timedelta(days=1), shift.start_time, shift.end_time, location.timezone)):
+            today.setdefault((shift.id, location.id), (shift, location))
     return [{"location_id": location.id, "location_name": location.name, "shift": shift.name, "start": f"{shift.start_time:%H:%M}",
              "end": f"{shift.end_time:%H:%M}", "week_off": shift.kind == "weekoff"}
-            for shift, location in sorted(today, key=lambda pair: pair[0].start_time)]
+            for shift, location in sorted(today.values(), key=lambda pair: pair[0].start_time)]
 
 
 def incomplete_tasks(db: Session, user: User, record: AttendanceRecord) -> list[ChecklistInstance]:
@@ -344,8 +362,7 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
     photo = _snapshot_bytes(db, body) if get_setting(db, "attendance.face_required") else None
     face = _verify_face(db, emp, body, "check in")
     now = timeutil.utc_now()
-    shift = _pick_shift(db, emp, location, now)
-    day = timeutil.local_date(now, location.timezone)
+    shift, day = _pick_shift(db, emp, location, now)
     late = 0
     if shift:
         minutes_after_start = int((now - timeutil.local_to_utc(day, shift.start_time, location.timezone))
@@ -510,7 +527,7 @@ def add_manual(body: ManualIn, user: User = Depends(require("attendance.correct"
     if db.scalar(select(AbsenceRecord.id).where(AbsenceRecord.employee_id == emp.id, AbsenceRecord.local_date == body.day,
                                                 AbsenceRecord.voided_at.is_(None))):
         raise HTTPException(status.HTTP_409_CONFLICT, "An absence or leave is recorded that day; cancel it first")
-    shift = _pick_shift(db, emp, location, check_in)
+    shift, _ = _pick_shift(db, emp, location, check_in)
     late = 0
     if shift:
         after_start = int((check_in - timeutil.local_to_utc(body.day, shift.start_time, location.timezone)).total_seconds() // 60)

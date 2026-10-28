@@ -157,7 +157,7 @@ def sec_inventory_movements(c: Ctx) -> dict:
                 StockTransaction.location_id == w.loc.id, StockTransaction.occurred_at >= w.start,
                 StockTransaction.occurred_at < w.end).order_by(StockTransaction.id)):
             rows.append({"time": local(t.occurred_at, w.loc.timezone), "location": w.loc.name, "item": c.items[t.item_id].name,
-                         "type": t.txn_type, "qty": t.qty_delta, "by": c.names_by_user.get(t.user_id), "reason": t.reason})
+                         "type": metrics.movement_kind(t.txn_type, t.ref_type), "qty": t.qty_delta, "by": c.names_by_user.get(t.user_id), "reason": t.reason})
     totals = defaultdict(int)
     for r in rows:
         totals[r["type"]] += r["qty"]
@@ -348,7 +348,7 @@ def sec_stock_consumption(c: Ctx) -> dict:
             a["transfer_in"] += t.qty_delta
         elif t.txn_type == "transfer_out":
             a["transfer_out"] += -t.qty_delta
-        elif t.txn_type == "receipt":
+        elif t.txn_type in ("receipt", "receipt_void"):
             a["received"] += t.qty_delta
     rows = [{"location": loc, "item": item, **{k: a[k] for k in ("received", "consumed", "transfer_in", "transfer_out")}}
             for (loc, item), a in sorted(agg.items())]

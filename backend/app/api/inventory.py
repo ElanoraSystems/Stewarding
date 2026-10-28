@@ -280,17 +280,18 @@ def price_history(item_id: int, location_id: int | None = None, date_by: Literal
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     scope = _scope(db, user, location_id)
     stmt = (select(Receipt.id, Receipt.invoice_number, Receipt.invoice_date, Receipt.received_on, Receipt.received_at, Receipt.supplier_id,
-                   ReceiptLine.qty, ReceiptLine.line_total)
+                   ReceiptLine.qty, ReceiptLine.line_total, StockTransaction.unit_cost)
             .join(ReceiptLine, ReceiptLine.receipt_id == Receipt.id)
+            .outerjoin(StockTransaction, StockTransaction.id == ReceiptLine.transaction_id)
             .where(ReceiptLine.item_id == item_id, Receipt.status == "posted", Receipt.doc_type == "receipt",
                    ReceiptLine.line_total > 0, ReceiptLine.qty > 0))
     if scope is not None:
         stmt = stmt.where(Receipt.location_id.in_(scope))
     suppliers = {s.id: s.name for s in db.scalars(select(Supplier))}
     rows = []
-    for rid, number, invoiced, received_on, received_at, supplier_id, qty, total in db.execute(stmt):
+    for rid, number, invoiced, received_on, received_at, supplier_id, qty, total, ledger_cost in db.execute(stmt):
         day = (invoiced.date() if invoiced else received_on or received_at.date()) if date_by == "invoice" else (received_on or received_at.date())
-        rows.append((day, rid, {"date": day.isoformat(), "price": float((Decimal(str(total)) / qty).quantize(Decimal("0.001"))), "qty": qty,
+        rows.append((day, rid, {"date": day.isoformat(), "price": float((Decimal(str(ledger_cost)) if ledger_cost is not None else Decimal(str(total)) / qty).quantize(Decimal("0.001"))), "qty": qty,
                                 "supplier": suppliers.get(supplier_id), "invoice": number, "receipt_id": rid}))
     points = [p for _, _, p in sorted(rows, key=lambda r: (r[0], r[1]))]
     for before, now in zip(points, points[1:]):

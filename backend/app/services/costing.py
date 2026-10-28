@@ -7,34 +7,33 @@ from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import InventoryBalance, InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction
+from .inventory import ledger_kind
+from ..models import BreakageIncident, InventoryBalance, InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction
 
 RECEIPT_REFS = ("receipt", "receipt_void")
 
 MEASURES = ("opening_value", "purchases", "returns", "transfers_in", "transfers_out", "closing_value", "cost_consumed", "issued",
-            "breakage_damage", "count_adjustments")
+            "breakage_damage", "missing_written_off", "count_adjustments")
 
 
 def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -> dict:
     """Per item and in total for [start, end): cost consumed = opening + purchases + returns + transfers in - transfers out - closing.
 
-    A purchase counts on its invoice date when it has one (the ledger keeps the day it was entered); everything else counts when it happened.
+    A purchase counts on its invoice date when it has one and a breakage on the day it was reported (the ledger keeps the day it was entered or
+    approved); everything else counts when it happened.
     """
     inside = case((StockTransaction.occurred_at >= start, 1), else_=0)
     worth = func.sum(StockTransaction.qty_delta * func.coalesce(StockTransaction.unit_cost, 0))
     invoice = and_(Receipt.id == StockTransaction.ref_id, StockTransaction.ref_type.in_(RECEIPT_REFS))
-    kind = case(
-        (and_(StockTransaction.ref_type == "receipt", StockTransaction.txn_type == "issue"), "return"),  # goods sent back to a supplier are not used up
-        (and_(StockTransaction.ref_type == "receipt_void", StockTransaction.qty_delta < 0), "receipt"),  # a voided invoice takes its purchase back out
-        (StockTransaction.ref_type == "receipt_void", "return"),  # and a voided return puts it back
-        else_=StockTransaction.txn_type)
+    kind = ledger_kind(split_writeoffs=True)
     sums = db.execute(
         select(StockTransaction.item_id, kind, inside, func.sum(StockTransaction.qty_delta), worth)
         .outerjoin(Receipt, invoice)
-        .where(StockTransaction.location_id == location_id, StockTransaction.occurred_at < end, Receipt.invoice_date.is_(None))
+        .where(StockTransaction.location_id == location_id, StockTransaction.occurred_at < end, Receipt.invoice_date.is_(None),
+               StockTransaction.ref_type.is_distinct_from("breakage"))
         .group_by(StockTransaction.item_id, kind, inside)).all()
     tz = db.get(Location, location_id).timezone
-    sums = [*sums, *_by_invoice_date(db, location_id, tz, start, end, invoice)]
+    sums = [*sums, *_by_invoice_date(db, location_id, tz, start, end, invoice), *_by_incident_date(db, location_id, start, end)]
     qty_before: dict[int, int] = defaultdict(int)
     value_before: dict[int, Decimal] = defaultdict(Decimal)
     flow: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
@@ -68,7 +67,8 @@ def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -
                "average_cost": float(averages[item_id]) if averages.get(item_id) is not None else None,
                "opening_value": opening, "purchases": f["receipt"], "returns": f["return"], "transfers_in": f["transfer_in"],
                "transfers_out": -f["transfer_out"], "closing_value": closing, "cost_consumed": consumed,
-               "issued": -f["issue"], "breakage_damage": -(f["breakage"] + f["damage"]), "count_adjustments": f["adjustment"]}
+               "issued": -f["issue"], "breakage_damage": -(f["breakage"] + f["damage"]), "missing_written_off": -f["writeoff"],
+               "count_adjustments": f["adjustment"]}
         for key in MEASURES:
             totals[key] += row[key]
             by_category[row["category"]][key] += row[key]
@@ -99,6 +99,22 @@ def _by_invoice_date(db: Session, location_id: int, tz: str, start: datetime, en
     return [(item_id, txn_type, inside, qty, value) for (item_id, txn_type, inside), (qty, value) in grouped.items()]
 
 
+def _by_incident_date(db: Session, location_id: int, start: datetime, end: datetime) -> list[tuple]:
+    """Breakage, damage and write-offs placed on the day they were reported, not the day a manager approved them."""
+    grouped: dict[tuple, list] = defaultdict(lambda: [0, Decimal(0)])
+    for item_id, txn_type, qty, cost, when in db.execute(
+            select(StockTransaction.item_id, StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.unit_cost, BreakageIncident.occurred_at)
+            .join(BreakageIncident, and_(BreakageIncident.id == StockTransaction.ref_id, StockTransaction.ref_type == "breakage"))
+            .where(StockTransaction.location_id == location_id)):
+        if when >= end:
+            continue
+        kind = "writeoff" if txn_type == "adjustment" else txn_type
+        entry = grouped[(item_id, kind, 1 if when >= start else 0)]
+        entry[0] += qty
+        entry[1] += qty * Decimal(str(cost or 0))
+    return [(item_id, kind, inside, qty, value) for (item_id, kind, inside), (qty, value) in grouped.items()]
+
+
 def category_rows(by_category: dict[str, dict], consumed_total: Decimal) -> list[dict]:
     """One line per category with its share of the cost consumed, largest first."""
     out = []
@@ -115,12 +131,14 @@ def last_purchases(db: Session, item_ids: list[int]) -> dict[int, dict]:
         return {}
     when = func.coalesce(Receipt.invoice_date, Receipt.received_at)
     rows = db.execute(
-        select(ReceiptLine.item_id, ReceiptLine.line_total, ReceiptLine.qty, when, Receipt.supplier_id)
+        select(ReceiptLine.item_id, ReceiptLine.line_total, ReceiptLine.qty, when, Receipt.supplier_id, StockTransaction.unit_cost)
         .join(Receipt, Receipt.id == ReceiptLine.receipt_id)
+        .outerjoin(StockTransaction, StockTransaction.id == ReceiptLine.transaction_id)
         .where(ReceiptLine.item_id.in_(item_ids), Receipt.status == "posted", Receipt.doc_type == "receipt",
                ReceiptLine.line_total > 0, ReceiptLine.qty > 0)
         .order_by(when, Receipt.id))
-    # oldest first, so the last row seen for an item is its latest purchase
-    return {item_id: {"price": float((Decimal(str(total)) / qty).quantize(Decimal("0.001"))), "date": day.date().isoformat() if hasattr(day, "date") else str(day)[:10],
-                      "supplier_id": supplier_id}
-            for item_id, total, qty, day, supplier_id in rows}
+    # oldest first, so the last row seen for an item is its latest purchase; the price is what a unit really cost, as the ledger holds it
+    # (after the line discount and its share of the invoice discount)
+    return {item_id: {"price": float((Decimal(str(cost)) if cost is not None else Decimal(str(total)) / qty).quantize(Decimal("0.001"))),
+                      "date": day.date().isoformat() if hasattr(day, "date") else str(day)[:10], "supplier_id": supplier_id}
+            for item_id, total, qty, day, supplier_id, cost in rows}
