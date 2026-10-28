@@ -400,3 +400,23 @@ def test_an_item_can_have_a_preferred_supplier_and_others_and_learns_new_ones_fr
     # buying from the preferred supplier does not list them twice
     receive(client, m, db, [{"item_id": pl, "qty": 5, "unit_cost": 2.0}], invoice="SUP-A", supplier=names[0])
     assert [i for i in client.get("/api/inventory/items?size=200", headers=m).json()["items"] if i["id"] == pl][0]["supplier_ids"] == [b]
+
+
+def test_cost_consumed_ignores_supplier_returns_and_voided_invoices_but_counts_real_use(client, login, db, clock):
+    m = login(MGR)
+    mk = loc_id(db, "MK")
+    pl = item_id(db, "PL-001")
+
+    def report():
+        return client.get(f"/api/stock/cost-report?date_from=2026-03-01&date_to=2026-03-31&location_id={mk}", headers=m).json()["totals"]
+
+    bought = receive(client, m, db, [{"item_id": pl, "qty": 10, "unit_cost": 2.0}], invoice="CC-1").json()
+    assert report()["cost_consumed"] == 0
+    receive(client, m, db, [{"item_id": pl, "qty": 2, "unit_cost": 2.0}], invoice="CC-R", doc_type="supplier_return")
+    assert report()["cost_consumed"] == 0                                                               # sent back, not used
+    assert report()["returns"] < 0
+    assert client.post(f"/api/receipts/{bought['id']}/void", json={"reason": "wrong invoice"}, headers=m).status_code == 200
+    after_void = report()
+    assert after_void["cost_consumed"] == 0 and after_void["purchases"] == 0                            # the void took its own purchase out
+    assert client.post("/api/inventory/transactions", json={"item_id": pl, "location_id": mk, "txn_type": "issue", "qty": 3, "reason": "used"}, headers=m).status_code == 201
+    assert report()["cost_consumed"] > 0 and report()["issued"] == report()["cost_consumed"]            # real use still counts

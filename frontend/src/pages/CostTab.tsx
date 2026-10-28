@@ -1,6 +1,7 @@
 import { Boxes, PackageMinus, ShoppingCart, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { KpiCard } from '@/components/KpiCard'
+import { Card, CardContent } from '@/components/ui/card'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Input } from '@/components/ui/input'
 import { EmptyState, Skeleton, Table, Td, Th } from '@/components/ui/table'
@@ -68,9 +69,31 @@ export function CostTab() {
           <KpiCard icon={Wallet} label="Opening value" value={money(t.opening_value)} />
           <KpiCard icon={ShoppingCart} label="Purchases" value={money(t.purchases)} />
           <KpiCard icon={Boxes} label="Closing value" value={money(t.closing_value)} />
-          <KpiCard icon={PackageMinus} label="Cost consumed" value={money(t.cost_consumed)} tone="warn" />
+          <KpiCard icon={PackageMinus} label="Cost consumed" value={money(t.cost_consumed)} />
         </div>
       )}
+
+      {t && (() => {
+        const shortage = -t.count_adjustments  // a count that finds less than the books is use that was never written down
+        const other = t.cost_consumed - t.issued - t.breakage_damage - shortage
+        const parts = [['Stock issued', t.issued], ['Breakage and damage', t.breakage_damage], [shortage >= 0 ? 'Count shortages' : 'Count surpluses', shortage],
+          ['Other differences', Math.abs(other) < 0.0005 ? 0 : other]] as [string, number][]
+        return (
+          <Card>
+            <CardContent className="space-y-2 py-4 text-sm">
+              <p className="font-semibold">How Cost consumed is worked out</p>
+              <p className="text-ink-muted">
+                Opening {money(t.opening_value)} + purchases {money(t.purchases)} + returns to suppliers and other returns {money(t.returns)} + transfers in {money(t.transfers_in)}
+                {' '}- transfers out {money(t.transfers_out)} - closing {money(t.closing_value)} = <span className="font-semibold text-ink">{money(t.cost_consumed)}</span>
+              </p>
+              <p className="text-ink-muted">
+                It is made up of: {parts.filter(([, v]) => v !== 0).map(([label, v]) => `${label} ${money(v)}`).join(', ') || 'nothing at all'}.
+                {parts[3][1] !== 0 && ' Other differences are usually a price difference between what was bought and the average cost, or stock entered without a price.'}
+              </p>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {data && data.by_category.length === 0 && <EmptyState title="No stock movement in this period" />}
       {data && data.by_category.length > 0 && (

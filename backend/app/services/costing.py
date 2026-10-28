@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..models import InventoryBalance, InventoryCategory, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction
 
+RECEIPT_REFS = ("receipt", "receipt_void")
+
 MEASURES = ("opening_value", "purchases", "returns", "transfers_in", "transfers_out", "closing_value", "cost_consumed", "issued",
             "breakage_damage", "count_adjustments")
 
@@ -20,12 +22,17 @@ def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -
     """
     inside = case((StockTransaction.occurred_at >= start, 1), else_=0)
     worth = func.sum(StockTransaction.qty_delta * func.coalesce(StockTransaction.unit_cost, 0))
-    invoice = and_(Receipt.id == StockTransaction.ref_id, StockTransaction.ref_type == "receipt")
+    invoice = and_(Receipt.id == StockTransaction.ref_id, StockTransaction.ref_type.in_(RECEIPT_REFS))
+    kind = case(
+        (and_(StockTransaction.ref_type == "receipt", StockTransaction.txn_type == "issue"), "return"),  # goods sent back to a supplier are not used up
+        (and_(StockTransaction.ref_type == "receipt_void", StockTransaction.qty_delta < 0), "receipt"),  # a voided invoice takes its purchase back out
+        (StockTransaction.ref_type == "receipt_void", "return"),  # and a voided return puts it back
+        else_=StockTransaction.txn_type)
     sums = db.execute(
-        select(StockTransaction.item_id, StockTransaction.txn_type, inside, func.sum(StockTransaction.qty_delta), worth)
+        select(StockTransaction.item_id, kind, inside, func.sum(StockTransaction.qty_delta), worth)
         .outerjoin(Receipt, invoice)
         .where(StockTransaction.location_id == location_id, StockTransaction.occurred_at < end, Receipt.invoice_date.is_(None))
-        .group_by(StockTransaction.item_id, StockTransaction.txn_type, inside)).all()
+        .group_by(StockTransaction.item_id, kind, inside)).all()
     tz = db.get(Location, location_id).timezone
     sums = [*sums, *_by_invoice_date(db, location_id, tz, start, end, invoice)]
     qty_before: dict[int, int] = defaultdict(int)
@@ -74,10 +81,15 @@ def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -
 def _by_invoice_date(db: Session, location_id: int, tz: str, start: datetime, end: datetime, invoice) -> list[tuple]:
     """Purchases that carry an invoice date, as (item, type, inside the period, quantity, value) rows placed by that date."""
     grouped: dict[tuple, list] = defaultdict(lambda: [0, Decimal(0)])
-    for item_id, txn_type, qty, cost, day in db.execute(
-            select(StockTransaction.item_id, StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.unit_cost, Receipt.invoice_date)
+    for item_id, txn_type, qty, cost, day, ref in db.execute(
+            select(StockTransaction.item_id, StockTransaction.txn_type, StockTransaction.qty_delta, StockTransaction.unit_cost, Receipt.invoice_date,
+                   StockTransaction.ref_type)
             .join(Receipt, invoice)
             .where(StockTransaction.location_id == location_id, Receipt.invoice_date.is_not(None))):
+        if ref == "receipt" and txn_type == "issue":
+            txn_type = "return"  # goods sent back to a supplier
+        elif ref == "receipt_void":
+            txn_type = "receipt" if qty < 0 else "return"  # a voided invoice or return reverses its own entry
         when = timeutil.local_to_utc(day.date(), time(0, 0), tz)
         if when >= end:
             continue
