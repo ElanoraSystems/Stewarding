@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -52,5 +52,23 @@ describe('TransfersTab', () => {
     await user.type(screen.getByLabelText('Quantity'), '3')
     expect(screen.queryByText(/Asset tags moving/)).toBeNull()
     expect((screen.getByRole('button', { name: 'Transfer now' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+describe('TransfersTab catch-up', () => {
+  it('records a move that already happened, on the chosen date, from a pasted list', async () => {
+    mocks.api.mockClear()
+    const user = userEvent.setup()
+    render(<MemoryRouter><TransfersTab /></MemoryRouter>)
+    await user.selectOptions(screen.getByLabelText('To'), '2')
+    await user.click(screen.getByRole('button', { name: 'Paste a list' }))
+    await user.type(screen.getByLabelText('Pasted list'), 'PL-001 12{enter}pl-001, 3{enter}NOPE 4')
+    await user.click(screen.getByRole('button', { name: 'Add these lines' }))
+    expect(screen.getByText(/1 line\(s\) added\. Not understood: NOPE/)).toBeTruthy()      // the same code twice is one line of 15
+    await user.click(screen.getByLabelText(/already moved/))
+    fireEvent.change(screen.getByLabelText('Date it was moved'), { target: { value: '2026-02-20' } })
+    await user.click(screen.getByRole('button', { name: 'Record the move' }))
+    expect(mocks.api).toHaveBeenCalledWith('/stock/transfers', { body: { from_location_id: 1, to_location_id: 2, note: null, moved_on: '2026-02-20',
+      lines: [{ item_id: 8, qty: 15, asset_ids: [] }] } })
   })
 })

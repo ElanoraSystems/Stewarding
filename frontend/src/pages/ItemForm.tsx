@@ -38,6 +38,7 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
   const [similar, setSimilar] = useState<Similar[]>([])
   const [picture, setPicture] = useState<File | null>(null)
   const [removePicture, setRemovePicture] = useState(false)
+  const [otherSuppliers, setOtherSuppliers] = useState<number[]>(item?.supplier_ids ?? [])
   const [form, setForm] = useState({
     name: item?.name ?? '', category_id: item ? String(item.category_id) : '',
     unit_id: item ? String(item.unit_id) : '', supplier_id: item?.supplier_id ? String(item.supplier_id) : '',
@@ -83,7 +84,7 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
     event.preventDefault()
     const common = {
       name: form.name, category_id: Number(form.category_id), unit_id: Number(form.unit_id),
-      supplier_id: form.supplier_id ? Number(form.supplier_id) : null, min_level: Number(form.min_level),
+      supplier_id: form.supplier_id ? Number(form.supplier_id) : null, supplier_ids: otherSuppliers.filter((id) => String(id) !== form.supplier_id), min_level: Number(form.min_level),
       target_level: form.target_level === '' ? null : Number(form.target_level),
       unit_cost: form.unit_cost === '' ? null : Number(form.unit_cost), storage_location: form.storage_location || null,
     }
@@ -157,12 +158,24 @@ export function ItemForm({ item, open, onClose, onSaved }: ItemFormProps) {
                 {units.data?.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
               </Select>
             </Field>
-            <Field label="Supplier">
+            <Field label="Preferred supplier">
               <Select value={form.supplier_id} onChange={(e) => set('supplier_id', e.target.value)}>
                 <option value="">None</option>
                 {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
             </Field>
+            <fieldset className="sm:col-span-2">
+              <legend className="mb-1 text-sm font-medium">Also bought from</legend>
+              <p className="mb-2 text-xs text-ink-muted">Other suppliers this item can come from. A supplier is added here by itself the first time you receive the item from them.</p>
+              <div className="flex flex-wrap gap-2">
+                {suppliers.data?.filter((s) => String(s.id) !== form.supplier_id).map((s) => (
+                  <label key={s.id} className={`cursor-pointer rounded-full border px-3 py-1 text-sm transition-colors ${otherSuppliers.includes(s.id) ? 'border-brand bg-brand-soft font-semibold text-brand-deep' : 'border-border hover:bg-surface-muted'}`}>
+                    <input type="checkbox" className="sr-only" checked={otherSuppliers.includes(s.id)}
+                      onChange={() => setOtherSuppliers((all) => (all.includes(s.id) ? all.filter((x) => x !== s.id) : [...all, s.id]))} /> {s.name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <Field label="Storage location"><Input value={form.storage_location} onChange={(e) => set('storage_location', e.target.value)} /></Field>
           </div>
         </section>

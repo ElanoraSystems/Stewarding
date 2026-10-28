@@ -3,8 +3,9 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import timeutil
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee,
-                      Equipment, InventoryTransfer, Location, TemperatureReading)
+                      Equipment, InventoryTransfer, Location, Shift, TemperatureReading)
 from .checklists import OPEN
 from .inventory import shortage_rows
 from .settings import get_setting
@@ -15,6 +16,15 @@ URGENCY_RANK = {"critical": 0, "high": 1, "normal": 2}
 
 
 PENDING_DAYS = 30  # older overdue tasks are history, not pending work
+
+
+def checkout_overdue(db: Session, rec: AttendanceRecord, now: datetime) -> bool:
+    """Whether an open check-in is overdue for checking out: after its shift ended (plus a grace), or, with no shift, a long time after checking in."""
+    shift = db.get(Shift, rec.shift_id) if rec.shift_id else None
+    if shift:
+        ends = timeutil.shift_end_utc(rec.local_date, shift.start_time, shift.end_time, db.get(Location, rec.location_id).timezone)
+        return now > max(ends, rec.check_in_at) + timedelta(hours=get_setting(db, "attendance.missed_checkout_after_shift_hours"))
+    return now - rec.check_in_at > timedelta(hours=get_setting(db, "attendance.missed_checkout_hours"))
 
 
 def _minutes(now: datetime, since: datetime | None) -> int:
@@ -82,10 +92,9 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
         add("transfer", transfer.from_location_id, "normal", "Manager", f"Transfer #{transfer.id} awaiting approval",
             transfer.requested_at, "/stock-movements")
 
-    hours = get_setting(db, "attendance.missed_checkout_hours")
     for rec in db.scalars(select(AttendanceRecord).where(AttendanceRecord.location_id.in_(locations),
                                                          AttendanceRecord.open_flag == 1)):
-        if _minutes(now, rec.check_in_at) > hours * 60:
+        if checkout_overdue(db, rec, now):
             add("attendance", rec.location_id, "high", names.get(rec.employee_id, "Employee"), "Missed check-out",
                 rec.check_in_at, "/attendance")
 

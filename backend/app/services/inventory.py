@@ -95,7 +95,7 @@ def _costed(item: InventoryItem, balance: InventoryBalance, delta: int, unit_cos
 def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn_type: str, qty: int,
              reason: str | None = None, ref_type: str | None = None, ref_id: int | None = None,
              allow_negative: bool = False, unit_cost: Decimal | None = None,
-             reverse_cost: Decimal | None = None) -> StockTransaction:
+             reverse_cost: Decimal | None = None, occurred_at: datetime | None = None) -> StockTransaction:
     """Appends one immutable ledger row, valued at the weighted average cost, and moves the balance in the caller's transaction."""
     delta = qty if txn_type == "adjustment" else SIGN[txn_type] * abs(qty)
     if delta == 0:
@@ -110,7 +110,7 @@ def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn
     cost = _costed(item, balance, delta, unit_cost, reverse_cost)
     balance.qty += delta
     txn = StockTransaction(item_id=item.id, location_id=location_id, txn_type=txn_type, qty_delta=delta,
-                           occurred_at=timeutil.utc_now(), user_id=user.id, reason=reason, ref_type=ref_type,
+                           occurred_at=occurred_at or timeutil.utc_now(), user_id=user.id, reason=reason, ref_type=ref_type,
                            ref_id=ref_id, unit_cost=cost)
     db.add(txn)
     db.flush()

@@ -101,7 +101,8 @@ export function SettingsItems() {
               badges={statusBadges(i)}
               facts={[
                 { label: 'Unit', value: i.unit },
-                { label: 'Supplier', value: i.supplier ?? '-' },
+                { label: 'Preferred supplier', value: i.supplier ?? '-' },
+                ...(i.other_suppliers?.length ? [{ label: 'Also bought from', value: i.other_suppliers.join(', ') }] : []),
                 { label: 'Starting price', value: i.unit_cost != null ? money(i.unit_cost) : '-' },
                 { label: 'Average cost', value: i.avg_cost != null ? money(i.avg_cost) : '-' },
                 { label: 'Last purchase', value: i.last_purchase ? `${money(i.last_purchase.price)} on ${fmtDate(i.last_purchase.date)}${i.last_purchase.supplier ? `, ${i.last_purchase.supplier}` : ''}` : '-' },

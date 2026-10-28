@@ -40,8 +40,8 @@ interface Report {
   locations?: { location_id: number; location: string; totals: Totals }[]
 }
 
-const money = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
-const thisMonth = () => new Date().toLocaleDateString('en-CA').slice(0, 7)
+const money = (n: number | null | undefined) => (n ?? 0).toLocaleString('en-GB', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
+const thisMonth = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}` }
 
 function period(month: string) {
   const [year, mon] = month.split('-').map(Number)
@@ -52,7 +52,7 @@ function period(month: string) {
 export function CostTab() {
   const [locationId, setLocationId] = useState<number | null>(null)
   const [month, setMonth] = useState(thisMonth())
-  const { data, loading } = useApi<Report>(`/stock/cost-report${qs({ ...period(month), location_id: locationId })}`)
+  const { data, loading, error } = useApi<Report>(`/stock/cost-report${qs({ ...period(month), location_id: locationId })}`)
   const t = data?.totals
 
   return (
@@ -62,6 +62,7 @@ export function CostTab() {
         <Input aria-label="Month" type="month" className="w-auto" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
       </div>
 
+      {error && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}
       {loading && !data ? <Skeleton className="h-28 w-full" /> : t && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard icon={Wallet} label="Opening value" value={money(t.opening_value)} />

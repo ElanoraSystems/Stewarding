@@ -14,7 +14,7 @@ from ..services.deletion import delete_if_unused
 from ..services.images import thumbnail_jpeg
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
-from ..models import (Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryLevel, InventoryUnit, Location,
+from ..models import (ItemSupplier, Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryLevel, InventoryUnit, Location,
                       Receipt, ReceiptLine, StockTransaction, Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
 from ..services.costing import last_purchases
@@ -58,7 +58,8 @@ class ItemIn(BaseModel):
     min_level: int = Field(default=0, ge=0, le=MAX_LEVEL)
     target_level: int | None = Field(default=None, ge=0, le=MAX_LEVEL)
     unit_cost: Decimal | None = Field(default=None, ge=0, le=MAX_UNIT_COST)
-    supplier_id: int | None = None
+    supplier_id: int | None = None  # the preferred supplier
+    supplier_ids: list[int] = Field(default_factory=list, max_length=50)  # others it is also bought from
     is_tracked_asset: bool = False
     opening_qty: int = Field(default=0, ge=0, le=MAX_LEVEL)
     opening_location_id: int | None = None
@@ -82,6 +83,7 @@ class ItemUpdate(BaseModel):
     target_level: int | None = Field(default=None, ge=0, le=MAX_LEVEL)
     unit_cost: Decimal | None = Field(default=None, ge=0, le=MAX_UNIT_COST)
     supplier_id: int | None = None
+    supplier_ids: list[int] | None = Field(default=None, max_length=50)
     active: bool | None = None
 
     _name = field_validator("name")(_clean_name)
@@ -228,6 +230,9 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
     categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
     units = {u.id: u.name for u in db.scalars(select(InventoryUnit))}
     suppliers = {s.id: s.name for s in db.scalars(select(Supplier))}
+    others: dict[int, list[int]] = {}
+    for link in db.scalars(select(ItemSupplier).where(ItemSupplier.item_id.in_(ids))) if ids else []:
+        others.setdefault(link.item_id, []).append(link.supplier_id)
     levels = level_map(db)
     unheld = {i.id for i in unheld_items(db)} & set(ids)
     places = places_in(db, scope) if unheld else []
@@ -245,6 +250,8 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
         own = {loc: m for (i, loc), m in levels.items() if i == item.id and (scope is None or loc in scope)}
         entry = {**row(item, *ITEM_FIELDS), "category": categories.get(item.category_id), "unit": units.get(item.unit_id),
                  "supplier": suppliers.get(item.supplier_id) if show_cost else None,
+                 "supplier_ids": sorted(others.get(item.id, [])) if show_cost else [],
+                 "other_suppliers": [suppliers[s] for s in sorted(others.get(item.id, [])) if s in suppliers] if show_cost else [],
                  "qty": qty, "received": sum(received_by_item.get(item.id, {}).values()),
                  "received_by_location": received_by_item.get(item.id, {}), "by_location": per_location,
                  "low": bool(short_at), "short_at": short_at, "location_minimums": own,
@@ -339,6 +346,23 @@ def list_items(search: str | None = None, category_id: int | None = None, locati
     return result
 
 
+def _check_suppliers(db: Session, ids: list[int]) -> None:
+    found = set(db.scalars(select(Supplier.id).where(Supplier.id.in_(ids), Supplier.active.is_(True)))) if ids else set()
+    if found != set(ids):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inactive supplier")
+
+
+def _set_other_suppliers(db: Session, item: InventoryItem, ids: list[int]) -> None:
+    """The suppliers an item is also bought from; the preferred one is not repeated here."""
+    wanted = set(ids) - {item.supplier_id}
+    have = {link.supplier_id: link for link in db.scalars(select(ItemSupplier).where(ItemSupplier.item_id == item.id))}
+    for supplier_id, link in have.items():
+        if supplier_id not in wanted:
+            db.delete(link)
+    for supplier_id in wanted - set(have):
+        db.add(ItemSupplier(item_id=item.id, supplier_id=supplier_id))
+
+
 def _check_links(db: Session, category_id: int | None, unit_id: int | None, supplier_id: int | None) -> None:
     """Category, unit and supplier must exist and be active."""
     if category_id is not None:
@@ -386,14 +410,16 @@ def similar_items(q: str, user: User = Depends(require("inventory.view")), db: S
 @router.post("/items", status_code=201)
 def create_item(body: ItemIn, user: User = Depends(require("inventory.manage")), db: Session = Depends(get_db)):
     _check_links(db, body.category_id, body.unit_id, body.supplier_id)
+    _check_suppliers(db, body.supplier_ids)
     if body.opening_qty and body.opening_location_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Opening stock needs a location")
     name = " ".join(body.name.split())
     _check_duplicate(db, name)
-    data = body.model_dump(exclude={"opening_location_id", "name"})
+    data = body.model_dump(exclude={"opening_location_id", "name", "supplier_ids"})
     item = InventoryItem(code=f"NEW-{uuid.uuid4().hex[:24]}", name=name, name_key=norm(name), **data)
     db.add(item)
     db.flush()
+    _set_other_suppliers(db, item, body.supplier_ids)
     number = item.id
     while db.scalar(select(InventoryItem.id).where(InventoryItem.code == f"ITM-{number:05d}")):
         number += 1
@@ -413,7 +439,10 @@ def update_item(item_id: int, body: ItemUpdate, user: User = Depends(require("in
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     data = body.model_dump(exclude_unset=True)
+    others = data.pop("supplier_ids", None)
     _check_links(db, data.get("category_id"), data.get("unit_id"), data.get("supplier_id"))
+    if others is not None:
+        _check_suppliers(db, others)
     if "name" in data:
         data["name"] = " ".join(data["name"].split())
         _check_duplicate(db, data["name"], item.id)
@@ -430,6 +459,8 @@ def update_item(item_id: int, body: ItemUpdate, user: User = Depends(require("in
     before = {k: str(getattr(item, k)) for k in data}
     for key, value in data.items():
         setattr(item, key, value)
+    if others is not None:
+        _set_other_suppliers(db, item, others)
     if "name" in data:
         item.name_key = norm(data["name"])
     audit(db, user, "inventory.item_update", "inventory_item", item.id, before,

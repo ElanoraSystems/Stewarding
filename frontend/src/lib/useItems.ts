@@ -16,6 +16,8 @@ export interface Item {
   target_level: number | null
   supplier_id: number | null
   supplier: string | null
+  supplier_ids?: number[]
+  other_suppliers?: string[]
   is_tracked_asset: boolean
   active: boolean
   qty: number

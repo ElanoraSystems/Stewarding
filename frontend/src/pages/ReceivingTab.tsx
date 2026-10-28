@@ -1,5 +1,5 @@
 import { Check, Plus, Trash2 } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,6 +26,7 @@ interface Doc {
   id: number
   doc_type: 'receipt' | 'supplier_return'
   supplier: string
+  supplier_id: number
   location_id: number
   invoice_number: string
   invoice_date: string | null
@@ -42,7 +43,7 @@ interface Doc {
   total_discount: number | null
   total: number | null
   void_reason: string | null
-  lines?: { item_id: number; code: string; name: string; qty: number; unit_cost: number | null; gross: number | null; discount_amount: number | null; line_total: number | null }[]
+  lines?: { item_id: number; code: string; name: string; qty: number; unit_cost: number | null; gross: number | null; discount_type: DiscountType | null; discount_value: number | null; discount_amount: number | null; line_total: number | null }[]
 }
 
 type DiscountType = 'amount' | 'percent'
@@ -53,6 +54,13 @@ interface Line {
   cost: string
   discType: DiscountType
   disc: string
+}
+
+interface PriceHint {
+  fromSupplier: { price: number; date: string } | null
+  last: { price: number; date: string; supplier: string | null } | null
+  average: number | null
+  start: number | null
 }
 
 const BLANK_LINE: Line = { item: '', qty: '', cost: '', discType: 'amount', disc: '' }
@@ -99,11 +107,28 @@ export function ReceivingTab() {
   const [voiding, setVoiding] = useState(false)
   const [voidReason, setVoidReason] = useState('')
   const [editing, setEditing] = useState<Doc | null>(null)
+  const [correcting, setCorrecting] = useState<Doc | null>(null)  // a posted invoice whose items are being fixed in the form above
+  const [reason, setReason] = useState('')
   const [edit, setEdit] = useState({ invoice: '', invoiceDate: '', receivedOn: '', note: '' })
 
-  const pickItem = (i: number, id: string) => {
-    const cost = items.find((x) => String(x.id) === id)?.unit_cost
-    entry.update(i, { item: id, cost: cost != null ? String(cost) : '' })
+  // what was paid before, kept per item so the line can say where its price came from and offer the others
+  const [hints, setHints] = useState<Record<string, PriceHint>>({})
+  const supplierName = suppliers.data?.find((s) => String(s.id) === supplierId)?.name ?? null
+  const usual = useMemo(() => new Set(items.filter((it) => supplierId !== '' && (String(it.supplier_id) === supplierId || it.supplier_ids?.includes(Number(supplierId)))).map((it) => it.id)), [items, supplierId])
+
+  /** The price filled in on a picked item: the last paid to this supplier, else the last paid to anyone, else the average, else the starting price. */
+  async function pickItem(i: number, id: string) {
+    entry.update(i, { item: id, cost: '' })
+    const item = items.find((x) => String(x.id) === id)
+    if (!item) return
+    const history = await api<{ points: { price: number; date: string; supplier: string | null }[] }>(`/inventory/items/${id}/price-history`).catch(() => null)
+    const points = history?.points ?? []
+    const last = points.at(-1) ?? null
+    const fromSupplier = supplierName ? [...points].reverse().find((p) => p.supplier === supplierName) ?? null : null
+    const hint: PriceHint = { fromSupplier, last, average: item.avg_cost ?? null, start: item.unit_cost ?? null }
+    setHints((all) => ({ ...all, [id]: hint }))
+    const price = fromSupplier?.price ?? last?.price ?? hint.average ?? hint.start
+    if (price != null) entry.patchIf(i, (r) => r.item === id && r.cost === '', { cost: String(price) })
   }
   const filled = entry.rows.filter(lineComplete)
   const subtotal = filled.reduce((sum, l) => sum + lineGross(l), 0)
@@ -112,8 +137,44 @@ export function ReceivingTab() {
   const total = subtotal - lineDiscounts - docDiscount
   const hasCosts = filled.some((l) => l.cost !== '')
 
+  function clearForm() {
+    setInvoice('')
+    setReceivedOn(iso(new Date()))
+    setInvoiceDate(iso(new Date()))
+    setInvoiceDateTouched(false)
+    setNote('')
+    setDocDisc('')
+    setCorrecting(null)
+    setReason('')
+    entry.reset()
+  }
+
+  /** Puts a posted invoice back in the form, lines and all, so its items, quantities and prices can be fixed. */
+  function startCorrection(doc: Doc) {
+    setCorrecting(doc)
+    setReason('')
+    setDocType(doc.doc_type)
+    setSupplierId(String(doc.supplier_id))
+    setLocationId(doc.location_id)
+    setInvoice(doc.invoice_number)
+    setReceivedOn(doc.received_on)
+    setInvoiceDate(doc.invoice_date ?? '')
+    setInvoiceDateTouched(true)
+    setNote(doc.note ?? '')
+    setDocDiscType(doc.discount_type ?? 'amount')
+    setDocDisc(doc.discount_value != null ? String(doc.discount_value) : '')
+    entry.load((doc.lines ?? []).map((l) => ({ item: String(l.item_id), qty: String(l.qty), cost: l.unit_cost != null ? String(l.unit_cost) : '',
+      discType: l.discount_type ?? 'amount', disc: l.discount_value != null ? String(l.discount_value) : '' })))
+    setDetail(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function correct(doc: Doc) {
+    startCorrection(await api<Doc>(`/receipts/${doc.id}`))
+  }
+
   async function post() {
-    const ok = await run(() => api('/receipts', { body: {
+    const body = {
       doc_type: docType, supplier_id: Number(supplierId), location_id: locationId, invoice_number: invoice,
       invoice_date: invoiceDate || null, received_on: receivedOn || null, note: note || null,
       discount_type: docDisc ? docDiscType : null, discount: docDisc ? Number(docDisc) : null,
@@ -121,15 +182,17 @@ export function ReceivingTab() {
         item_id: Number(l.item), qty: Number(l.qty), unit_cost: l.cost === '' ? null : Number(l.cost),
         discount_type: l.disc ? l.discType : null, discount: l.disc ? Number(l.disc) : null,
       })),
-    } }), docType === 'receipt' ? 'Delivery received and stock updated' : 'Return posted and stock reduced')
+    }
+    if (correcting) {
+      if (await run(() => api(`/receipts/${correcting.id}/correct`, { body: { ...body, reason } }), 'Invoice corrected and stock adjusted')) {
+        clearForm()
+        list.reload()
+      }
+      return
+    }
+    const ok = await run(() => api('/receipts', { body }), docType === 'receipt' ? 'Delivery received and stock updated' : 'Return posted and stock reduced')
     if (ok) {
-      setInvoice('')
-      setReceivedOn(iso(new Date()))
-      setInvoiceDate(iso(new Date()))
-      setInvoiceDateTouched(false)
-      setNote('')
-      setDocDisc('')
-      entry.reset()
+      clearForm()
       list.reload()
     }
   }
@@ -173,9 +236,18 @@ export function ReceivingTab() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>New receiving document</CardTitle>
+          <CardTitle>{correcting ? `Correct invoice ${correcting.invoice_number}` : 'New receiving document'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          {correcting && (
+            <div role="status" className="space-y-2 rounded-lg border border-warn/40 bg-warn-soft px-4 py-3 text-sm">
+              <p>Fix the items, quantities, prices or dates below. The original document is reversed and replaced by the corrected one in one step, and both stay in the history.</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <Field label="Why is it being corrected?"><Input aria-label="Reason for the correction" className="w-72" minLength={5} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+                <Button type="button" variant="outline" onClick={clearForm}>Cancel the correction</Button>
+              </div>
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Document">
               <Select value={docType} onChange={(e) => setDocType(e.target.value as typeof docType)}>
@@ -206,7 +278,7 @@ export function ReceivingTab() {
                 {entry.rows.map((line, i) => (
                   <div key={i} {...entry.rowProps(i)} className="space-y-1">
                     <div className="grid grid-cols-[minmax(14rem,1fr)_6rem_6rem_11rem_6rem_1.25rem_2.5rem] items-center gap-2">
-                      <ItemPicker items={items} value={line.item} onChange={(id) => pickItem(i, id)} />
+                      <ItemPicker items={items} usual={usual} value={line.item} onChange={(id) => pickItem(i, id)} />
                       <Input aria-label="Quantity" type="number" min={1} value={line.qty} onChange={(e) => entry.update(i, { qty: e.target.value })} />
                       <Input aria-label="Unit cost" type="number" step="0.001" min={0} value={line.cost} onChange={(e) => entry.update(i, { cost: e.target.value })} />
                       <div className="flex gap-1">
@@ -222,6 +294,26 @@ export function ReceivingTab() {
                       <span className="flex h-10 items-center text-ok" aria-label={line.committed ? 'Line saved' : undefined}>{line.committed && <Check className="h-4 w-4" aria-hidden />}</span>
                       {entry.rows.length > 1 ? <Button variant="ghost" size="icon" aria-label="Remove line" onClick={() => entry.remove(i)}><Trash2 className="h-4 w-4" /></Button> : <span />}
                     </div>
+                    {line.item && hints[line.item] && (() => {
+                      const h = hints[line.item]
+                      const options = [
+                        h.fromSupplier && { label: `Last from ${supplierName}`, price: h.fromSupplier.price, date: h.fromSupplier.date },
+                        h.last && (!h.fromSupplier || h.last.price !== h.fromSupplier.price) && { label: h.last.supplier ? `Last paid (${h.last.supplier})` : 'Last paid', price: h.last.price, date: h.last.date },
+                        h.average != null && { label: 'Average', price: h.average, date: null },
+                        h.start != null && { label: 'Starting price', price: h.start, date: null },
+                      ].filter(Boolean) as { label: string; price: number; date: string | null }[]
+                      return (
+                        <p className="flex flex-wrap items-center gap-1.5 text-xs text-ink-muted">
+                          Use price:
+                          {options.map((o) => (
+                            <button key={o.label} type="button" onClick={() => entry.update(i, { cost: String(o.price) })}
+                              className={`rounded-full border px-2 py-0.5 ${Number(line.cost) === o.price ? 'border-brand bg-brand-soft text-brand-deep' : 'border-border hover:bg-surface-muted'}`}>
+                              {o.label} {money(o.price)}{o.date ? ` (${fmtDate(o.date)})` : ''}
+                            </button>
+                          ))}
+                        </p>
+                      )
+                    })()}
                     {entry.incomplete === i && <p role="alert" className="text-xs text-danger">Choose an item and a quantity, then press Enter.</p>}
                   </div>
                 ))}
@@ -254,8 +346,8 @@ export function ReceivingTab() {
               </dl>
             ) : <span className="text-sm text-ink-muted">No costs entered</span>}
           </div>
-          <Button disabled={!supplierId || !locationId || !invoice.trim() || filled.length === 0 || new Set(filled.map((l) => l.item)).size !== filled.length} onClick={post}>
-            {docType === 'receipt' ? 'Post receipt' : 'Post return'}
+          <Button disabled={!supplierId || !locationId || !invoice.trim() || filled.length === 0 || new Set(filled.map((l) => l.item)).size !== filled.length || (correcting !== null && reason.trim().length < 5)} onClick={post}>
+            {correcting ? 'Save the correction' : docType === 'receipt' ? 'Post receipt' : 'Post return'}
           </Button>
           {new Set(filled.map((l) => l.item)).size !== filled.length && <p className="text-sm text-danger">An item appears twice; combine the quantities into one line.</p>}
         </CardContent>
@@ -296,6 +388,7 @@ export function ReceivingTab() {
               <Td><StatusBadge status={d.status} /></Td>
               <Td><div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => open(d)}>View</Button>
+                {canVoid && d.status === 'posted' && <Button size="sm" variant="outline" onClick={() => correct(d)}>Correct items</Button>}
                 {canVoid && d.status === 'posted' && <Button size="sm" variant="outline" onClick={() => startEdit(d)}>Edit</Button>}
               </div></Td>
             </tr>
@@ -349,11 +442,12 @@ export function ReceivingTab() {
             {detail.status === 'void' && <p className="rounded-md bg-surface-muted p-2">Voided: {detail.void_reason}</p>}
             {detail.status === 'posted' && canVoid && !voiding && (
               <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => startCorrection(detail)}>Correct items and prices</Button>
                 <Button variant="outline" onClick={() => startEdit(detail)}>Edit details</Button>
                 <Button variant="danger" onClick={() => setVoiding(true)}>Void this document</Button>
               </div>
             )}
-            {detail.status === 'posted' && canVoid && !voiding && <p className="text-xs text-ink-muted">Edit changes the invoice number, dates and note. To change items, quantities or prices, void this document and enter it again.</p>}
+            {detail.status === 'posted' && canVoid && !voiding && <p className="text-xs text-ink-muted">Edit details changes the invoice number, dates and note. Correct items and prices opens the whole invoice to fix lines; the original is reversed and replaced.</p>}
             {voiding && (
               <div className="space-y-2 rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft p-3">
                 <p className="text-danger">Voiding reverses the stock with new ledger entries. The original entries stay in the history.</p>

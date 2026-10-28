@@ -9,6 +9,7 @@ import { TraceabilityPage } from '@/pages/TraceabilityPage'
 import { ChangePasswordPage } from '@/pages/ChangePasswordPage'
 import { CheckInPage } from '@/pages/CheckInPage'
 import { SchedulePage } from '@/pages/SchedulePage'
+import { CountSheetPage } from '@/pages/CountSheetPage'
 import { ChecklistsPage } from '@/pages/ChecklistsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { EmployeesPage } from '@/pages/EmployeesPage'
@@ -34,6 +35,7 @@ export default function App() {
 
   return (
     <Routes>
+      <Route path="count-sheet" element={<RequireModule module="stock-movements"><CountSheetPage /></RequireModule>} />
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
         <Route path="employees" element={<RequireModule module="employees"><EmployeesPage /></RequireModule>} />

@@ -13,6 +13,7 @@ import { api } from '@/lib/api'
 import { fmtDate, label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
+import { useAuth } from '@/lib/auth'
 
 const ABSENCE_TYPES = ['absent', 'day_off', 'sick_leave', 'annual_leave', 'unpaid_leave', 'other_leave']
 
@@ -30,6 +31,8 @@ const today = () => new Date().toISOString().slice(0, 10)
 
 export function AbsencePanel({ canRecord = true }: { canRecord?: boolean }) {
   const run = useRun()
+  const { me } = useAuth()
+  const byLocation = me?.by_location !== false  // when attendance is not by location, no outlet is asked for
   const [open, setOpen] = useState(false)
   const [cancelling, setCancelling] = useState<Absence | null>(null)
   const [cancelReason, setCancelReason] = useState('')
@@ -39,7 +42,7 @@ export function AbsencePanel({ canRecord = true }: { canRecord?: boolean }) {
   const [dayTo, setDayTo] = useState('')
   const [kind, setKind] = useState('absent')
   const [note, setNote] = useState('')
-  const employees = useApi<{ items: { id: number; full_name: string }[] }>(locationId ? `/employees${qs({ location_id: locationId, status: 'active', size: 200 })}` : null)
+  const employees = useApi<{ items: { id: number; full_name: string }[] }>(`/employees${qs({ location_id: locationId, status: 'active', size: 200 })}`)
   const list = useApi<{ items: Absence[] }>(`/absences${qs({ location_id: locationId, size: 20 })}`)
 
   async function record(event: FormEvent) {
@@ -95,15 +98,15 @@ export function AbsencePanel({ canRecord = true }: { canRecord?: boolean }) {
         onClose={() => setOpen(false)}
         footer={<>
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button type="submit" form="absence-form" disabled={!employeeId || !locationId}>Record</Button>
+          <Button type="submit" form="absence-form" disabled={!employeeId}>Record</Button>
         </>}
       >
         <form id="absence-form" onSubmit={record} className="space-y-6">
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Location"><LocationSelect className="w-full" value={locationId} onChange={(id) => { setLocationId(id); setEmployeeId('') }} /></Field>
+            {byLocation && <Field label="Location (optional)"><LocationSelect allowAll className="w-full" value={locationId} onChange={(id) => { setLocationId(id); setEmployeeId('') }} /></Field>}
             <Field label="Employee">
               <Select required value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-                <option value="">{employees.data?.items.length === 0 ? 'No employees at this location' : 'Select'}</option>
+                <option value="">{employees.data?.items.length === 0 ? 'No employees' : 'Select'}</option>
                 {employees.data?.items.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
               </Select>
             </Field>

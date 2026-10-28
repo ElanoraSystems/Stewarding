@@ -17,6 +17,7 @@ import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { ItemPicker } from '@/components/ItemPicker'
 import { useLineEntry } from '@/lib/useLineEntry'
+import { iso } from '@/lib/dates'
 
 interface Transfer {
   id: number
@@ -43,6 +44,10 @@ export function TransfersTab() {
   const [from, setFrom] = useState(params.get('from') ?? String(me?.locations[0]?.id ?? ''))
   const [to, setTo] = useState(params.get('to') ?? '')
   const [note, setNote] = useState('')
+  const [catchUp, setCatchUp] = useState(false)  // the stock was moved by hand earlier and is only being recorded now
+  const [movedOn, setMovedOn] = useState(() => iso(new Date(Date.now() - 86400000)))
+  const [pasted, setPasted] = useState<string | null>(null)  // null: the paste box is closed
+  const [pasteMsg, setPasteMsg] = useState('')
   const suggested = params.get('item') ? { item: params.get('item') ?? '', qty: params.get('qty') ?? '', tags: [] as number[] } : undefined
   const entry = useLineEntry({ item: '', qty: '', tags: [] as number[] }, (l) => l.item !== '' && Number(l.qty) > 0, suggested)
   const { attachList } = entry
@@ -60,14 +65,32 @@ export function TransfersTab() {
 
   async function request() {
     const ok = await run(() => api('/stock/transfers', { body: {
-      from_location_id: Number(from), to_location_id: Number(to), note: note || null,
+      from_location_id: Number(from), to_location_id: Number(to), note: note || null, ...(catchUp ? { moved_on: movedOn } : {}),
       lines: entry.rows.filter((l) => l.item && l.qty).map((l) => ({ item_id: Number(l.item), qty: Number(l.qty), asset_ids: tracked(l) ? l.tags : [] })),
-    } }), canApprove ? 'Transfer completed' : 'Transfer requested - awaiting approval')
+    } }), catchUp ? 'Catch-up transfer recorded' : canApprove ? 'Transfer completed' : 'Transfer requested - awaiting approval')
     if (ok) {
       entry.reset()
       setNote('')
+      setPasted(null)
       reload()
     }
+  }
+
+  /** Turns a pasted list ("PL-001 24" or "PL-001, 24" per line) into transfer lines, and says which codes were not found. */
+  function applyPaste() {
+    const byCode = new Map(items.map((i) => [i.code.toLowerCase(), i]))
+    const found = new Map<number, number>()
+    const unknown: string[] = []
+    for (const line of (pasted ?? '').split('\n').map((l) => l.trim()).filter(Boolean)) {
+      const parts = line.split(/[\t,;]+|\s+/).filter(Boolean)
+      const qty = Number(parts[parts.length - 1])
+      const item = byCode.get((parts[0] ?? '').toLowerCase())
+      if (!item || parts.length < 2 || !Number.isInteger(qty) || qty <= 0) unknown.push(parts[0] ?? line)
+      else found.set(item.id, (found.get(item.id) ?? 0) + qty)
+    }
+    entry.load([...found].map(([id, qty]) => ({ item: String(id), qty: String(qty), tags: [] as number[] })))
+    setPasteMsg(`${found.size} line(s) added.${unknown.length ? ` Not understood: ${unknown.slice(0, 6).join(', ')}${unknown.length > 6 ? '...' : ''}` : ''}`)
+    if (unknown.length === 0) setPasted(null)
   }
 
   async function decide(id: number, approve: boolean) {
@@ -113,11 +136,32 @@ export function TransfersTab() {
             ))}
             <div className="flex flex-wrap items-center gap-3">
               <Button variant="outline" size="sm" onClick={entry.addRow}><Plus className="h-4 w-4" /> Add line</Button>
+              <Button variant="outline" size="sm" onClick={() => setPasted((p) => (p === null ? '' : null))}>Paste a list</Button>
+              {pasteMsg && <span className="text-xs text-ink-muted">{pasteMsg}</span>}
             </div>
+            {pasted !== null && (
+              <div className="space-y-2 rounded-lg border border-border bg-surface-muted/50 p-3">
+                <Field label="One item per line: the item code, then the quantity (for example PL-001 24)">
+                  <textarea aria-label="Pasted list" rows={6} className="w-full rounded-lg border border-border-strong bg-surface p-2 text-sm" value={pasted} onChange={(e) => setPasted(e.target.value)} />
+                </Field>
+                <Button size="sm" disabled={!pasted.trim()} onClick={applyPaste}>Add these lines</Button>
+              </div>
+            )}
           </div>
           <p className="text-right text-sm">Total value <span className="ml-2 text-base font-semibold tabular-nums">{money(total)}</span></p>
+          {canApprove && (
+            <div className="space-y-2 rounded-lg border border-border px-3 py-2">
+              <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={catchUp} onChange={(e) => setCatchUp(e.target.checked)} /> The stock was already moved (a catch-up)</label>
+              {catchUp && (
+                <div className="space-y-1">
+                  <Field label="Date it was moved"><Input aria-label="Date it was moved" type="date" className="w-auto" max={iso(new Date())} min={iso(new Date(Date.now() - 90 * 86400000))} value={movedOn} onChange={(e) => setMovedOn(e.target.value)} /></Field>
+                  <p className="text-xs text-ink-muted">Records the move on that date, up to 90 days back, and updates both locations at once. It cannot be dated before a count already posted at either place.</p>
+                </div>
+              )}
+            </div>
+          )}
           <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-          <Button disabled={!to || over || tagsMissing || !entry.rows.some((l) => l.item && l.qty)} onClick={request}>{canApprove ? 'Transfer now' : 'Request transfer'}</Button>
+          <Button disabled={!to || over || tagsMissing || (catchUp && !movedOn) || !entry.rows.some((l) => l.item && l.qty)} onClick={request}>{catchUp ? 'Record the move' : canApprove ? 'Transfer now' : 'Request transfer'}</Button>
         </CardContent>
       </Card>
 

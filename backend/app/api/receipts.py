@@ -12,7 +12,7 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import Employee, InventoryItem, Location, Receipt, ReceiptLine, StockTransaction, Supplier, User
+from ..models import Employee, InventoryItem, ItemSupplier, Location, Receipt, ReceiptLine, StockTransaction, Supplier, User
 from ..pagination import paginate, row
 from ..services.inventory import StockError, post_txn
 from ..services.settings import get_setting
@@ -129,8 +129,8 @@ def _check_dates(db: Session, today: date, invoice_date: date | None, received_o
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "The goods cannot have been received in the future")
 
 
-@router.post("", status_code=201)
-def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
+def _post(db: Session, user: User, body: ReceiptIn) -> Receipt:
+    """Validates and posts a document and its ledger rows; the caller commits, so a failure can undo more than this."""
     check_location(user, db, body.location_id)
     supplier = db.get(Supplier, body.supplier_id)
     if not supplier or not supplier.active:
@@ -193,6 +193,8 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
         for ln, (gross, cut, net) in zip(body.lines, priced):
             item = items[ln.item_id]
             net_unit = _money(net / ln.qty) if net is not None else None
+            if body.doc_type == "receipt" and item.supplier_id != supplier.id and not db.get(ItemSupplier, (item.id, supplier.id)):
+                db.add(ItemSupplier(item_id=item.id, supplier_id=supplier.id))  # bought from them now, so they are one of its suppliers
             txn = post_txn(db, user, item, body.location_id, txn_type, ln.qty, reason, "receipt", receipt.id,
                            unit_cost=_per_unit(net * keep if net is not None else None, ln.qty) if body.doc_type == "receipt" else None)
             db.add(ReceiptLine(receipt_id=receipt.id, item_id=item.id, qty=ln.qty, unit_cost=ln.unit_cost,
@@ -208,6 +210,12 @@ def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")
           {"doc_type": body.doc_type, "supplier": supplier.name, "invoice": invoice, "lines": len(body.lines),
            "subtotal": str(subtotal), "discounts": str((line_discounts or 0) + (doc_discount or 0)), "total": str(total),
            "cost_updates": cost_changes})
+    return receipt
+
+
+@router.post("", status_code=201)
+def post_receipt(body: ReceiptIn, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
+    receipt = _post(db, user, body)
     db.commit()
     return _serialize(db, receipt, lines=True)
 
@@ -286,16 +294,39 @@ def void_receipt(receipt_id: int, body: VoidIn, user: User = Depends(require("st
                  db: Session = Depends(get_db)):
     """Reverses a posted document with new ledger entries; nothing already posted is edited."""
     receipt = _get(db, user, receipt_id)
+    _void(db, user, receipt, body.reason)
+    db.commit()
+    return _serialize(db, receipt, lines=True)
+
+
+def _void(db: Session, user: User, receipt: Receipt, why: str, action: str = "receipt.void") -> None:
     if receipt.status != "posted":
         raise HTTPException(status.HTTP_409_CONFLICT, "Document is already void")
     sign = -1 if receipt.doc_type == "receipt" else 1
-    reason = f"Void of {LABEL[receipt.doc_type].lower()} #{receipt.id}: {body.reason}"
+    reason = f"Void of {LABEL[receipt.doc_type].lower()} #{receipt.id}: {why}"
     for ln in db.scalars(select(ReceiptLine).where(ReceiptLine.receipt_id == receipt.id)):
         posted = db.get(StockTransaction, ln.transaction_id) if receipt.doc_type == "receipt" and ln.transaction_id else None
         paid = posted.unit_cost if posted else None
         post_txn(db, user, db.get(InventoryItem, ln.item_id), receipt.location_id, "adjustment", sign * ln.qty, reason,
                  "receipt_void", receipt.id, allow_negative=True, reverse_cost=paid)
-    receipt.status, receipt.voided_by, receipt.voided_at, receipt.void_reason = "void", user.id, timeutil.utc_now(), body.reason
-    audit(db, user, "receipt.void", "receipt", receipt.id, {"status": "posted"}, {"status": "void", "reason": body.reason})
+    receipt.status, receipt.voided_by, receipt.voided_at, receipt.void_reason = "void", user.id, timeutil.utc_now(), why
+    audit(db, user, action, "receipt", receipt.id, {"status": "posted"}, {"status": "void", "reason": why})
+
+
+class CorrectIn(ReceiptIn):
+    reason: str = Field(min_length=5, max_length=300)
+
+
+@router.post("/{receipt_id}/correct", status_code=201)
+def correct_receipt(receipt_id: int, body: CorrectIn, user: User = Depends(require("stock.approve")), db: Session = Depends(get_db)):
+    """Fixes the items, quantities, prices or discounts of a posted document: the old one is reversed and a corrected one posted in its place,
+    all or nothing, so the ledger keeps both and stock ends up as if the right document had been entered at first."""
+    old = _get(db, user, receipt_id)
+    if body.doc_type != old.doc_type:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A correction cannot change the kind of document")
+    _void(db, user, old, f"corrected: {body.reason}", "receipt.correct_void")
+    new = _post(db, user, ReceiptIn(**body.model_dump(exclude={"reason"})))
+    old.void_reason = f"Corrected by document #{new.id}: {body.reason}"
+    audit(db, user, "receipt.correct", "receipt", new.id, {"replaces": old.id}, {"reason": body.reason, "new_document": new.id})
     db.commit()
-    return _serialize(db, receipt, lines=True)
+    return _serialize(db, new, lines=True)

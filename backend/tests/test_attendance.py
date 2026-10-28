@@ -265,3 +265,22 @@ def test_my_schedule_marks_what_happened_on_past_days(client, login, db, clock):
     assert month["2026-03-09"]["outcome"] is None                                       # today, nothing punched yet
     unpunched = [d for d in month.values() if d["date"] < "2026-03-09" and not d["worked"] and any(not s["week_off"] for s in d["shifts"])]
     assert unpunched and all(d["outcome"] == "missed" for d in unpunched)                # rostered, no punch, no leave
+
+
+def test_leave_and_missed_attendance_can_be_recorded_without_choosing_a_location(client, login, db, clock):
+    m = login(MGR)
+    emp = next(e for e in client.get("/api/employees?size=100", headers=m).json()["items"] if e["email"] == "steward.mk@example.test")
+    off = client.post("/api/absences", json={"employee_id": emp["id"], "day": "2026-03-04", "absence_type": "day_off"}, headers=m)
+    assert off.status_code == 201, off.text
+    assert off.json()["location_id"] == emp["location_ids"][0]                                  # the place they work at
+    manual = client.post("/api/attendance/manual", json={"employee_id": emp["id"], "day": "2026-03-01", "check_in_time": "06:00:00",
+                                                         "check_out_time": "14:00:00", "reason": "Forgot to check in"}, headers=m)
+    assert manual.status_code == 201, manual.text
+    assert manual.json()["location_id"] == emp["location_ids"][0]
+    # an employee tied to no location works anywhere, so leave can be marked for them too
+    free = client.post("/api/employees", json={"full_name": "Free Roamer", "job_title": "Cook", "email": "free@example.com", "password": "a-long-test-password",
+                                               "role": "steward", "location_ids": []}, headers=m).json()
+    assert client.post("/api/absences", json={"employee_id": free["id"], "day": "2026-03-04", "absence_type": "sick_leave"}, headers=m).status_code == 201
+    # naming a location the employee does not work at is still refused
+    other = next(i for i in range(1, 10) if i not in emp["location_ids"])
+    assert client.post("/api/absences", json={"employee_id": emp["id"], "location_id": other, "day": "2026-03-05", "absence_type": "day_off"}, headers=m).status_code == 400

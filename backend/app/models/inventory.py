@@ -125,6 +125,26 @@ class InventoryCount(Base):
     month: Mapped[str | None] = mapped_column(String(7))  # YYYY-MM for reconciliation
 
 
+class ItemSupplier(Base):
+    """A supplier an item is also bought from, besides its preferred one; filled by hand and learned from posted invoices."""
+
+    __tablename__ = "item_supplier"
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("supplier.id"), primary_key=True, index=True)
+
+
+class CountDraft(Base):
+    """A person's unfinished count for one location, saved as they type so it survives leaving the page or changing phone."""
+
+    __tablename__ = "count_draft"
+    __table_args__ = (UniqueConstraint("user_id", "location_id", name="uq_count_draft_user_location"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("location.id"))
+    entries: Mapped[dict] = mapped_column(JSON, default=dict)  # item id -> {"qty": "12", "reason": "..."}
+    updated_at: Mapped[datetime] = ts()
+
+
 class InventoryCountLine(Base):
     __tablename__ = "inventory_count_line"
     __table_args__ = (UniqueConstraint("count_id", "item_id"),)

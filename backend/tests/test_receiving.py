@@ -347,3 +347,56 @@ def test_price_history_lists_each_invoice_price_with_the_change_and_a_summary(cl
     assert client.get("/api/inventory/items/9999/price-history", headers=m).status_code == 404
     assert client.get(f"/api/inventory/items/{pl}/price-history", headers=login("steward.mk@example.test")).status_code == 403   # prices are not for stewards
     assert client.get(f"/api/inventory/items/{item_id(db, 'PN-001')}/price-history", headers=m).json()["summary"] is None
+
+
+def test_a_posted_invoice_can_have_its_lines_corrected_all_or_nothing(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    pl, pn = item_id(db, "PL-001"), item_id(db, "PN-001")
+    start = balance(db, "PL-001", "MK")
+    first = receive(client, m, db, [{"item_id": pl, "qty": 24, "unit_cost": 2.75}], invoice="FIX-1", invoice_date="2026-02-20").json()
+    assert balance(db, "PL-001", "MK") == start + 24
+    body = {"supplier_id": first["supplier_id"], "location_id": first["location_id"], "invoice_number": "FIX-1", "invoice_date": "2026-02-20",
+            "lines": [{"item_id": pl, "qty": 20, "unit_cost": 3.0}, {"item_id": pn, "qty": 6, "unit_cost": 1.5}], "reason": "Quantity and price were mistyped"}
+    url = f"/api/receipts/{first['id']}/correct"
+    assert client.post(url, json=body, headers=sup).status_code == 403                                  # needs the right to void
+    made = client.post(url, json=body, headers=m)
+    assert made.status_code == 201, made.text
+    new = made.json()
+    assert new["invoice_number"] == "FIX-1" and new["total"] == 69.0 and new["status"] == "posted" and len(new["lines"]) == 2
+    db.expire_all()
+    assert balance(db, "PL-001", "MK") == start + 20                                                    # the old 24 reversed, the right 20 posted
+    old = client.get(f"/api/receipts/{first['id']}", headers=m).json()
+    assert old["status"] == "void" and f"#{new['id']}" in old["void_reason"]
+    posted = [r for r in client.get("/api/receipts?size=50", headers=m).json()["items"] if r["invoice_number"] == "FIX-1" and r["status"] == "posted"]
+    assert [r["id"] for r in posted] == [new["id"]]                                                     # one live document for the invoice
+    # a correction that cannot be posted changes nothing
+    bad = {**body, "lines": [{"item_id": 99999, "qty": 1, "unit_cost": 1}], "reason": "This should fail whole"}
+    assert client.post(f"/api/receipts/{new['id']}/correct", json=bad, headers=m).status_code == 400
+    db.expire_all()
+    assert balance(db, "PL-001", "MK") == start + 20
+    assert client.get(f"/api/receipts/{new['id']}", headers=m).json()["status"] == "posted"
+    # nor can it take another invoice's number
+    receive(client, m, db, [{"item_id": pl, "qty": 1, "unit_cost": 1}], invoice="OTHER-1")
+    clash = {**body, "invoice_number": "OTHER-1", "reason": "Wrong number on purpose"}
+    assert client.post(f"/api/receipts/{new['id']}/correct", json=clash, headers=m).status_code == 409
+    assert client.get(f"/api/receipts/{new['id']}", headers=m).json()["status"] == "posted"
+
+
+def test_an_item_can_have_a_preferred_supplier_and_others_and_learns_new_ones_from_invoices(client, login, db, clock):
+    m = login(MGR)
+    ids = suppliers(client)
+    names = list(ids)
+    assert len(names) >= 2
+    a, b = ids[names[0]], ids[names[1]]
+    pl = item_id(db, "PL-001")
+    shown = client.put(f"/api/inventory/items/{pl}", json={"supplier_id": a, "supplier_ids": [b, a]}, headers=m).json()      # the preferred one is not repeated
+    assert shown["supplier_id"] == a and shown["supplier_ids"] == [b] and shown["other_suppliers"] == [names[1]]
+    assert client.put(f"/api/inventory/items/{pl}", json={"supplier_ids": [99999]}, headers=m).status_code == 400
+    assert client.put(f"/api/inventory/items/{pl}", json={"supplier_ids": []}, headers=m).json()["supplier_ids"] == []
+    # buying from a supplier not yet listed adds them
+    receive(client, m, db, [{"item_id": pl, "qty": 5, "unit_cost": 2.0}], invoice="SUP-B", supplier=names[1])
+    again = [i for i in client.get("/api/inventory/items?size=200", headers=m).json()["items"] if i["id"] == pl][0]
+    assert again["supplier_ids"] == [b]
+    # buying from the preferred supplier does not list them twice
+    receive(client, m, db, [{"item_id": pl, "qty": 5, "unit_cost": 2.0}], invoice="SUP-A", supplier=names[0])
+    assert [i for i in client.get("/api/inventory/items?size=200", headers=m).json()["items"] if i["id"] == pl][0]["supplier_ids"] == [b]

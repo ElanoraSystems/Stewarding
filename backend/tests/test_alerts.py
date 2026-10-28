@@ -193,7 +193,8 @@ def test_daily_summary_is_sent_after_eight_local_once_per_day(client, login, db,
     run(db, clock)
     mk = [n for n in notes(db, "daily_summary") if n.location_id == loc_id(db, "MK")]
     assert mk and emails(db, mk) == {"manager@example.test", "sup.mk@example.test"}
-    assert "critical" in mk[0].title
+    assert "critical" in mk[0].title and "pending" in mk[0].title and "0 " not in mk[0].title      # only the kinds that exist are named
+    assert "Check overdue" in mk[0].body                                                         # and the body says what each item is
     run(db, clock)
     assert len([n for n in notes(db, "daily_summary") if n.location_id == loc_id(db, "MK")]) == len(mk)
 
@@ -251,3 +252,17 @@ def test_turning_off_a_monitoring_point_stops_its_alerts_and_closes_the_open_one
     before = len(notes(db, "monitoring_overdue"))
     run(db, clock)
     assert len(notes(db, "monitoring_overdue")) == before                                              # and nothing new while it is off
+
+
+def test_a_night_shift_in_progress_is_not_listed_as_a_missed_checkout_in_the_digest(client, login, db, clock):
+    from app.services import summary
+    night = Shift(name="Night", start_time=time(17, 0), end_time=time(5, 0), kind="work")
+    db.add(night)
+    db.flush()
+    emp = db.scalar(select(Employee).where(Employee.email == "steward.mk@example.test"))
+    rec = AttendanceRecord(employee_id=emp.id, location_id=loc_id(db, "MK"), shift_id=night.id, local_date=datetime(2026, 3, 2).date(),
+                           check_in_at=datetime(2026, 3, 2, 14, 0), open_flag=1)                  # 18:00 Dubai
+    db.add(rec)
+    db.commit()
+    assert not summary.checkout_overdue(db, rec, datetime(2026, 3, 2, 23, 0))                     # 03:00 Dubai, mid-shift
+    assert summary.checkout_overdue(db, rec, datetime(2026, 3, 3, 3, 30))                         # 07:30 Dubai

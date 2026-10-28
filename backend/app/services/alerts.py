@@ -53,17 +53,10 @@ def missing_checkins(db: Session, location: Location, now: datetime) -> int:
 
 def missed_checkouts(db: Session, now: datetime) -> int:
     """Someone still checked in well after their shift should have ended (or, with no shift, a long time after checking in)."""
-    limit = timedelta(hours=get_setting(db, "attendance.missed_checkout_hours"))
-    after_shift = timedelta(hours=get_setting(db, "attendance.missed_checkout_after_shift_hours"))
     created = 0
     for rec in db.scalars(select(AttendanceRecord).where(AttendanceRecord.open_flag == 1)):
-        shift = db.get(Shift, rec.shift_id) if rec.shift_id else None
-        if shift:
-            ends = timeutil.shift_end_utc(rec.local_date, shift.start_time, shift.end_time, db.get(Location, rec.location_id).timezone)
-            if now <= max(ends, rec.check_in_at) + after_shift:
-                continue  # a night shift is not over until the morning
-        elif now - rec.check_in_at <= limit:
-            continue
+        if not summary.checkout_overdue(db, rec, now):
+            continue  # a night shift is not over until the morning
         emp = db.get(Employee, rec.employee_id)
         targets = recipients(db, rec.location_id, SUPERVISOR, MANAGER) + ([emp.user_id] if emp.user_id else [])
         created += notify(db, targets, "missed_checkout", f"{emp.full_name} has not checked out", key=f"missedout:{rec.id}",
@@ -197,8 +190,12 @@ def daily_summary(db: Session, location: Location, now: datetime) -> int:
     if not items:
         return 0
     counts = summary.grouped(items)["by_urgency"]
+    parts = [f"{counts[u]} {label}" for u, label in (("critical", "critical"), ("high", "high priority"), ("normal", "other")) if counts[u]]
+    shown = [f"{'!! ' if i['urgency'] == 'critical' else '! ' if i['urgency'] == 'high' else ''}{i['description']} ({i['responsible']})" for i in items[:4]]
+    more = len(items) - len(shown)
+    body = "\n".join(shown + ([f"and {more} more"] if more > 0 else []))
     return notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "daily_summary",
-                  f"Pending activities - {location.name}: {counts['critical']} critical, {counts['high']} high, {counts['normal']} other",
+                  f"{location.name} - pending: {', '.join(parts)}", body=body,
                   key=f"summary:{location.id}:{day}", location_id=location.id, link="/tasks")
 
 

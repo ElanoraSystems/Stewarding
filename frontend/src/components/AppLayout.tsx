@@ -16,6 +16,7 @@ import { useTheme } from '@/lib/theme'
 import { useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
 import { setCurrency } from '@/lib/money'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 const ICONS: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -142,7 +143,7 @@ export function AppLayout() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pb-8 lg:px-6">
-          <Outlet />
+          <ErrorBoundary key={pathname}><Outlet /></ErrorBoundary>
         </main>
       </div>
     </div>

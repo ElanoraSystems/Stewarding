@@ -1,7 +1,7 @@
 import re
 from typing import Literal
 from collections import defaultdict
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,7 +13,7 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
-from ..models import (ApprovalRecord, InventoryBalance, InventoryCount, InventoryCountLine, InventoryItem,
+from ..models import (ApprovalRecord, CountDraft, InventoryBalance, InventoryCount, InventoryCountLine, InventoryItem,
                       InventoryTransfer, InventoryTransferLine, Location, StockTransaction, TrackedAsset, User)
 from ..pagination import row
 from ..permissions import MANAGER, SUPERVISOR
@@ -41,6 +41,7 @@ class TransferIn(BaseModel):
     to_location_id: int
     lines: list[LineIn] = Field(min_length=1)
     note: str | None = Field(default=None, max_length=500)
+    moved_on: date | None = None  # a catch-up: the stock was already moved by hand on this day
 
 
 class DecisionIn(BaseModel):
@@ -74,13 +75,13 @@ def _transfer_dict(db: Session, transfer: InventoryTransfer) -> dict:
     return {**row(transfer, *TRANSFER_FIELDS), "lines": out, "total_value": round(sum(l["value"] or 0 for l in out), 3)}
 
 
-def _execute_transfer(db: Session, user: User, transfer: InventoryTransfer) -> None:
+def _execute_transfer(db: Session, user: User, transfer: InventoryTransfer, occurred_at: datetime | None = None) -> None:
     for line in db.scalars(select(InventoryTransferLine).where(InventoryTransferLine.transfer_id == transfer.id)):
         item = db.get(InventoryItem, line.item_id)
         sent = post_txn(db, user, item, transfer.from_location_id, "transfer_out", line.qty, transfer.note,
-                        "transfer", transfer.id)
+                        "transfer", transfer.id, occurred_at=occurred_at)
         post_txn(db, user, item, transfer.to_location_id, "transfer_in", line.qty, transfer.note,
-                 "transfer", transfer.id, unit_cost=sent.unit_cost)
+                 "transfer", transfer.id, unit_cost=sent.unit_cost, occurred_at=occurred_at)
         for asset in db.scalars(select(TrackedAsset).where(TrackedAsset.id.in_(line.asset_ids or []))):
             if asset.location_id != transfer.from_location_id:
                 raise StockError(f"Asset {asset.asset_tag} is no longer at the sending location")
@@ -128,6 +129,27 @@ def _check_assets(db: Session, body: TransferIn, wanted: dict[int, int]) -> None
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{item.name}: every tag must be one of its assets at the sending location")
 
 
+CATCH_UP_DAYS = 90
+
+
+def _catch_up_time(db: Session, user: User, body: TransferIn) -> datetime:
+    """When a transfer that already happened is placed in the ledger: midday of that day at the sender (or now, for today)."""
+    if "stock.approve" not in permissions_of(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only someone who can approve transfers can record one that already happened")
+    source = db.get(Location, body.from_location_id)
+    now = timeutil.utc_now()
+    today = timeutil.local_date(now, source.timezone)
+    if body.moved_on > today or body.moved_on < today - timedelta(days=CATCH_UP_DAYS):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"The move must be dated today or within the last {CATCH_UP_DAYS} days")
+    moved = min(timeutil.local_to_utc(body.moved_on, time(12, 0), source.timezone), now)
+    counted = db.scalar(select(func.max(InventoryCount.counted_at)).where(
+        InventoryCount.status == "posted", InventoryCount.location_id.in_([body.from_location_id, body.to_location_id])))
+    if counted and moved < counted:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"A count was posted on {counted.date().isoformat()}, after that day. "
+                            "Date the move on or after the count, or leave the stock as the count left it")
+    return moved
+
+
 @router.post("/transfers", status_code=201)
 def request_transfer(body: TransferIn, user: User = Depends(require("stock.transfer")), db: Session = Depends(get_db)):
     check_location(user, db, body.from_location_id)
@@ -153,15 +175,18 @@ def request_transfer(body: TransferIn, user: User = Depends(require("stock.trans
             db.commit()
             raise HTTPException(status.HTTP_409_CONFLICT, message)
     _check_assets(db, body, wanted)
+    moved_at, note = None, body.note
+    if body.moved_on:
+        moved_at, note = _catch_up_time(db, user, body), f"Catch-up, moved on {body.moved_on.isoformat()}" + (f". {body.note}" if body.note else "")
     transfer = InventoryTransfer(from_location_id=body.from_location_id, to_location_id=body.to_location_id,
-                                 requested_by=user.id, requested_at=timeutil.utc_now(), note=body.note)
+                                 requested_by=user.id, requested_at=moved_at or timeutil.utc_now(), note=note)
     db.add(transfer)
     db.flush()
     db.add_all(InventoryTransferLine(transfer_id=transfer.id, item_id=ln.item_id, qty=ln.qty, asset_ids=ln.asset_ids or None) for ln in body.lines)
     db.flush()
     if "stock.approve" in permissions_of(user):
         try:
-            _execute_transfer(db, user, transfer)
+            _execute_transfer(db, user, transfer, moved_at)
         except StockError as exc:
             db.rollback()
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
@@ -250,6 +275,40 @@ def count_limits(location_id: int, user: User = Depends(require("inventory.count
              **(parts[i] if i in parts else {"invoices": 0, "opening": 0, "transfers_in": 0})} for i in ids]
 
 
+class DraftEntry(BaseModel):
+    qty: str = Field(default="", max_length=12)
+    reason: str = Field(default="", max_length=500)
+
+
+class DraftIn(BaseModel):
+    location_id: int
+    entries: dict[int, DraftEntry] = Field(default_factory=dict, max_length=5000)
+
+
+@router.get("/count-draft")
+def read_count_draft(location_id: int, user: User = Depends(require("inventory.count")), db: Session = Depends(get_db)):
+    """The caller's unfinished count at a location, as saved while they typed."""
+    check_location(user, db, location_id)
+    draft = db.scalar(select(CountDraft).where(CountDraft.user_id == user.id, CountDraft.location_id == location_id))
+    return {"entries": draft.entries if draft else {}, "updated_at": draft.updated_at.isoformat() + "Z" if draft else None}
+
+
+@router.put("/count-draft")
+def save_count_draft(body: DraftIn, user: User = Depends(require("inventory.count")), db: Session = Depends(get_db)):
+    check_location(user, db, body.location_id)
+    entries = {str(i): e.model_dump() for i, e in body.entries.items() if e.qty.strip() or e.reason.strip()}
+    draft = db.scalar(select(CountDraft).where(CountDraft.user_id == user.id, CountDraft.location_id == body.location_id))
+    if not entries:
+        if draft:
+            db.delete(draft)
+    elif draft:
+        draft.entries, draft.updated_at = entries, timeutil.utc_now()
+    else:
+        db.add(CountDraft(user_id=user.id, location_id=body.location_id, entries=entries, updated_at=timeutil.utc_now()))
+    db.commit()
+    return {"saved": len(entries)}
+
+
 @router.post("/counts", status_code=201)
 def create_count(body: CountIn, user: User = Depends(require("inventory.count")), db: Session = Depends(get_db)):
     check_location(user, db, body.location_id)
@@ -288,6 +347,9 @@ def create_count(body: CountIn, user: User = Depends(require("inventory.count"))
                f"Count surplus at {location.name}: {item.name} counted {counted}, system {book}",
                key=f"surplus:{count.id}:{item.id}", priority="high", location_id=location.id, link="/stock-movements", requires_ack=True,
                body=f"Counted by {user.email}. A manager decides whether to post it.")
+    draft = db.scalar(select(CountDraft).where(CountDraft.user_id == user.id, CountDraft.location_id == location.id))
+    if draft:
+        db.delete(draft)  # the count is saved properly, so the working copy is done with
     db.commit()
     return _count_dict(db, count)
 

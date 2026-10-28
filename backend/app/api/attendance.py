@@ -18,7 +18,7 @@ from .. import timeutil
 from ..audit import audit
 from ..config import settings
 from ..db import get_db
-from ..deps import check_location, permissions_of, require, role_names, scoped_locations
+from ..deps import check_location, employee_place, permissions_of, require, role_names, scoped_locations
 from ..models import (AbsenceRecord, AttendanceCorrection, AttendanceRecord, ChecklistInstance, ChecklistTask, Employee,
                       EmployeeLocation, FaceChallenge, Location, Shift, ShiftAssignment, User)
 from ..pagination import iso, paginate, row
@@ -202,7 +202,7 @@ MANUAL_PREFIX = "Manual entry by manager"
 
 class ManualIn(BaseModel):
     employee_id: int
-    location_id: int
+    location_id: int | None = None  # left out: where the employee works
     day: date
     check_in_time: time
     check_out_time: time
@@ -488,13 +488,10 @@ def list_attendance(location_id: int | None = None, employee_id: int | None = No
 @router.post("/manual", status_code=201)
 def add_manual(body: ManualIn, user: User = Depends(require("attendance.correct")), db: Session = Depends(get_db)):
     """A manager records the punch in and out an employee missed; it counts as a present day like any other."""
-    check_location(user, db, body.location_id)
-    location = db.get(Location, body.location_id)
     emp = db.get(Employee, body.employee_id)
-    works_here = emp and db.scalar(select(EmployeeLocation.employee_id).where(
-        EmployeeLocation.employee_id == emp.id, EmployeeLocation.location_id == location.id))
-    if not works_here or emp.status != "active":
+    if not emp or emp.status != "active":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Employee is not active at this location")
+    location = employee_place(user, db, emp, body.location_id)
     now = timeutil.utc_now()
     today = timeutil.local_date(now, location.timezone)
     if not (today - timedelta(days=MANUAL_DAYS_BACK) <= body.day <= today):
