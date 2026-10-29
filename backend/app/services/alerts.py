@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee, Equipment,
+from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
                       CountRound, EquipmentSchedule, Location, Notification, RoundCount, Shift, ShiftAssignment, TemperatureReading)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
@@ -74,8 +74,10 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
     tz = location.timezone
     rows = db.execute(
         select(ChecklistInstance, ChecklistTask).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
+        .join(ChecklistTemplate, ChecklistTemplate.id == ChecklistTask.template_id)
         .where(ChecklistInstance.location_id == location.id, ChecklistInstance.status.in_(OPEN + ("overdue",)),
-               ChecklistInstance.due_at.is_not(None))).all()
+               ChecklistInstance.due_at.is_not(None), ChecklistTask.active.is_(True),
+               ChecklistTemplate.active.is_(True))).all()  # a task or checklist turned off sends nothing, even for work already created today
     groups: dict[datetime, list[tuple[ChecklistInstance, ChecklistTask]]] = {}
     if is_closed(db, location.id, timeutil.local_date(now, tz)):
         return 0  # the place is closed today, so nothing is expected
@@ -213,7 +215,27 @@ def close_stale_alerts(db: Session, now: datetime) -> int:
     live_schedules = set(db.scalars(select(EquipmentSchedule.id).where(EquipmentSchedule.active.is_(True),
                                                                       EquipmentSchedule.equipment_id.in_(live_equipment or {0}))))
     still_open = set(db.scalars(select(AttendanceRecord.id).where(AttendanceRecord.open_flag == 1)))
+    live_tasks = db.execute(
+        select(ChecklistInstance.id, ChecklistInstance.location_id, ChecklistInstance.due_at)
+        .join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
+        .join(ChecklistTemplate, ChecklistTemplate.id == ChecklistTask.template_id)
+        .where(ChecklistInstance.status.in_(OPEN + ("overdue",)), ChecklistTask.active.is_(True), ChecklistTemplate.active.is_(True))).all()
+    live_task_ids = {i for i, _, _ in live_tasks}
+    live_groups = {f"{loc}:{due:%Y%m%d%H%M}" for _, loc, due in live_tasks if due}
     closed = 0
+    for n in db.scalars(select(Notification).where(Notification.resolved_at.is_(None), Notification.kind.in_(
+            ("task_due_soon", "task_overdue", "task_escalated")))):
+        prefix, _, rest = n.dedupe_key.partition(":")
+        if prefix in ("approach", "overdue", "esc_sup", "esc_mgr"):
+            gone = rest not in live_groups
+        elif prefix in ("taskover", "esc_task") and rest.isdigit():
+            gone = int(rest) not in live_task_ids
+        else:
+            continue
+        if gone:  # nothing is open any more (checklist turned off, or the work was done)
+            n.resolved_at = now
+            n.read_at = n.read_at or now
+            closed += 1
     for n in db.scalars(select(Notification).where(Notification.resolved_at.is_(None), Notification.kind.in_(
             ("monitoring_due", "monitoring_overdue", "retest_due", "monitoring_escalated", "time_out_missing", "missed_checkout")))):
         prefix, _, rest = n.dedupe_key.partition(":")

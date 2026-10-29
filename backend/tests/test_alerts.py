@@ -2,7 +2,7 @@ from sqlalchemy import select
 
 from datetime import datetime, time
 
-from app.models import AttendanceRecord, CorrectiveAction, Employee, Equipment, Notification, Shift, User
+from app.models import AttendanceRecord, ChecklistTemplate, CorrectiveAction, Employee, Equipment, Notification, Shift, User
 from app.scheduler import run_cycle
 from app.services.alerts import run_alerts
 
@@ -94,6 +94,20 @@ def test_checklist_reminder_overdue_and_escalation_timeline(client, login, db, c
     count = len(db.scalars(select(Notification)).all())
     run(db, clock)
     assert len(db.scalars(select(Notification)).all()) == count
+
+
+def test_turned_off_checklists_send_no_alerts_and_close_the_ones_already_sent(client, login, db, clock):
+    no_grace(client, login)
+    generate(client, login, db)
+    clock.set(2026, 3, 2, 11, 31)  # 121 minutes late: everything has escalated to the manager
+    run(db, clock)
+    assert any(n.priority == "critical" and n.resolved_at is None for n in notes(db, "task_escalated"))
+    for template in db.scalars(select(ChecklistTemplate)):
+        template.active = False  # work created earlier today is still open, but its checklist is now off
+    db.commit()
+    run(db, clock)
+    alerts = [n for kind in ("task_due_soon", "task_overdue", "task_escalated") for n in notes(db, kind)]
+    assert alerts and all(n.resolved_at is not None for n in alerts)
 
 
 def test_reminder_lead_time_is_configurable(client, login, db, clock):
