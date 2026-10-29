@@ -63,6 +63,19 @@ class ChecklistInstance(Base):
     waive_reason: Mapped[str | None] = mapped_column(Text)
 
 
+class ClosedDay(Base):
+    """A day (or run of days) a location is closed, or every location when none is named: its tasks and checks are not expected and send no alerts."""
+
+    __tablename__ = "closed_day"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"), index=True)
+    start_date: Mapped[date] = mapped_column(Date, index=True)
+    end_date: Mapped[date] = mapped_column(Date)
+    reason: Mapped[str] = mapped_column(String(200))
+    created_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    created_at: Mapped[datetime] = ts()
+
+
 class TaskAssignment(Base):
     __tablename__ = "task_assignment"
     id: Mapped[int] = mapped_column(primary_key=True)

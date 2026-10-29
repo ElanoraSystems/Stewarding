@@ -12,7 +12,7 @@ from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, Che
                       InventoryTransfer, Location, TemperatureReading, User)
 from ..permissions import STEWARD
 from ..services import metrics
-from ..services.checklists import OPEN, effective_status
+from ..services.checklists import OPEN, effective_status, overdue_after
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
 from ..services.monitoring import CLOSED_ACTIONS, due_checks, failure_count, failure_counts
@@ -73,7 +73,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
     daily = _sum_compliance([metrics.checklist_stats(db, w, now, not_frequency="weekly") for w in today_wins])
     weekly = _sum_compliance([metrics.checklist_stats(db, w, now, frequency="weekly") for w in week_wins])
     overdue_stmt = select(func.count()).select_from(ChecklistInstance).where(
-        ChecklistInstance.status.in_(OPEN + ("overdue",)), ChecklistInstance.due_at < now)
+        ChecklistInstance.status.in_(OPEN + ("overdue",)), ChecklistInstance.due_at < overdue_after(db, now))
     if location_id is not None:
         overdue_stmt = overdue_stmt.where(ChecklistInstance.location_id == location_id)
     elif scope is not None:
@@ -248,7 +248,7 @@ def _steward_view(db: Session, user: User, now: datetime) -> dict:
                                           or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role.in_(role_names(user))))))
                           .order_by(ChecklistInstance.due_at)).all()
         for inst, task in rows:
-            state = effective_status(inst, now)
+            state = effective_status(inst, overdue_after(db, now))
             tasks[state] += 1
             if state not in ("completed", "verified", "waived", "pending_verification"):
                 task_rows.append({"id": inst.id, "description": task.description, "status": state,

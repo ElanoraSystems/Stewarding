@@ -133,6 +133,61 @@ class ItemSupplier(Base):
     supplier_id: Mapped[int] = mapped_column(ForeignKey("supplier.id"), primary_key=True, index=True)
 
 
+class CountRound(Base):
+    """A stock count over every location, done over a day or two and checked as one pool before anything is posted."""
+
+    __tablename__ = "count_round"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(20), default="counting", index=True)  # counting | posted | cancelled
+    home_location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"))  # no longer used: stock is placed from what the books hold
+    baseline: Mapped[bool] = mapped_column(Boolean, default=False)  # the first round: the gap is the starting point, not a cost
+    deadline: Mapped[date | None] = mapped_column(Date)
+    created_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    created_at: Mapped[datetime] = ts()
+    posted_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+class RoundCount(Base):
+    """One location's part of a round."""
+
+    __tablename__ = "round_count"
+    __table_args__ = (UniqueConstraint("round_id", "location_id", name="uq_round_count_location"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    round_id: Mapped[int] = mapped_column(ForeignKey("count_round.id"), index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("location.id"))
+    status: Mapped[str] = mapped_column(String(20), default="counting")  # counting | done
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class RoundCountLine(Base):
+    __tablename__ = "round_count_line"
+    __table_args__ = (UniqueConstraint("round_count_id", "item_id", name="uq_round_count_line_item"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    round_count_id: Mapped[int] = mapped_column(ForeignKey("round_count.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), index=True)
+    qty: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str | None] = mapped_column(Text)  # why the pool total is above what the books hold
+
+
+class RoundReview(Base):
+    """A manager's decision on one item's unaccounted stock in a round."""
+
+    __tablename__ = "round_review"
+    __table_args__ = (UniqueConstraint("round_id", "item_id", name="uq_round_review_item"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    round_id: Mapped[int] = mapped_column(ForeignKey("count_round.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"))
+    decision: Mapped[str] = mapped_column(String(20))  # approved | recount
+    decided_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    decided_at: Mapped[datetime] = ts()
+    note: Mapped[str | None] = mapped_column(Text)
+
+
 class CountDraft(Base):
     """A person's unfinished count for one location, saved as they type so it survives leaving the page or changing phone."""
 

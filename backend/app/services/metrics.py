@@ -11,6 +11,7 @@ from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, ChecklistTemplate,
                       CorrectiveAction, Employee, Equipment, EquipmentSchedule, InventoryBalance, InventoryCategory, InventoryItem,
                       InventoryTransfer, InventoryTransferLine, Location, Receipt, ReceiptLine, Shift, ShiftAssignment, StockTransaction, Supplier, TemperatureReading)
+from .checklists import overdue_after
 from .inventory import level_map
 from .settings import get_setting
 from .monitoring import CLOSED_ACTIONS, expected_slots, has_reading, window_low
@@ -102,8 +103,9 @@ def checklist_stats(db: Session, win: Win, now: datetime, employee_id: int | Non
     counts: Counter = Counter()
     per_day: dict[date, Counter] = defaultdict(Counter)
     rows_out = []
+    late_now = overdue_after(db, now)
     for inst, task, tpl in rows:
-        state = classify(inst, now)
+        state = classify(inst, late_now)
         counts[state] += 1
         per_day[inst.local_date][state] += 1
         rows_out.append((inst, task, tpl, state))

@@ -162,11 +162,12 @@ def received_to_date(db: Session, location_id: int, item_ids: list[int]) -> dict
     return {item_id: max(sum(parts.values()), 0) for item_id, parts in received_breakdown(db, location_id, item_ids).items()}
 
 
-def ledger_kind(split_writeoffs: bool = False):
+def ledger_kind(split_writeoffs: bool = False):  # a first count round's accepted gap is its own line: not used stock, and not part of the opening
     """What a ledger row means for the reports: goods sent back to a supplier are returns, and a voided invoice or return reverses its own kind,
     rather than being read as stock used up or a count adjustment. With `split_writeoffs`, stock reported missing or written off is its own kind."""
     return case(
         *([(and_(StockTransaction.ref_type == "breakage", StockTransaction.txn_type == "adjustment"), "writeoff")] if split_writeoffs else []),
+        (StockTransaction.ref_type == "count_baseline", "baseline"),
         (and_(StockTransaction.ref_type == "receipt", StockTransaction.txn_type == "issue"), "return"),
         (and_(StockTransaction.ref_type == "receipt_void", StockTransaction.qty_delta < 0), "receipt"),
         (StockTransaction.ref_type == "receipt_void", "return"),
@@ -227,14 +228,14 @@ def reconcile(db: Session, location: Location, month: str) -> list[dict]:
             "opening_stock": mine["opening"], "receipts": mine["receipt"], "returns": mine["return"],
             "issues": mine["issue"], "breakage_damage": mine["breakage"] + mine["damage"],
             "transfers_in": mine["transfer_in"], "transfers_out": mine["transfer_out"],
-            "adjustments": mine["adjustment"],
+            "adjustments": mine["adjustment"] + mine["baseline"],
         }
         closing = before[item.id] + sum(movements.values())
         worth_mine = during_value[item.id]
         values = {
             "receipts_value": worth_mine["receipt"], "returns_value": worth_mine["return"], "issues_value": worth_mine["issue"],
             "breakage_damage_value": worth_mine["breakage"] + worth_mine["damage"], "transfers_in_value": worth_mine["transfer_in"],
-            "transfers_out_value": worth_mine["transfer_out"], "adjustments_value": worth_mine["adjustment"],
+            "transfers_out_value": worth_mine["transfer_out"], "adjustments_value": worth_mine["adjustment"] + worth_mine["baseline"],
             "opening_stock_value": worth_mine["opening"]}
         closing_value = before_value[item.id] + sum(worth_mine.values())
         line = last_count.get(item.id)

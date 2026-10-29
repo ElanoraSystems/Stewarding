@@ -24,6 +24,7 @@ export const REPORTS: ReportDef[] = [
   { key: 'movements', title: 'Stock issues and movements', section: 'Stock', filters: ['movement', 'item'] },
   { key: 'stock_cost', title: 'Stock cost report', section: 'Stock', filters: [] },
   { key: 'stock_cost_category', title: 'Stock cost by category', section: 'Stock', filters: [] },
+  { key: 'inventory_detail', title: 'Detailed inventory report (by location and item)', section: 'Stock', filters: [] },
   { key: 'summary', title: 'Operations summary', section: 'Overview', filters: [], summary: true },
 ]
 

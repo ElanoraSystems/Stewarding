@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..models import (CorrectiveAction, Equipment, EquipmentSchedule, Location, Notification, Shift,
                       TemperatureReading)
+from .checklists import is_closed
 from .reference import locations_by_id, shifts_by_id
 from .settings import get_setting
 
@@ -138,6 +139,8 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
     for eq in active:
         tz = locations[eq.location_id].timezone
         day = timeutil.local_date(now, tz)
+        if is_closed(db, eq.location_id, day):
+            continue  # a closed day expects no checks
         day_start = timeutil.local_to_utc(day, time(0, 0), tz)
         end_of_day = timeutil.local_to_utc(day + timedelta(days=1), time(0, 0), tz)
         for sched in schedules[eq.id]:

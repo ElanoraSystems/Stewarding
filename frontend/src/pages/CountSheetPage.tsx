@@ -17,7 +17,7 @@ export function CountSheetPage() {
   const locationId = Number(params.get('location_id')) || null
   const [group, setGroup] = useState<'storage' | 'category'>('storage')
   const [showSystem, setShowSystem] = useState(false)  // a blind count is more honest, so the book figure is off by default
-  const [onlyHere, setOnlyHere] = useState(true)
+  const [onlyHere, setOnlyHere] = useState(params.get('all') !== '1')  // a round counts every item that exists, so its sheet lists them all
   const { items } = useAllItems()
   const limits = useApi<Limit[]>(locationId ? `/stock/count-limits${qs({ location_id: locationId })}` : null).data
   const org = useApi<{ name: string }>('/organization').data
@@ -53,7 +53,7 @@ export function CountSheetPage() {
         <p className="text-sm">Printed {fmtDate(new Date().toISOString().slice(0, 10))}. Counted by ______________________ Date ______________ Checked by ______________________</p>
       </header>
 
-      {groups.length === 0 && <p className="text-sm">Nothing to count{locationId ? '' : ': open this from the Physical counts tab after choosing a location'}.</p>}
+      {groups.length === 0 && <p className="text-sm">Nothing to count{locationId ? '' : ': open this from a count round, using Print count sheet'}.</p>}
       {groups.map(([name, rows]) => (
         <section key={name} className="mb-5">
           <h2 className="border-b border-black text-base font-bold">{name} <span className="text-sm font-normal">({rows.length})</span></h2>

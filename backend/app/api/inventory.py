@@ -18,6 +18,7 @@ from ..models import (ItemSupplier, Employee, InventoryBalance, InventoryCategor
                       Receipt, ReceiptLine, StockTransaction, Supplier, TrackedAsset, User)
 from ..pagination import paginate, row
 from ..services.costing import last_purchases
+from ..services.history import item_history
 from ..services.inventory import StockError, counts_as_received, level_map, norm, places_in, post_txn, shortage_rows, unheld_items
 from .uploads import MAX_BYTES, file_kind, upload_path
 from ..services.similarity import SCAN_LIMIT, compact, find_similar, token_key, tokens
@@ -267,6 +268,43 @@ def _serialize_items(db: Session, user: User, items: list[InventoryItem], scope:
             entry["value"] = round(sum(float(q * c) for q, c in held if c is not None), 3) if any(c is not None for _, c in held) else None
         out.append(entry)
     return out
+
+
+def _history(db: Session, user: User, item_id: int, location_id: int | None, date_from: date | None, date_to: date | None) -> tuple[InventoryItem, dict]:
+    item = get_item_or_404(db, item_id)
+    scope = _scope(db, user, location_id)
+    return item, item_history(db, item_id, scope, date_from, date_to, _can_see_cost(user))
+
+
+@router.get("/items/{item_id}/history")
+def item_history_page(item_id: int, location_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
+                      page: int = 1, size: int = 50, user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
+    """Everything that ever happened to one item: totals by kind, and the movements with a running balance."""
+    item, story = _history(db, user, item_id, location_id, date_from, date_to)
+    size = min(max(size, 1), 200)
+    rows = story["rows"]
+    unit = db.scalar(select(InventoryUnit.name).where(InventoryUnit.id == item.unit_id))
+    on_hand = db.scalar(select(func.coalesce(func.sum(InventoryBalance.qty), 0)).where(InventoryBalance.item_id == item_id, *(
+        [InventoryBalance.location_id.in_(_scope(db, user, location_id))] if _scope(db, user, location_id) is not None else [])))
+    return {"item": {"id": item.id, "code": item.code, "name": item.name, "unit": unit}, **{k: v for k, v in story.items() if k != "rows"},
+            "on_hand_now": int(on_hand), "adds_up": story["closing"] == int(on_hand) if not date_to else None,
+            "total": len(rows), "rows": rows[(max(page, 1) - 1) * size: max(page, 1) * size]}
+
+
+@router.get("/items/{item_id}/history.csv")
+def item_history_csv(item_id: int, location_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
+                     user: User = Depends(require("inventory.module")), db: Session = Depends(get_db)):
+    import csv
+    import io
+    from fastapi.responses import Response
+
+    item, story = _history(db, user, item_id, location_id, date_from, date_to)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["When (UTC)", "Location", "What", "Quantity", "Balance", "Document", "Reason", "By"] + (["Unit cost"] if story["rows"] and "unit_cost" in story["rows"][0] else []))
+    for r in reversed(story["rows"]):
+        writer.writerow([r["at"], r["location"], r["label"], r["qty"], r["balance"], r["document"] or "", r["reason"] or "", r["by"] or ""] + ([r["unit_cost"]] if "unit_cost" in r else []))
+    return Response("\ufeff" + out.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{item.code}-history.csv"'})
 
 
 @router.get("/items/{item_id}/price-history")

@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee, Equipment,
-                      EquipmentSchedule, Location, Notification, Shift, ShiftAssignment, TemperatureReading)
+                      CountRound, EquipmentSchedule, Location, Notification, RoundCount, Shift, ShiftAssignment, TemperatureReading)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
-from .checklists import OPEN
+from .checklists import OPEN, alerts_for, is_closed, overdue_after
 from .inventory import shortage_rows
 from .notify import notify, recipients
 from .settings import get_setting
@@ -25,6 +25,8 @@ def missing_checkins(db: Session, location: Location, now: datetime) -> int:
     """Scheduled staff who have not checked in once their shift start plus grace has passed."""
     tz = location.timezone
     day = timeutil.local_date(now, tz)
+    if is_closed(db, location.id, day):
+        return 0
     rows = db.execute(
         select(ShiftAssignment, Employee, Shift).join(Employee, Employee.id == ShiftAssignment.employee_id)
         .join(Shift, Shift.id == ShiftAssignment.shift_id)
@@ -75,8 +77,12 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
         .where(ChecklistInstance.location_id == location.id, ChecklistInstance.status.in_(OPEN + ("overdue",)),
                ChecklistInstance.due_at.is_not(None))).all()
     groups: dict[datetime, list[tuple[ChecklistInstance, ChecklistTask]]] = {}
+    if is_closed(db, location.id, timeutil.local_date(now, tz)):
+        return 0  # the place is closed today, so nothing is expected
+    grace = now - overdue_after(db, now)
     for inst, task in rows:
-        groups.setdefault(inst.due_at, []).append((inst, task))
+        if alerts_for(db, task.priority):  # tasks below the chosen priority still show on screen, they just do not alert
+            groups.setdefault(inst.due_at, []).append((inst, task))
     created = 0
     for due, members in groups.items():
         stamp, label = due.strftime("%Y%m%d%H%M"), _hm(due, tz)
@@ -85,7 +91,7 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
         if due - lead <= now < due:
             created += notify(db, crew, "task_due_soon", f"{count} task(s) due at {label} - {location.name}",
                               key=f"approach:{location.id}:{stamp}", location_id=location.id, due_at=due, link="/checklists")
-        if now >= due:
+        if now >= due + grace:
             late = now - due
             created += notify(db, crew, "task_overdue", f"{count} task(s) overdue since {label} - {location.name}",
                               key=f"overdue:{location.id}:{stamp}", priority="high", location_id=location.id,
@@ -101,7 +107,7 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
                                   key=f"esc_mgr:{location.id}:{stamp}", priority="critical", location_id=location.id,
                                   due_at=due, link="/checklists", requires_ack=True)
         for inst, task in members:
-            if now >= due and inst.assigned_employee_id:
+            if now >= due + grace and inst.assigned_employee_id:
                 emp = db.get(Employee, inst.assigned_employee_id)
                 if emp and emp.user_id:
                     created += notify(db, [emp.user_id], "task_overdue", f"Your task is overdue: {task.description}",
@@ -161,7 +167,8 @@ def pending_time_outs(db: Session, now: datetime) -> int:
     """Warns about time-in entries (defrosting, cooling) still waiting for their time out after the set number of hours."""
     limit = get_setting(db, "temp.pending_alert_hours")
     created = 0
-    for entry in pending_entries(db, list(db.scalars(select(Equipment).where(Equipment.active.is_(True)))), now):
+    live = select(Equipment).join(Location, Location.id == Equipment.location_id).where(Equipment.active.is_(True), Location.active.is_(True))  # off means silent
+    for entry in pending_entries(db, list(db.scalars(live)), now):
         if limit and entry["minutes_open"] >= limit * 60:
             created += notify(db, recipients(db, entry["location_id"], SUPERVISOR, MANAGER), "time_out_missing",
                               f"Time out still missing: {entry['item'] or entry['equipment']} ({entry['equipment']}), open {entry['minutes_open'] // 60} h",
@@ -184,7 +191,7 @@ def daily_summary(db: Session, location: Location, now: datetime) -> int:
     """One pending-activities digest per location per local day, sent after 08:00 local time."""
     tz = location.timezone
     day = timeutil.local_date(now, tz)
-    if now < timeutil.local_to_utc(day, SUMMARY_HOUR, tz):
+    if now < timeutil.local_to_utc(day, SUMMARY_HOUR, tz) or is_closed(db, location.id, day):
         return 0
     items = summary.pending_items(db, {location.id}, now)
     if not items:
@@ -234,6 +241,22 @@ def close_stale_alerts(db: Session, now: datetime) -> int:
     return closed
 
 
+def round_reminders(db: Session, now: datetime) -> int:
+    """From the deadline of a count round, a daily reminder for every location that has not finished counting."""
+    created = 0
+    for round_ in db.scalars(select(CountRound).where(CountRound.status == "counting", CountRound.deadline.is_not(None))):
+        for rc in db.scalars(select(RoundCount).where(RoundCount.round_id == round_.id, RoundCount.status != "done")):
+            place = db.get(Location, rc.location_id)
+            today = timeutil.local_date(now, place.timezone)  # the deadline is a date at each place
+            if today < round_.deadline:
+                continue
+            created += notify(db, recipients(db, rc.location_id, SUPERVISOR, MANAGER), "round_overdue",
+                              f"Stock count not finished at {place.name} (round '{round_.name}', due {round_.deadline:%d %b})",
+                              key=f"roundlate:{round_.id}:{rc.location_id}:{today}", priority="high", location_id=rc.location_id,
+                              link="/stock-movements?tab=rounds")
+    return created
+
+
 def run_alerts(db: Session, now: datetime) -> dict[str, int]:
     totals = {"checkins": 0, "checklists": 0, "monitoring": 0, "summary": 0}
     for location in db.scalars(select(Location).where(Location.active.is_(True))):
@@ -245,5 +268,6 @@ def run_alerts(db: Session, now: datetime) -> dict[str, int]:
     totals["corrective"] = corrective_alerts(db, now)
     totals["low_stock"] = low_stock(db, now)
     totals["closed"] = close_stale_alerts(db, now)
+    totals["rounds"] = round_reminders(db, now)
     totals["pending_time_outs"] = pending_time_outs(db, now)
     return totals
