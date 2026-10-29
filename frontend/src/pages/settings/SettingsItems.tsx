@@ -1,4 +1,4 @@
-import { Pencil, Plus, Power, Search, Trash2, TrendingUp } from 'lucide-react'
+import { History, Pencil, Plus, Power, Search, Trash2, TrendingUp } from 'lucide-react'
 import { useState } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ItemThumb } from '@/components/ItemThumb'
@@ -21,6 +21,7 @@ import { useViewMode } from '@/lib/viewMode'
 import { ItemForm } from '@/pages/ItemForm'
 import { useMoney } from '@/lib/money'
 import { PriceTrend } from '@/pages/PriceTrend'
+import { ItemHistory } from '@/pages/ItemHistory'
 
 const SIZES = { cards: 12, grid: 24, list: 25 }
 
@@ -35,6 +36,7 @@ export function SettingsItems() {
   const SIZE = SIZES[view]
   const [editing, setEditing] = useState<Item | null>(null)
   const [trend, setTrend] = useState<Item | null>(null)
+  const [history, setHistory] = useState<Item | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [removing, setRemoving] = useState<Item | null>(null)
   const categories = useApi<{ id: number; name: string }[]>('/inventory/categories')
@@ -58,6 +60,7 @@ export function SettingsItems() {
   const openEdit = (item: Item) => { setEditing(item); setFormOpen(true) }
   const actionsOf = (i: Item) => [
     { label: 'Edit', icon: Pencil, onClick: () => openEdit(i) },
+    { label: 'History', icon: History, onClick: () => setHistory(i) },
     ...(i.avg_cost !== undefined ? [{ label: 'Price trend', icon: TrendingUp, onClick: () => setTrend(i) }] : []),
     { label: i.active ? 'Make inactive' : 'Make active', icon: Power, onClick: () => toggle(i) },
     { label: 'Delete', icon: Trash2, tone: 'danger' as const, onClick: () => setRemoving(i) },
@@ -155,6 +158,7 @@ export function SettingsItems() {
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
 
       {trend && <PriceTrend item={trend} onClose={() => setTrend(null)} />}
+      {history && <ItemHistory item={history} onClose={() => setHistory(null)} />}
       {formOpen && <ItemForm item={editing} open onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload() }} />}
 
       <ConfirmDialog open={removing !== null} title="Delete item" confirmLabel="Delete item"

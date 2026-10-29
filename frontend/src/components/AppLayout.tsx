@@ -1,6 +1,6 @@
 import {
   ArrowLeftRight, Bell, CalendarDays, ChartColumn, ClipboardCheck, Clock, GraduationCap, LayoutDashboard, LogIn, Package,
-  Menu, Moon, QrCode, ScrollText, Settings, Sun, Thermometer, TriangleAlert, Users, Wrench, X,
+  Menu, Moon, PanelLeftClose, PanelLeftOpen, QrCode, ScrollText, Settings, Sun, Thermometer, TriangleAlert, Users, Wrench, X,
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -68,6 +68,9 @@ export function AppLayout() {
     return () => window.removeEventListener('organization-changed', reloadOrg)
   }, [reloadOrg])
   const [open, setOpen] = useState(false)
+  // on wide screens the menu can be hidden to give the page the whole width; the choice is remembered on this device
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem('menu-hidden') === '1' } catch { return false } })
+  const toggleMenu = () => setHidden((h) => { try { localStorage.setItem('menu-hidden', h ? '0' : '1') } catch { /* private mode */ } return !h })
   if (!me) return null
 
   const known = new Set([...GROUPS.flatMap((g) => g.keys), ...IN_SETTINGS])
@@ -77,9 +80,10 @@ export function AppLayout() {
   const current = me.modules.find(({ key }) => (key === 'dashboard' ? pathname === '/' : pathname === `/${key}` || pathname.startsWith(`/${key}/`)))
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[17.5rem_1fr] lg:gap-2 lg:p-3">
+    <div className={cn('min-h-screen lg:grid lg:gap-2 lg:p-3', hidden ? 'lg:grid-cols-[1fr]' : 'lg:grid-cols-[17.5rem_1fr]')}>
       <aside
         className={cn(
+          hidden && 'lg:hidden',
           'fixed inset-y-0 left-0 z-30 flex w-72 flex-col bg-side text-white transition-transform lg:sticky lg:top-3 lg:h-[calc(100vh-1.5rem)] lg:w-auto lg:translate-x-0 lg:rounded-2xl',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
@@ -132,6 +136,9 @@ export function AppLayout() {
           <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" onClick={() => setOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>
+          <Button variant="ghost" size="icon" className="hidden lg:inline-flex" aria-label={hidden ? 'Show the menu' : 'Hide the menu'} onClick={toggleMenu}>
+            {hidden ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+          </Button>
           <nav aria-label="Breadcrumb" className="hidden text-sm text-ink-muted sm:block">
             {APP_NAME} <span aria-hidden>/</span> <span className="font-medium text-ink">{pathname.startsWith('/account') ? 'My profile' : current?.label ?? 'Home'}</span>
           </nav>
@@ -142,7 +149,7 @@ export function AppLayout() {
             <NotificationBell />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pb-8 lg:px-6">
+        <main className={cn('mx-auto w-full flex-1 px-4 pb-8 lg:px-6', hidden ? 'max-w-none lg:px-10' : 'max-w-[1400px]')}>
           <ErrorBoundary key={pathname}><Outlet /></ErrorBoundary>
         </main>
       </div>

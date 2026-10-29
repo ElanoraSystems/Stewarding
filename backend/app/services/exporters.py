@@ -122,7 +122,7 @@ def _weights(group: dict) -> list[float]:
         longest = max(len(word) for text in [*texts, label] for word in (text.split() or [""]))
         typical = sorted(len(text) for text in texts)[int(len(texts) * 0.8)]
         whole = max(len(text) for text in texts)
-        out.append(max(5.0, min(longest, 18) * 1.0, min(typical, 40) * 0.6, len(label) * 0.7, whole * 0.95 if whole <= 14 else 0))
+        out.append(max(5.0, min(longest, 18) * 1.25, min(typical, 40) * 0.6, len(label) * 0.7, whole * 0.95 if whole <= 14 else 0))
     return out
 
 
@@ -215,6 +215,16 @@ def record_to_csv(doc: dict) -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
+DECIMAL_TEXT = re.compile(r"^-?\d+\.(\d+)$")
+
+
+def _number(value):
+    """A figure written as text with decimals ("357.000", "-6.267") as a real number, shown with the same decimals, so Excel can add it up."""
+    if isinstance(value, str) and (m := DECIMAL_TEXT.match(value)):
+        return float(value), "#,##0." + "0" * len(m.group(1))
+    return value, None
+
+
 def record_to_xlsx(doc: dict) -> bytes:
     book = Workbook()
     book.remove(book.active)
@@ -243,7 +253,11 @@ def record_to_xlsx(doc: dict) -> bytes:
             cell.font = Font(bold=True)
             cell.fill = PatternFill("solid", fgColor="E8EEF0")
         for row in group["rows"]:
-            sheet.append([safe(_flat(row.get(key))) for key, _ in group["columns"]])
+            cells = [_number(_flat(row.get(key))) for key, _ in group["columns"]]
+            sheet.append([value if fmt else safe(value) for value, fmt in cells])
+            for cell, (_, fmt) in zip(sheet[sheet.max_row], cells):
+                if fmt:
+                    cell.number_format = fmt
             if group.get("layout") == "chart":
                 for cell in sheet[sheet.max_row]:
                     state = next((s for s, sym in SYMBOLS.items() if isinstance(cell.value, str) and cell.value.startswith(sym) and s != "na"), None)
@@ -251,7 +265,10 @@ def record_to_xlsx(doc: dict) -> bytes:
                         cell.fill = PatternFill("solid", fgColor=FILLS[state])
         sheet.append([])
         for label, value in group["totals"]:
-            sheet.append([label, value])
+            number, fmt = _number(value)
+            sheet.append([label, number])
+            if fmt:
+                sheet.cell(row=sheet.max_row, column=2).number_format = fmt
         sheet.freeze_panes = sheet.cell(row=header_row + 1, column=1)
         for i, (key, _) in enumerate(group["columns"]):
             letter = sheet.cell(row=1, column=i + 1).column_letter

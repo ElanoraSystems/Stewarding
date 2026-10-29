@@ -10,7 +10,7 @@ import { fmtDate, fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { CostTab } from '@/pages/CostTab'
-import { CountsTab } from '@/pages/CountsTab'
+import { RoundsTab } from '@/pages/RoundsTab'
 import { InsightsTab } from '@/pages/InsightsTab'
 import { ReceivingTab } from '@/pages/ReceivingTab'
 import { ReconciliationTab } from '@/pages/ReconciliationTab'
@@ -28,7 +28,7 @@ interface Txn {
   user: string | null
 }
 
-const TABS = [['insights', 'Insights'], ['transactions', 'Transactions'], ['receiving', 'Receiving'], ['transfers', 'Transfers'], ['counts', 'Physical counts'], ['reconciliation', 'Reconciliation'], ['costs', 'Costs']] as const
+const TABS = [['insights', 'Insights'], ['transactions', 'Transactions'], ['receiving', 'Receiving'], ['transfers', 'Transfers'], ['rounds', 'Count rounds'], ['reconciliation', 'Reconciliation'], ['costs', 'Costs']] as const
 const SIZE = 15
 
 function Transactions() {
@@ -79,7 +79,8 @@ function Transactions() {
 
 export function StockMovementsPage() {
   const [params] = useSearchParams()
-  const asked = TABS.find(([key]) => key === params.get('tab'))
+  const wanted = params.get('tab') === 'counts' ? 'rounds' : params.get('tab')  // the old Physical counts address now opens count rounds
+  const asked = TABS.find(([key]) => key === wanted)
   const [tab, setTab] = useState<(typeof TABS)[number][0]>(asked ? asked[0] : 'insights')
   return (
     <div className="space-y-4">
@@ -93,7 +94,7 @@ export function StockMovementsPage() {
       {tab === 'transactions' && <Transactions />}
       {tab === 'receiving' && <ReceivingTab />}
       {tab === 'transfers' && <TransfersTab />}
-      {tab === 'counts' && <CountsTab />}
+      {tab === 'rounds' && <RoundsTab />}
       {tab === 'reconciliation' && <ReconciliationTab />}
       {tab === 'costs' && <CostTab />}
     </div>

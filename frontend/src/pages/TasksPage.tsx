@@ -12,6 +12,7 @@ import { PushToggle } from '@/components/PushToggle'
 import { useRun, useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
+import { notificationsChanged } from '@/lib/notificationEvents'
 
 interface Note {
   id: number
@@ -69,11 +70,15 @@ function Notifications() {
       toast('ok', `${result.acknowledged} alert${result.acknowledged === 1 ? '' : 's'} acknowledged`)
       setSelected([])
       reload()
+      notificationsChanged()
     } else toast('error', 'Could not acknowledge the alerts')
   }
 
   async function act(path: string, success?: string) {
-    if (await run(() => api(`/notifications/${path}`, { method: 'POST' }), success)) reload()
+    if (await run(() => api(`/notifications/${path}`, { method: 'POST' }), success)) {
+      reload()
+      notificationsChanged()
+    }
   }
 
   return (

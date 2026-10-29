@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee,
                       Equipment, InventoryTransfer, Location, Shift, TemperatureReading)
-from .checklists import OPEN
+from .checklists import OPEN, overdue_after
 from .inventory import shortage_rows
 from .settings import get_setting
 from .monitoring import CLOSED_ACTIONS, describe, due_checks
@@ -48,7 +48,7 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
                ChecklistInstance.assigned_employee_id, ChecklistTask.description, ChecklistTask.priority, ChecklistTask.assigned_role)
         .join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
         .where(ChecklistInstance.location_id.in_(locations), ChecklistInstance.due_at >= since,
-               ((ChecklistInstance.status.in_(OPEN + ("overdue", "failed"))) & (ChecklistInstance.due_at < now))
+               ((ChecklistInstance.status.in_(OPEN + ("overdue", "failed"))) & (ChecklistInstance.due_at < overdue_after(db, now)))
                | (ChecklistInstance.status == "pending_verification"))).all()
     for loc_id, state, completed_at, due_at, assignee, description, priority, role in rows:
         if state == "pending_verification":

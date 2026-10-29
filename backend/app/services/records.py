@@ -20,7 +20,7 @@ from .settings import get_setting
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
          "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements",
-         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "lots": "Lot Register"}
+         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register"}
 STATUS_FILTERS = {"monitoring": ("passed", "failed", "awaiting"),
                   "checklists": ("pending", "completed", "pending_verification", "verified", "failed", "waived"),
                   "attendance": ("present", "late", "absent", "leave", "week_off"),
@@ -188,6 +188,117 @@ def _stock_cost_category_groups(db: Session, locations: list[Location], day_from
         groups.append(_category_group("All locations - Stock cost by category",
                                       [("Locations", ", ".join(loc.name for loc in locations)), ("Costing method", "Weighted average cost"), ("Purchases counted on", "Invoice date")],
                                       columns, category_rows(together, grand["cost_consumed"]), {k: float(v) for k, v in grand.items()}))
+    return groups
+
+
+QTY_PARTS = ("opening_qty", "purchases_qty", "returns_qty", "transfers_in_qty", "transfers_out_qty", "issued_qty", "breakage_damage_qty", "missing_written_off_qty",
+             "baseline_adjustments_qty", "count_adjustments_qty", "closing_qty")
+VALUE_PARTS = ("opening_value", "purchases", "returns", "transfers_in", "transfers_out", "issued", "breakage_damage", "missing_written_off", "baseline_adjustments",
+               "count_adjustments", "closing_value")
+
+
+def _item_columns(with_split: bool = False) -> list[tuple[str, str]]:
+    cols = [("category", "Category"), ("item", "Item"), ("average_cost", "Average cost"), ("opening_qty", "Opening qty"), ("purchases_qty", "Bought"),
+            ("returns_qty", "Returns (net)"), ("transfers_in_qty", "Transfers in"), ("transfers_out_qty", "Transfers out"), ("issued_qty", "Issued"),
+            ("breakage_damage_qty", "Breakage"), ("missing_written_off_qty", "Written off"), ("baseline_adjustments_qty", "Baseline"),
+            ("count_adjustments_qty", "Count +/-"), ("closing_qty", "Closing qty"), ("closing_value", "Closing value")]
+    return cols + ([("split", "Held at")] if with_split else [])
+
+
+def _category_columns() -> list[tuple[str, str]]:
+    return [("category", "Category"), ("items", "No."), ("opening_qty", "Opening qty"), ("opening_value", "Opening value"), ("purchases", "Purchases"), ("returns", "Returns (net)"),
+            ("transfers_in", "Transfers in"), ("transfers_out", "Transfers out"), ("issued", "Issued"), ("breakage_damage", "Breakage and damage"),
+            ("missing_written_off", "Missing or written off"), ("baseline_adjustments", "Baseline"), ("count_adjustments", "Count gain (+) or loss (-)"),
+            ("closing_qty", "Closing qty"), ("closing_value", "Closing value")]
+
+
+COMPARE_VALUES = (("opening_value", "Opening value"), ("purchases", "Purchases"), ("returns", "Returns (net)"), ("transfers_in", "Transfers in"),
+                  ("transfers_out", "Transfers out"), ("issued", "Issued"), ("breakage_damage", "Breakage and damage"), ("missing_written_off", "Missing or written off"),
+                  ("baseline_adjustments", "Baseline"), ("count_adjustments", "Count gain (+) or loss (-)"), ("closing_value", "Closing value"), ("cost_consumed", "Cost consumed"))
+
+
+def _compare_group(title: str, meta: list, period: dict, year: dict, qty: tuple[int, int, int, int]) -> dict:
+    """This period beside the year so far: the same lines, one column each."""
+    rows = [{"measure": label, "period": f"{period[key]:.3f}", "ytd": f"{year[key]:.3f}"} for key, label in COMPARE_VALUES]
+    rows[0:0] = [{"measure": "Opening qty", "period": qty[0], "ytd": qty[1]}]
+    rows.append({"measure": "Closing qty", "period": qty[2], "ytd": qty[3]})
+    return {"title": title, "meta": meta, "columns": [("measure", "Measure"), ("period", "This period"), ("ytd", "Year to date")], "rows": rows, "totals": []}
+
+
+def _inventory_detail_groups(db: Session, locations: list[Location], day_from: date, day_to: date) -> list[dict]:
+    """Location by location and item by item: opening, what came in and went out of each kind, and closing, in units and in money."""
+    meta_common = [("Costing method", "Weighted average cost"), ("Purchases counted on", "Invoice date"), ("Breakage counted on", "Day reported"),
+                   ("Reading the columns", "Breakage includes damage; Written off includes missing stock; Count +/- is the gain (+) or loss (-) found by counts; "
+                                           "Baseline is a first count round's accepted gap; Returns are net of supplier returns")]
+    per_location, rows_by_item = [], defaultdict(list)
+    for loc in locations:
+        start, end = _bounds(day_from, day_to, loc.timezone)
+        report = cost_report(db, loc.id, start, end)
+        rows = sorted(report["rows"], key=lambda r: (r["category"], r["code"]))
+        if rows:
+            per_location.append((loc, rows))
+        for r in rows:
+            rows_by_item[r["item_id"]].append((loc.name, r))
+
+    def category_block(title: str, meta: list, rows: list[dict]) -> dict:
+        sums: dict[str, dict] = {}
+        for r in rows:
+            s = sums.setdefault(r["category"], {"items": 0, **{k: 0 for k in (*QTY_PARTS, *VALUE_PARTS)}})
+            s["items"] += 1
+            for k in (*QTY_PARTS, *VALUE_PARTS):
+                s[k] += r[k]
+        lines = [{"category": name, "items": s["items"], **{k: (f"{s[k]:.3f}" if k in VALUE_PARTS else s[k]) for k in (*QTY_PARTS, *VALUE_PARTS)}} for name, s in sorted(sums.items())]
+        total = {k: sum(s[k] for s in sums.values()) for k in (*QTY_PARTS, *VALUE_PARTS)}
+        return {"title": title, "meta": meta, "columns": _category_columns(), "rows": lines,
+                "totals": [("Opening value", f"{total['opening_value']:.3f}"), ("Purchases", f"{total['purchases']:.3f}"), ("Closing value", f"{total['closing_value']:.3f}"),
+                           ("Closing qty", total["closing_qty"])]}
+
+    def item_row(r: dict, split: str | None = None) -> dict:
+        row = {"category": r["category"], "item": f"{r['code']} - {r['name']}", "average_cost": "" if r["average_cost"] is None else f"{r['average_cost']:.4f}",
+               **{k: r[k] for k in QTY_PARTS}, "closing_value": f"{r['closing_value']:.3f}"}
+        return {**row, "split": split} if split is not None else row
+
+    groups = []
+    everything = [r for _, rows in per_location for r in rows]
+    year_start = date(day_to.year, 1, 1)
+    compare: dict[int, dict] = {}
+    if day_from > year_start:  # a period shorter than the year so far: show the year to date beside it
+        for loc, rows in per_location:
+            start, end = _bounds(year_start, day_to, loc.timezone)
+            year = cost_report(db, loc.id, start, end)
+            period = cost_report(db, loc.id, *_bounds(day_from, day_to, loc.timezone))
+            compare[loc.id] = {"period": period["totals"], "year": year["totals"],
+                               "qty": (sum(r["opening_qty"] for r in rows), sum(r["opening_qty"] for r in year["rows"]),
+                                       sum(r["closing_qty"] for r in rows), sum(r["closing_qty"] for r in year["rows"]))}
+        ytd_label = f"1 Jan to {day_to.strftime('%d %b %Y')}"
+        if compare:
+            total = lambda which: {k: sum(c[which][k] for c in compare.values()) for k in MEASURES}  # noqa: E731
+            qty = tuple(sum(c["qty"][i] for c in compare.values()) for i in range(4))
+            if len(per_location) != 1:
+                groups.append(_compare_group("All locations - This period and year to date", [("Locations", ", ".join(loc.name for loc, _ in per_location)),
+                                                                                           ("Year to date", ytd_label), *meta_common], total("period"), total("year"), qty))
+    if len(per_location) != 1:  # one location: its own block below is the whole picture
+        groups.append(category_block("All locations - Cost by category", [("Locations", ", ".join(loc.name for loc in locations)), *meta_common], everything))
+    for loc, rows in per_location:
+        if loc.id in compare:
+            groups.append(_compare_group(f"{loc.name} - This period and year to date", [("Location", loc.name), ("Year to date", ytd_label), *meta_common],
+                                         compare[loc.id]["period"], compare[loc.id]["year"], compare[loc.id]["qty"]))
+        groups.append(category_block(f"{loc.name} - Cost by category", [("Location", loc.name), *meta_common], rows))
+        groups.append({"title": f"{loc.name} - Stock by item", "meta": [("Location", loc.name), *meta_common], "columns": _item_columns(), "rows": [item_row(r) for r in rows],
+                       "totals": [("Items", len(rows)), ("Opening qty", sum(r["opening_qty"] for r in rows)), ("Closing qty", sum(r["closing_qty"] for r in rows)),
+                                  ("Closing value", f"{sum(r['closing_value'] for r in rows):.3f}")]})
+    if len(per_location) > 1:
+        totals_rows = []
+        for item_id, parts in sorted(rows_by_item.items(), key=lambda kv: (kv[1][0][1]["category"], kv[1][0][1]["code"])):
+            first = parts[0][1]
+            merged = {**first, **{k: sum(p[1][k] for p in parts) for k in (*QTY_PARTS, "closing_value")}}
+            held = ", ".join(f"{name} {r['closing_qty']}" for name, r in parts if r["closing_qty"])
+            merged["average_cost"] = (merged["closing_value"] / merged["closing_qty"]) if merged["closing_qty"] else first["average_cost"]
+            totals_rows.append(item_row(merged, held))
+        groups.append({"title": "All locations - Total per item", "meta": [("Locations", ", ".join(loc.name for loc, _ in per_location)), *meta_common],
+                       "columns": _item_columns(with_split=True), "rows": totals_rows,
+                       "totals": [("Items", len(totals_rows)), ("Opening qty", sum(r["opening_qty"] for r in totals_rows)), ("Closing qty", sum(r["closing_qty"] for r in totals_rows)),
+                                  ("Closing value", f"{sum(float(r['closing_value']) for r in totals_rows):.3f}")]})
     return groups
 
 
@@ -543,6 +654,8 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
         groups = _stock_cost_groups(db, locations, day_from, day_to)
     elif kind == "stock_cost_category":
         groups = _stock_cost_category_groups(db, locations, day_from, day_to)
+    elif kind == "inventory_detail":
+        groups = _inventory_detail_groups(db, locations, day_from, day_to)
     elif kind == "receipts":
         groups = _receipt_groups(db, locations, f, day_from, day_to)
     else:

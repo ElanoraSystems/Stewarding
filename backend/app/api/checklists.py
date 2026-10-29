@@ -15,7 +15,7 @@ from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, Emplo
 from ..pagination import paginate, row
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services import checklists as engine
-from ..services.checklists import DONE, OPEN, effective_status
+from ..services.checklists import DONE, OPEN, effective_status, overdue_after
 from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
@@ -268,7 +268,7 @@ def list_instances(location_id: int | None = None, day: date | None = None, date
         stmt = stmt.where(ChecklistInstance.local_date <= date_to)
     if frequency:
         stmt = stmt.where(ChecklistTemplate.frequency == frequency)
-    is_late = and_(ChecklistInstance.status.in_(OPEN), ChecklistInstance.due_at < now)
+    is_late = and_(ChecklistInstance.status.in_(OPEN), ChecklistInstance.due_at < overdue_after(db, now))
     if status_ == "overdue":
         stmt = stmt.where(or_(ChecklistInstance.status == "overdue", is_late))
     elif status_ in OPEN:
@@ -281,7 +281,8 @@ def list_instances(location_id: int | None = None, day: date | None = None, date
         stmt = stmt.where(ChecklistInstance.assigned_employee_id == user.employee.id)
     stmt = stmt.order_by(ChecklistInstance.local_date.desc(), ChecklistInstance.due_at, ChecklistInstance.id)
     total, rows = paginate(db, stmt, page, size)
-    return {"total": total, "items": [_serialize(i, t, tpl, now) for i, t, tpl in rows]}
+    late_now = overdue_after(db, now)
+    return {"total": total, "items": [_serialize(i, t, tpl, late_now) for i, t, tpl in rows]}
 
 
 def _load(db: Session, user: User, instance_id: int):
@@ -300,7 +301,7 @@ def _load(db: Session, user: User, instance_id: int):
 @router.get("/instances/{instance_id}")
 def get_instance(instance_id: int, user: User = Depends(require("checklist.view")), db: Session = Depends(get_db)):
     inst, task, template = _load(db, user, instance_id)
-    return _serialize(inst, task, template, timeutil.utc_now())
+    return _serialize(inst, task, template, overdue_after(db))
 
 
 @router.post("/instances/{instance_id}/start")
@@ -310,7 +311,7 @@ def start(instance_id: int, user: User = Depends(require("checklist.complete")),
         raise HTTPException(status.HTTP_409_CONFLICT, f"Task is {inst.status}")
     inst.status = "in_progress"
     db.commit()
-    return _serialize(inst, task, template, timeutil.utc_now())
+    return _serialize(inst, task, template, overdue_after(db))
 
 
 @router.post("/instances/{instance_id}/complete")
@@ -342,7 +343,7 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
                f"Verify: {task.description}", key=f"verify:{inst.id}", location_id=inst.location_id,
                link="/checklists", priority="high")
     db.commit()
-    return _serialize(inst, task, template, now)
+    return _serialize(inst, task, template, overdue_after(db, now))
 
 
 @router.post("/instances/{instance_id}/verify")
@@ -366,7 +367,7 @@ def verify(instance_id: int, body: VerifyIn, user: User = Depends(require("check
         notify(db, [inst.completed_by], "task_rejected", f"Redo: {task.description}",
                key=f"reject:{inst.id}:{now.isoformat()}", location_id=inst.location_id, priority="high")
     db.commit()
-    return _serialize(inst, task, template, now)
+    return _serialize(inst, task, template, overdue_after(db, now))
 
 
 class VerifyManyIn(BaseModel):
@@ -451,7 +452,7 @@ def waive(instance_id: int, body: WaiveIn, user: User = Depends(require("checkli
     audit(db, user, "checklist.waive", "checklist_instance", inst.id, {"status": before},
           {"status": "waived", "reason": body.reason})
     db.commit()
-    return _serialize(inst, task, template, timeutil.utc_now())
+    return _serialize(inst, task, template, overdue_after(db))
 
 
 @router.post("/instances/{instance_id}/assign")
@@ -473,7 +474,7 @@ def assign(instance_id: int, body: AssignIn, user: User = Depends(require("task.
         notify(db, [emp.user_id], "task_assigned", f"New task: {task.description}",
                key=f"assign:{inst.id}:{emp.id}", location_id=inst.location_id, due_at=inst.due_at)
     db.commit()
-    return _serialize(inst, task, template, timeutil.utc_now())
+    return _serialize(inst, task, template, overdue_after(db))
 
 
 DELETE_GRACE_DAYS = 3  # a checklist made in error is noticed within days; older untouched tasks are missed work and stay on record

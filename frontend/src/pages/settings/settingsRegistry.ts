@@ -41,11 +41,15 @@ export const SETTINGS: SettingDef[] = [
   { key: 'approval.checklists', section: 'approvals', kind: 'toggle', label: 'Every completed checklist task needs approval' },
   { key: 'reminder.lead_minutes', section: 'approvals', kind: 'number', label: 'Reminder before a deadline', unit: 'minutes' },
   { key: 'escalation.supervisor_after_minutes', section: 'approvals', kind: 'number', label: 'Escalate to supervisor after', unit: 'minutes overdue' },
+  { key: 'checklist.grace_minutes', section: 'approvals', kind: 'number', label: 'Grace period before a task counts as overdue', unit: 'minutes' },
+  { key: 'checklist.alert_priority', section: 'approvals', kind: 'number', label: 'Overdue alerts: 0 every task, 1 high and critical only, 2 critical only', unit: '0 to 2' },
   { key: 'escalation.manager_after_minutes', section: 'approvals', kind: 'number', label: 'Escalate to manager after', unit: 'minutes overdue' },
 
   { key: 'breakage.approval_qty', section: 'breakage', kind: 'number', label: 'Approval needed from this quantity', unit: 'units' },
   { key: 'breakage.approval_cost', section: 'breakage', kind: 'number', label: 'Approval needed from this estimated cost' },
 
   { key: 'stock.lock_through', section: 'receiving', kind: 'number', label: 'Lock stock figures up to this month (0 = no lock)', unit: 'YYYYMM, such as 202609' },
+  { key: 'stock.round_tolerance_units', section: 'receiving', kind: 'number', label: 'Count rounds: normal counting error, at least', unit: 'units' },
+  { key: 'stock.round_tolerance_percent', section: 'receiving', kind: 'number', label: 'Count rounds: or this share of the books if larger', unit: '%' },
   { key: 'receiving.allow_old_invoices', section: 'receiving', kind: 'toggle', label: 'Allow receiving against invoices older than two years' },
 ]

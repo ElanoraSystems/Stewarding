@@ -13,7 +13,7 @@ from ..models import BreakageIncident, InventoryBalance, InventoryCategory, Inve
 RECEIPT_REFS = ("receipt", "receipt_void")
 
 MEASURES = ("opening_value", "purchases", "returns", "transfers_in", "transfers_out", "closing_value", "cost_consumed", "issued",
-            "breakage_damage", "missing_written_off", "count_adjustments")
+            "breakage_damage", "missing_written_off", "baseline_adjustments", "count_adjustments")
 
 
 def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -> dict:
@@ -38,11 +38,13 @@ def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -
     value_before: dict[int, Decimal] = defaultdict(Decimal)
     flow: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     qty_flow: dict[int, int] = defaultdict(int)
+    kind_qty: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))  # units by kind of movement, for the quantity columns of the detailed report
     loaded: dict[int, int] = defaultdict(int)  # opening stock loaded inside the period counts as opening
     for item_id, txn_type, in_window, qty, value in sums:
         value = Decimal(str(value or 0))
         if in_window:
             flow[item_id][txn_type] += value
+            kind_qty[item_id][txn_type] += qty
             qty_flow[item_id] += qty
             if txn_type == "opening":
                 loaded[item_id] += qty
@@ -61,19 +63,24 @@ def cost_report(db: Session, location_id: int, start: datetime, end: datetime) -
         f = flow[item_id]
         opening = value_before[item_id] + f["opening"]
         closing = value_before[item_id] + sum(f.values())
-        consumed = opening + f["receipt"] + f["return"] + f["transfer_in"] + f["transfer_out"] - closing
+        consumed = opening + f["receipt"] + f["return"] + f["transfer_in"] + f["transfer_out"] + f["baseline"] - closing
         row = {"item_id": item_id, "code": names[item_id][0], "name": names[item_id][1], "category": category_of[item_id],
                "opening_qty": qty_before[item_id] + loaded[item_id], "closing_qty": qty_before[item_id] + qty_flow[item_id],
                "average_cost": float(averages[item_id]) if averages.get(item_id) is not None else None,
                "opening_value": opening, "purchases": f["receipt"], "returns": f["return"], "transfers_in": f["transfer_in"],
                "transfers_out": -f["transfer_out"], "closing_value": closing, "cost_consumed": consumed,
                "issued": -f["issue"], "breakage_damage": -(f["breakage"] + f["damage"]), "missing_written_off": -f["writeoff"],
-               "count_adjustments": f["adjustment"]}
+               "baseline_adjustments": f["baseline"], "count_adjustments": f["adjustment"]}
+        q = kind_qty[item_id]
+        row_qty = {"purchases_qty": q["receipt"], "returns_qty": q["return"], "transfers_in_qty": q["transfer_in"], "transfers_out_qty": -q["transfer_out"],
+                   "issued_qty": -q["issue"], "breakage_damage_qty": -(q["breakage"] + q["damage"]), "missing_written_off_qty": -q["writeoff"],
+                   "baseline_adjustments_qty": q["baseline"], "count_adjustments_qty": q["adjustment"]}
         for key in MEASURES:
             totals[key] += row[key]
             by_category[row["category"]][key] += row[key]
             row[key] = round(float(row[key]), 3)
         by_category[row["category"]]["items"] += 1
+        row.update({k: int(v) for k, v in row_qty.items()})
         rows.append(row)
     return {"rows": rows, "totals": {k: round(float(v), 3) for k, v in totals.items()}, "by_category": category_rows(by_category, totals["cost_consumed"])}
 

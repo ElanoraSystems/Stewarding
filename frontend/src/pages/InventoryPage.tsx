@@ -17,6 +17,7 @@ import { MinimumCell } from '@/pages/MinimumCell'
 import { StockPostModal } from '@/pages/StockPostModal'
 import { useMoney } from '@/lib/money'
 import { PriceTrend } from '@/pages/PriceTrend'
+import { ItemHistory } from '@/pages/ItemHistory'
 
 interface Listing {
   total: number
@@ -39,6 +40,7 @@ export function InventoryPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [posting, setPosting] = useState<Item | null>(null)
   const [trend, setTrend] = useState<Item | null>(null)
+  const [history, setHistory] = useState<Item | null>(null)
   const [version, setVersion] = useState(0)
   const categories = useApi<{ id: number; name: string }[]>('/inventory/categories')
 
@@ -90,6 +92,7 @@ export function InventoryPage() {
               <Td>{i.low ? <Badge tone="critical">Low stock</Badge> : <Badge tone="ok">OK</Badge>}</Td>
               <Td>
                 <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                <Button size="sm" variant="outline" onClick={() => setHistory(i)}>History</Button>
                 {showCost && <Button size="sm" variant="outline" onClick={() => setTrend(i)}>Price trend</Button>}
                 {can('stock.transfer') && <Button size="sm" variant="outline" onClick={() => setPosting(i)}>Stock</Button>}
                 {can('inventory.manage') && <Button size="sm" variant="outline" onClick={() => { setFormItem(i); setFormOpen(true) }}>Edit</Button>}
@@ -107,6 +110,7 @@ export function InventoryPage() {
 
       {formOpen && <ItemForm item={formItem} open onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); refresh() }} />}
       {trend && <PriceTrend item={trend} onClose={() => setTrend(null)} />}
+      {history && <ItemHistory item={history} onClose={() => setHistory(null)} />}
       <StockPostModal item={posting} defaultLocation={locationId} onClose={() => setPosting(null)} onPosted={() => { setPosting(null); refresh() }} />
     </div>
   )

@@ -12,6 +12,7 @@ import { SettingsRoles } from '@/pages/settings/SettingsRoles'
 import { SettingsRules } from '@/pages/settings/SettingsRules'
 import { SettingsSearch } from '@/pages/settings/SettingsSearch'
 import { SettingsShifts } from '@/pages/settings/SettingsShifts'
+import { SettingsClosures } from '@/pages/settings/SettingsClosures'
 import { SettingsSuppliers } from '@/pages/settings/SettingsSuppliers'
 import { SettingsTrainingCourses } from '@/pages/settings/SettingsTrainingCourses'
 import { SettingsTrainingProgress } from '@/pages/settings/SettingsTrainingProgress'
@@ -31,6 +32,7 @@ const PAGES: Record<SectionKey, ComponentType> = {
   receiving: rules('receiving'),
   locations: SettingsLocations,
   shifts: SettingsShifts,
+  closures: SettingsClosures,
   monitoring: SettingsMonitoring,
   items: SettingsItems,
   inventory: SettingsInventoryLists,
