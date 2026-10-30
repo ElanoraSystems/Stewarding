@@ -10,7 +10,7 @@ interface HeroCardProps {
 /** The gradient greeting card at the top of a dashboard, with short facts as pills. */
 export function HeroCard({ title, eyebrow, chips = [], children }: HeroCardProps) {
   return (
-    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-hero-a to-hero-b p-6 text-white shadow-lg shadow-hero-b/30">
+    <section className="relative overflow-hidden rounded-2xl bg-hero-b bg-gradient-to-br from-hero-a to-hero-b p-6 text-white shadow-lg shadow-hero-b/30">
       <div className="relative space-y-1">
         {eyebrow && <p className="text-xs font-medium uppercase tracking-wide text-white/70">{eyebrow}</p>}
         <h1 className="text-2xl font-semibold">{title}</h1>

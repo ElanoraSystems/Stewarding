@@ -8,7 +8,7 @@ export function Overlay({ label, tone = 'dark', children }: { label: string; ton
   return (
     <div role="dialog" aria-modal="true" aria-label={label}
       className={cn('ci-fade fixed inset-0 z-50 flex flex-col items-center overflow-y-auto px-6 pb-8 pt-14 text-white',
-        tone === 'dark' && 'bg-gradient-to-br from-side to-hero-b', tone === 'brand' && 'bg-gradient-to-br from-hero-a to-hero-b', tone === 'light' && 'bg-page text-ink')}>
+        tone === 'dark' && 'bg-side bg-gradient-to-br from-side to-hero-b', tone === 'brand' && 'bg-hero-b bg-gradient-to-br from-hero-a to-hero-b', tone === 'light' && 'bg-page text-ink')}>
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center">{children}</div>
     </div>
   )
@@ -114,7 +114,7 @@ export function Problem({ kind, detail, onRetry, onBack }: { kind: ProblemKind; 
   const Icon = p.icon
   return (
     <Overlay label={p.title} tone="light">
-      <div className="-mx-6 -mt-14 flex w-[calc(100%+3rem)] flex-col items-center rounded-b-[36px] bg-gradient-to-br from-side to-hero-b px-7 pb-12 pt-14 text-white">
+      <div className="-mx-6 -mt-14 flex w-[calc(100%+3rem)] flex-col items-center rounded-b-[36px] bg-side bg-gradient-to-br from-side to-hero-b px-7 pb-12 pt-14 text-white">
         <span className="ci-rise rounded-full bg-white/15 px-3.5 py-1 text-xs font-bold uppercase tracking-wide">{p.label}</span>
         <div className="ci-rise relative mt-7 h-48 w-48 [animation-delay:0.1s]">
           <svg width="192" height="192" viewBox="0 0 236 236" aria-hidden className="absolute inset-0"><circle cx="118" cy="118" r="112" fill="none" stroke="#f2b45e" strokeWidth="4" strokeDasharray="6 12" strokeLinecap="round" /></svg>

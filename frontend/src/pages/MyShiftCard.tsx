@@ -195,7 +195,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
 
   return (
     <Card className="overflow-hidden rounded-3xl shadow-lg">
-      <div className="bg-gradient-to-br from-hero-a to-hero-b px-6 pb-7 pt-6 text-white">
+      <div className="bg-hero-b bg-gradient-to-br from-hero-a to-hero-b px-6 pb-7 pt-6 text-white">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-lg font-semibold">{data.employee}</p>
@@ -255,7 +255,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
                   <span aria-hidden className="ci-pulse absolute inset-0 rounded-full bg-brand [animation-delay:1.2s]" />
                 </>}
                 <button type="button" aria-label="Check in" disabled={disabled || busy} onClick={checkIn}
-                  className="ci-press absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-full bg-gradient-to-br from-[#138572] to-hero-b text-xl font-bold text-white shadow-xl shadow-brand/40 disabled:from-ink-muted disabled:to-ink-muted disabled:shadow-none">
+                  className="ci-press absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-full bg-hero-b bg-gradient-to-br from-[#138572] to-hero-b text-xl font-bold text-white shadow-xl shadow-brand/40 disabled:from-ink-muted disabled:to-ink-muted disabled:shadow-none">
                   <LogIn className="h-9 w-9" aria-hidden />
                   Check in
                 </button>
