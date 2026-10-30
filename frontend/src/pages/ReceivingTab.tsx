@@ -138,6 +138,7 @@ export function ReceivingTab() {
   const hasCosts = filled.some((l) => l.cost !== '')
 
   function clearForm() {
+    setSupplierId('')  // a new document starts with no supplier chosen, so the last one is not posted against by mistake
     setInvoice('')
     setReceivedOn(iso(new Date()))
     setInvoiceDate(iso(new Date()))
