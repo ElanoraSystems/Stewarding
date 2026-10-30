@@ -245,6 +245,17 @@ def test_stock_movements_from_an_invoice_carry_its_invoice_date(client, login, d
     assert sorted(r["invoice_date"] or "" for r in rows) == ["", "2026-02-27"]
 
 
+def test_the_date_filter_on_stock_movements_uses_the_invoice_date(client, login, db, clock):
+    h = manager_headers(client)
+    receive(client, login(SUP), db, invoice="OLD-INV", invoice_date="2026-02-10")  # entered today (2 Mar), invoiced earlier
+    receive(client, login(SUP), db, invoice="UNDATED")
+    def invoices(**dates):
+        query = "&".join(f"{k}={v}" for k, v in dates.items())
+        return sorted(r["invoice_date"] or "-" for r in client.get(f"/api/inventory/transactions?txn_type=receipt&{query}", headers=h).json()["items"])
+    assert invoices(date_from="2026-02-10", date_to="2026-02-10") == ["2026-02-10"]
+    assert invoices(date_from="2026-03-01", date_to="2026-03-02") == ["-"]  # the undated one falls back to the day it was posted
+
+
 def test_received_on_defaults_to_today_has_no_past_limit_and_cannot_be_in_the_future(client, login, db, clock):
     sup = login(SUP)
     assert receive(client, sup, db, invoice="R-1").json()["received_on"] == "2026-03-02"

@@ -30,6 +30,14 @@ def test_organization_starts_blank_and_the_manager_can_set_it(client, login, db)
     assert db.scalar(select(AuditLog.id).where(AuditLog.action == "organization.update"))
 
 
+def test_the_organization_name_can_be_cleared(client, login):
+    h = login(MGR)
+    assert client.put(URL, json=BODY, headers=h).status_code == 200
+    for empty in (None, "", "   "):
+        assert client.put(URL, json={**BODY, "name": empty}, headers=h).status_code == 200
+        assert client.get(f"{URL}/public").json()["name"] == ""
+
+
 def test_only_a_manager_can_change_the_organization(client, login):
     for who in (SUP, STEWARD):
         assert client.put(URL, json=BODY, headers=login(who)).status_code == 403
@@ -39,7 +47,6 @@ def test_only_a_manager_can_change_the_organization(client, login):
 
 def test_organization_fields_are_validated_and_trimmed(client, login):
     h = login(MGR)
-    assert client.put(URL, json={**BODY, "name": "  "}, headers=h).status_code == 422
     assert client.put(URL, json={**BODY, "email": "not-an-email"}, headers=h).status_code == 422
     assert client.put(URL, json={**BODY, "phone": "call me"}, headers=h).status_code == 422
     assert client.put(URL, json={**BODY, "website": "example.com"}, headers=h).status_code == 422

@@ -1,3 +1,10 @@
+from sqlalchemy import delete, select
+
+from app.models import CorrectiveAction, RolePermission, TemperatureReading
+
+from app.api.uploads import upload_path
+
+from .test_checklists import PNG
 from .test_monitoring import MGR, STEWARD, mk_stage, record
 
 CHECK = {"stage": "Probe check", "timing": "manual", "value_type": "yes_no"}
@@ -38,6 +45,29 @@ def test_check_and_point_with_readings_cannot_be_deleted(client, login, clock):
     assert client.delete(f"/api/equipment/{eq['id']}", headers=h).status_code == 409
     ids = [e["id"] for e in client.get("/api/equipment", headers=h).json()]
     assert eq["id"] in ids
+
+
+def test_manager_can_delete_a_point_together_with_its_readings(client, login, db, clock):
+    h = login(MGR)
+    eq, sched = mk_stage(client, h)
+    photo = client.post("/api/uploads", files={"file": ("a.png", PNG, "image/png")}, headers=h).json()["name"]
+    assert record(client, h, eq, sched, 40.0, evidence_path=photo).status_code == 201  # out of range: opens a corrective action
+    assert upload_path(photo).is_file()
+    assert db.scalars(select(CorrectiveAction.id)).all()
+    # without the permission the readings stay, whatever the request says
+    db.execute(delete(RolePermission).where(RolePermission.permission == "equipment.delete"))
+    db.commit()
+    assert client.delete(f"/api/equipment/{eq['id']}?with_readings=true", headers=h).status_code == 403
+    assert db.scalars(select(TemperatureReading.id).where(TemperatureReading.equipment_id == eq["id"])).all()
+    db.add_all(RolePermission(role_id=r, permission="equipment.delete") for r in db.scalars(select(RolePermission.role_id).where(RolePermission.permission == "equipment.manage")).all()[:1])
+    db.commit()
+    r = client.delete(f"/api/equipment/{eq['id']}?with_readings=true", headers=h)
+    assert r.status_code == 200 and r.json()["readings_deleted"] == 1
+    assert not upload_path(photo).exists()  # the photo goes with its reading
+    db.expire_all()
+    assert not db.scalars(select(TemperatureReading.id).where(TemperatureReading.equipment_id == eq["id"])).all()
+    assert not db.scalars(select(CorrectiveAction.id)).all()
+    assert eq["id"] not in [e["id"] for e in client.get("/api/equipment", headers=h).json()]
 
 
 def test_inactive_check_is_not_recorded_and_editing_keeps_it_inactive(client, login, clock):
