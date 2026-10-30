@@ -1,14 +1,15 @@
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .. import timeutil
 from ..audit import audit
 from ..services.deletion import delete_if_unused
 from ..services.images import thumbnail_jpeg
@@ -19,6 +20,8 @@ from ..models import (ItemSupplier, Employee, InventoryBalance, InventoryCategor
 from ..pagination import paginate, row
 from ..services.costing import last_purchases
 from ..services.history import item_history
+from ..services.organization import get_organization
+from ..services.snapshots import forget_from
 from ..services.inventory import StockError, counts_as_received, level_map, norm, places_in, post_txn, shortage_rows, unheld_items
 from .uploads import MAX_BYTES, file_kind, upload_path
 from ..services.similarity import SCAN_LIMIT, compact, find_similar, token_key, tokens
@@ -643,6 +646,41 @@ def post_transaction(body: TxnIn, user: User = Depends(require("stock.transfer")
               {"item_id": item.id, "delta": txn.qty_delta, "reason": body.reason})
     db.commit()
     return row(txn, "id", "item_id", "location_id", "txn_type", "qty_delta", "occurred_at", "user_id", "reason")
+
+
+class OpeningDateIn(BaseModel):
+    new_date: date
+    reason: str = Field(min_length=5, max_length=500)
+
+
+@router.put("/transactions/{txn_id}/date")
+def change_opening_date(txn_id: int, body: OpeningDateIn, user: User = Depends(require("stock.approve")), db: Session = Depends(get_db)):
+    """Moves an opening-stock line to another day, so it counts in the right month. Only opening stock: other lines are dated by what happened."""
+    txn = db.get(StockTransaction, txn_id)
+    if not txn:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stock movement not found")
+    check_location(user, db, txn.location_id)
+    if txn.txn_type != "opening":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only the date of opening stock can be changed")
+    tz = get_organization(db)["timezone"]
+    if body.new_date > timeutil.local_date(timeutil.utc_now(), tz):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The date cannot be in the future")
+    moved_to = timeutil.local_to_utc(body.new_date, time(12, 0), tz)  # midday, so the day is the same in every time zone nearby
+    first_other = db.scalar(select(func.min(StockTransaction.occurred_at)).where(
+        StockTransaction.item_id == txn.item_id, StockTransaction.location_id == txn.location_id, StockTransaction.id != txn.id))
+    if first_other and moved_to > first_other:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Opening stock must come before the other movements of this item here (the first is on {first_other:%d %b %Y})")
+    before = txn.occurred_at
+    place = db.get(Location, txn.location_id)
+    # the ledger refuses edits, so this one narrow exception goes straight to the table; it is logged below, and the month-end copies
+    # of the ledger that this date touches are dropped so they are rebuilt from the corrected one
+    db.execute(update(StockTransaction).where(StockTransaction.id == txn.id).values(occurred_at=moved_to))
+    forget_from(db, txn.location_id, min(timeutil.to_local(before, place.timezone), timeutil.to_local(moved_to, place.timezone)).strftime("%Y-%m"))
+    audit(db, user, "inventory.opening_date", "stock_transaction", txn.id, {"occurred_at": before.isoformat()},
+          {"occurred_at": moved_to.isoformat(), "reason": body.reason.strip()})
+    db.commit()
+    db.refresh(txn)
+    return row(txn, "id", "item_id", "location_id", "txn_type", "qty_delta", "occurred_at", "reason")
 
 
 @router.get("/transactions")

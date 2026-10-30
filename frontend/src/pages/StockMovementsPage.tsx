@@ -11,6 +11,7 @@ import { fmtDate, fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { AdjustStockModal } from '@/pages/AdjustStockModal'
+import { OpeningDateModal } from '@/pages/OpeningDateModal'
 import { CostTab } from '@/pages/CostTab'
 import { RoundsTab } from '@/pages/RoundsTab'
 import { InsightsTab } from '@/pages/InsightsTab'
@@ -40,6 +41,7 @@ function Transactions() {
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
   const [adjusting, setAdjusting] = useState(false)
+  const [redating, setRedating] = useState<Txn | null>(null)
   const { me } = useAuth()
   const { byId } = useAllItems()
   const { data, loading, reload } = useApi<{ total: number; items: Txn[] }>(
@@ -60,12 +62,17 @@ function Transactions() {
         {me?.permissions.includes('stock.approve') && <Button variant="outline" className="ml-auto" onClick={() => setAdjusting(true)}>Adjust stock</Button>}
       </div>
       <AdjustStockModal open={adjusting} onClose={() => setAdjusting(false)} onDone={reload} />
+      <OpeningDateModal txn={redating} onClose={() => setRedating(null)} onDone={reload} />
       <Table>
         <thead><tr><Th>Time</Th><Th>Invoice date</Th><Th>Item</Th><Th>Location</Th><Th>Type</Th><Th className="text-right">Qty</Th><Th>By</Th><Th>Reason</Th></tr></thead>
         <tbody>
           {loading && !data ? <SkeletonRows cols={8} /> : data?.items.map((t) => (
             <tr key={t.id}>
-              <Td>{fmtDateTime(t.occurred_at)}</Td>
+              <Td>{fmtDateTime(t.occurred_at)}
+                {t.txn_type === 'opening' && me?.permissions.includes('stock.approve') && (
+                  <button type="button" className="block text-xs font-medium text-brand underline" onClick={() => setRedating(t)}>Change date</button>
+                )}
+              </Td>
               <Td>{t.invoice_date ? fmtDate(t.invoice_date) : '-'}</Td>
               <Td className="font-medium">{byId.get(t.item_id)?.name ?? t.item_id}</Td>
               <Td>{places.get(t.location_id)}</Td>
