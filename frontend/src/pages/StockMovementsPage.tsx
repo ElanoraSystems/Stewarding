@@ -13,6 +13,7 @@ import { fmtDate, fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { AdjustStockModal } from '@/pages/AdjustStockModal'
+import { OpeningDateModal } from '@/pages/OpeningDateModal'
 import { CostTab } from '@/pages/CostTab'
 import { ItemHistory } from '@/pages/ItemHistory'
 import { RoundsTab } from '@/pages/RoundsTab'
@@ -45,6 +46,7 @@ function Transactions() {
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
   const [adjusting, setAdjusting] = useState(false)
+  const [redating, setRedating] = useState<Txn | null>(null)
   const { me } = useAuth()
   const { items: allItems, byId } = useAllItems()
   const { data, loading, reload } = useApi<{ total: number; items: Txn[] }>(
@@ -68,12 +70,17 @@ function Transactions() {
       </div>
       <AdjustStockModal open={adjusting} onClose={() => setAdjusting(false)} onDone={reload} />
       <ExportButtons kind="movements" from={from} to={to} filters={{ location_id: locationId, txn_type: type, item_id: itemId }} />
+      <OpeningDateModal txn={redating} onClose={() => setRedating(null)} onDone={reload} />
       <Table>
         <thead><tr><Th>Time</Th><Th>Invoice date</Th><Th>Item</Th><Th>Location</Th><Th>Type</Th><Th className="text-right">Qty</Th><Th>By</Th><Th>Reason</Th></tr></thead>
         <tbody>
           {loading && !data ? <SkeletonRows cols={8} /> : data?.items.map((t) => (
             <tr key={t.id}>
-              <Td>{fmtDateTime(t.occurred_at)}</Td>
+              <Td>{fmtDateTime(t.occurred_at)}
+                {t.txn_type === 'opening' && me?.permissions.includes('stock.approve') && (
+                  <button type="button" className="block text-xs font-medium text-brand underline" onClick={() => setRedating(t)}>Change date</button>
+                )}
+              </Td>
               <Td>{t.invoice_date ? fmtDate(t.invoice_date) : '-'}</Td>
               <Td className="font-medium">
                 <button type="button" className="text-left underline-offset-2 hover:underline" title="Open the full history of this item"
