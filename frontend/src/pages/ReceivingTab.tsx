@@ -368,7 +368,7 @@ export function ReceivingTab() {
           <option value="posted">Posted</option>
           <option value="void">Void</option>
         </Select>
-        <Input aria-label="Search invoices" className="w-56" placeholder="Search invoice or note" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
+        <Input aria-label="Search invoices" className="w-56" placeholder="Search invoice, supplier, item or note" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
         <Select aria-label="Date filter basis" className="w-auto" value={dateBy} onChange={(e) => { setDateBy(e.target.value as typeof dateBy); setPage(1) }}>
           <option value="invoice">By invoice date</option>
           <option value="received">By received date</option>

@@ -237,6 +237,19 @@ def test_item_list_shows_average_cost_and_the_last_purchase_by_invoice_date(clie
     assert item["avg_cost"] is not None
 
 
+def test_documents_can_be_searched_by_an_item_on_them_the_supplier_or_the_invoice(client, login, db):
+    sup = login(SUP)
+    receive(client, sup, db, [{"item_id": item_id(db, "PL-001"), "qty": 5, "unit_cost": 2.0}], invoice="A-1")
+    receive(client, sup, db, [{"item_id": item_id(db, "BW-001"), "qty": 5, "unit_cost": 2.0}], invoice="B-2")
+    def found(q):
+        return sorted(r["invoice_number"] for r in client.get(f"/api/receipts?q={q}", headers=sup).json()["items"])
+    assert found("dinner") == ["A-1"]          # by item name
+    assert found("BW-001") == ["B-2"]          # by item code
+    assert found("gulf") == ["A-1", "B-2"]     # by supplier
+    assert found("dinner%20gulf") == ["A-1"]   # every word has to match something
+    assert found("A-1") == ["A-1"] and found("nothing-like-this") == []
+
+
 def test_stock_movements_from_an_invoice_carry_its_invoice_date(client, login, db, clock):
     h = manager_headers(client)
     receive(client, login(SUP), db, invoice="DATED", invoice_date="2026-02-27")
