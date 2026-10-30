@@ -30,7 +30,7 @@ def _image_kind(head: bytes) -> str | None:
 
 
 class OrganizationIn(BaseModel):
-    name: str = Field(min_length=2, max_length=120)
+    name: str | None = Field(default=None, max_length=120)  # may be left empty: the product name shows alone
     legal_name: str | None = Field(default=None, max_length=160)
     address: str | None = Field(default=None, max_length=500)
     phone: str | None = Field(default=None, max_length=40)
@@ -66,10 +66,7 @@ class OrganizationIn(BaseModel):
     @field_validator("name")
     @classmethod
     def _name(cls, value):
-        value = value.strip()
-        if len(value) < 2:
-            raise ValueError("Enter the organization name")
-        return value
+        return (value or "").strip()
 
     @field_validator("email")
     @classmethod
