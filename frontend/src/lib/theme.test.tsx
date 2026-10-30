@@ -99,6 +99,12 @@ describe('theme switch', () => {
   })
 })
 
+describe('older phone browsers', () => {
+  it('writes every gradient direction without "in oklab", which such browsers cannot read', () => {
+    for (const d of ['t', 'tr', 'r', 'br', 'b', 'bl', 'l', 'tl']) expect(css).toMatch(new RegExp(`\\.bg-gradient-to-${d} \\{ --tw-gradient-position: to [a-z ]+; \\}`))
+  })
+})
+
 describe('solid surfaces', () => {
   it('uses no blur or see-through effect, so text is never read over what is behind it', () => {
     expect(css).not.toContain('backdrop-filter')
