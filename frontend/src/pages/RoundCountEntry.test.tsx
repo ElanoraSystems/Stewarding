@@ -5,10 +5,11 @@ import { RoundCountEntry } from '@/pages/RoundCountEntry'
 const put = vi.fn().mockResolvedValue({ saved: 1, refused: [], needs_reason: [] })
 vi.mock('@/lib/api', () => ({ api: (...a: unknown[]) => put(...a) }))
 vi.mock('@/lib/toast', () => ({ useRun: () => async (f: () => Promise<unknown>) => { await f(); return true } }))
+let flagged = false
 vi.mock('@/lib/useApi', () => ({
   qs: () => '',
   useApi: () => ({ reload: vi.fn(), data: { status: 'open', round_status: 'counting', items: [
-    { item_id: 1, code: 'P1', name: 'Plate', unit: 'pc', category: 'Ware', storage_location: null, qty: null, reason: '', others: 0, received: 10, book: 10, allowance: 10, here: 5 },
+    { recount: flagged, recount_note: flagged ? 'Check the back shelf' : null, item_id: 1, code: 'P1', name: 'Plate', unit: 'pc', category: 'Ware', storage_location: null, qty: null, reason: '', others: 0, received: 10, book: 10, allowance: 10, here: 5 },
   ] } }),
 }))
 
@@ -23,5 +24,17 @@ describe('RoundCountEntry saving', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(screen.getByText(/All changes saved/)).toBeTruthy())
     expect(put).toHaveBeenCalledWith('/rounds/1/counts/2', { method: 'PUT', body: { entries: { 1: { qty: '4', reason: '' } } } })
+  })
+
+  it('marks an item sent back for a recount and lets the counter confirm the number', async () => {
+    flagged = true
+    put.mockClear()
+    render(<RoundCountEntry roundId={1} locationId={2} locationName="Bar" onBack={() => {}} />)
+    expect(screen.getByText('Count again')).toBeTruthy()
+    expect(screen.getByText('Check the back shelf')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    expect(put.mock.calls[0][0]).toBe('/rounds/1/counts/2')
+    flagged = false
   })
 })
