@@ -11,6 +11,7 @@ import { useApi } from '@/lib/useApi'
 import { MyShiftCard } from '@/pages/MyShiftCard'
 
 interface StewardData {
+  sections?: string[]
   checked_in: boolean
   tasks: { total: number; done: number; overdue: number; outstanding: { id: number; description: string; status: string; due_at: string | null }[] }
   monitoring_checks: { due: number; overdue: number }
@@ -20,6 +21,7 @@ interface StewardData {
 export function StewardDashboard() {
   const { me } = useAuth()
   const { data, loading, reload } = useApi<StewardData>('/dashboard')
+  const shows = (part: string) => !data?.sections || data.sections.includes(part)  // older answers carry no list: show everything
   const percent = data && data.tasks.total ? Math.round((data.tasks.done / data.tasks.total) * 100) : 0
 
   return (
@@ -28,9 +30,9 @@ export function StewardDashboard() {
         eyebrow={new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}
         title={`${greeting()}, ${(me?.employee?.name ?? '').split(' ')[0] || 'there'}`}
         chips={data ? [
-          { label: `${data.tasks.done} of ${data.tasks.total} tasks done` },
-          ...(data.tasks.overdue > 0 ? [{ label: `${data.tasks.overdue} overdue`, urgent: true }] : []),
-          ...(data.monitoring_checks.due > 0 ? [{ label: `${data.monitoring_checks.due} checks due` }] : []),
+          ...(shows('checklists') ? [{ label: `${data.tasks.done} of ${data.tasks.total} tasks done` }] : []),
+          ...(shows('checklists') && data.tasks.overdue > 0 ? [{ label: `${data.tasks.overdue} overdue`, urgent: true }] : []),
+          ...(shows('monitoring') && data.monitoring_checks.due > 0 ? [{ label: `${data.monitoring_checks.due} checks due` }] : []),
         ] : []}
       />
 
@@ -38,7 +40,7 @@ export function StewardDashboard() {
 
       {loading && !data ? <Skeleton className="h-40 w-full" /> : data && (
         <>
-          {(data.monitoring_checks.overdue > 0 || data.unresolved_issues > 0) && (
+          {shows('monitoring') && (data.monitoring_checks.overdue > 0 || data.unresolved_issues > 0) && (
             <div role="alert" className="rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-4 py-3 text-sm text-danger">
               <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden /> Safety checks need you</p>
               <ul className="mt-1 list-inside list-disc">
@@ -48,7 +50,7 @@ export function StewardDashboard() {
             </div>
           )}
 
-          <Card>
+          {shows('checklists') && <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 Checklist progress
@@ -72,9 +74,9 @@ export function StewardDashboard() {
                 </ul>
               )}
             </CardContent>
-          </Card>
+          </Card>}
 
-          <Link to="/monitoring" className="block">
+          {shows('monitoring') && <Link to="/monitoring" className="block">
             <Card className={data.monitoring_checks.overdue ? 'border-danger/50' : undefined}>
               <CardContent className="flex items-center justify-between gap-3 py-4">
                 <span className="flex items-center gap-2 font-medium"><ThermometerSun className="h-5 w-5 text-brand" aria-hidden /> Monitoring</span>
@@ -84,7 +86,7 @@ export function StewardDashboard() {
                 </span>
               </CardContent>
             </Card>
-          </Link>
+          </Link>}
         </>
       )}
     </div>

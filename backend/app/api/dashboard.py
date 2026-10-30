@@ -15,7 +15,7 @@ from ..services import metrics
 from ..services.checklists import OPEN, effective_status, overdue_after
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
-from ..services.monitoring import CLOSED_ACTIONS, due_checks, failure_count, failure_counts
+from ..services.monitoring import CLOSED_ACTIONS, due_checks, failure_count, failure_counts, may_record
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -184,13 +184,18 @@ CATEGORY_SECTION = {"verification": "checklists", "overdue_task": "checklists", 
                     "transfer": "stock", "attendance": "people", "low_stock": "stock"}
 
 
-def _sections(allowed: set[str]) -> list[str]:
-    return [s for s, p in SECTION_PERMISSION.items() if p in allowed]
+DASHBOARD_PARTS = {"people": "Staff and attendance", "checklists": "Checklists and tasks", "monitoring": "Monitoring and food safety",
+                   "stock": "Stock and transfers", "breakage": "Breakage", "approvals": "Waiting for approval"}
 
 
-def _limit_to_permissions(view: dict, allowed: set[str]) -> dict:
+def _sections(allowed: set[str], chosen: list[str] | None = None) -> list[str]:
+    """The parts of the dashboard a role may open, narrowed to the ones its manager chose (all of them when nothing was chosen)."""
+    return [s for s, p in SECTION_PERMISSION.items() if p in allowed and (chosen is None or s in chosen)]
+
+
+def _limit_to_permissions(view: dict, allowed: set[str], chosen: list[str] | None = None) -> dict:
     """Blanks every part of the dashboard the role may not open, and lists what is left for the page to show."""
-    shown = _sections(allowed)
+    shown = _sections(allowed, chosen)
     k, charts, empty = view["kpis"], view["charts"], {"numerator": 0, "denominator": 0, "percent": None}
     if "people" not in shown:
         k.update(scheduled_today=0, checked_in=0, not_checked_in=0, off_today=0, absent=0, on_duty=0)
@@ -207,16 +212,16 @@ def _limit_to_permissions(view: dict, allowed: set[str]) -> dict:
     if "breakage" not in shown:
         k.update(breakage_today=0, breakage_month=0)
         charts["breakage_trend"] = []
-    approvals = [a for a, p in APPROVAL_PERMISSION.items() if p in allowed]
+    approvals = [a for a, p in APPROVAL_PERMISSION.items() if p in allowed and (chosen is None or "approvals" in chosen)]
     for kind in APPROVAL_PERMISSION.keys() - set(approvals):
         k["awaiting_approval"][kind] = 0
     return {**view, "sections": shown, "approvals": approvals}
 
 
-def _supervisor_extras(db: Session, user: User, now: datetime, location_id: int | None, allowed: set[str]) -> dict:
+def _supervisor_extras(db: Session, user: User, now: datetime, location_id: int | None, allowed: set[str], chosen: list[str] | None = None) -> dict:
     scope = scoped_locations(user, db)
     ids = {location_id} if location_id is not None else scope
-    shown = _sections(allowed)
+    shown = _sections(allowed, chosen)
     items = [i for i in pending_items(db, ids, now) if CATEGORY_SECTION.get(i["category"]) in shown]
     transfers = select(func.count()).select_from(InventoryTransfer).where(InventoryTransfer.status == "requested")
     if ids is not None:
@@ -232,7 +237,7 @@ def _supervisor_extras(db: Session, user: User, now: datetime, location_id: int 
     }
 
 
-def _steward_view(db: Session, user: User, now: datetime) -> dict:
+def _steward_view(db: Session, user: User, now: datetime, chosen: list[str] | None = None) -> dict:
     emp = user.employee
     scope = scoped_locations(user, db) or set()
     open_rec = db.scalar(select(AttendanceRecord).where(AttendanceRecord.employee_id == emp.id,
@@ -253,14 +258,20 @@ def _steward_view(db: Session, user: User, now: datetime) -> dict:
             if state not in ("completed", "verified", "waived", "pending_verification"):
                 task_rows.append({"id": inst.id, "description": task.description, "status": state,
                                   "due_at": inst.due_at.isoformat() + "Z" if inst.due_at else None})
-    equipment = list(db.scalars(select(Equipment).where(Equipment.location_id.in_(scope), Equipment.active.is_(True))))
+    equipment = [eq for eq in db.scalars(select(Equipment).where(Equipment.location_id.in_(scope), Equipment.active.is_(True))) if may_record(user, eq)]
     checks = due_checks(db, equipment, now)
     issues = db.scalar(select(func.count()).select_from(CorrectiveAction).join(
         TemperatureReading, TemperatureReading.id == CorrectiveAction.reading_id).where(
         TemperatureReading.location_id.in_(scope), CorrectiveAction.status.not_in(CLOSED_ACTIONS)))
     total = sum(tasks.values())
     done = tasks["completed"] + tasks["verified"] + tasks["pending_verification"]
+    sections = [p for p in ("checklists", "monitoring") if chosen is None or p in chosen]  # a steward's dashboard has these two parts
+    if "checklists" not in sections:
+        tasks, task_rows, total, done = Counter(), [], 0, 0
+    if "monitoring" not in sections:
+        checks, issues = [], 0
     return {
+        "sections": sections,
         "role": STEWARD, "checked_in": open_rec is not None,
         "check_in_at": open_rec.check_in_at.isoformat() + "Z" if open_rec else None,
         "tasks": {"total": total, "done": done, "overdue": tasks["overdue"], "outstanding": task_rows[:20]},
@@ -278,13 +289,14 @@ def dashboard(location_id: int | None = None, date_from: date | None = None, dat
     now = timeutil.utc_now()
     if location_id is not None:
         check_location(user, db, location_id)
+    chosen = None if user.role.tier == "manager" else user.role.dashboard
     if user.role.tier == STEWARD:
-        return _steward_view(db, user, now)
+        return _steward_view(db, user, now, chosen)
     try:
         view = _manager_view(db, user, now, location_id, date_from, date_to, employee_id, equipment_id, task_status)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     allowed = permissions_of(user)
     if user.role.tier != "manager":
-        view["supervisor"] = _supervisor_extras(db, user, now, location_id, allowed)
-    return _limit_to_permissions(view, allowed)
+        view["supervisor"] = _supervisor_extras(db, user, now, location_id, allowed, chosen)
+    return _limit_to_permissions(view, allowed, chosen)

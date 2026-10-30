@@ -20,12 +20,14 @@ interface RoleRow {
   tier: string
   builtin: boolean
   permissions: string[]
+  dashboard: string[] | null
   users: number
   defaults: string[] | null
 }
 
 interface Catalog {
   tiers: string[]
+  dashboard?: { key: string; label: string }[]
   groups: { group: string; permissions: { key: string; label: string }[] }[]
 }
 
@@ -36,6 +38,7 @@ interface Draft {
   builtin: boolean
   defaults: string[] | null
   permissions: string[]
+  dashboard: string[] | null  // null: everything the role may open
 }
 
 const tierName = (tier: string) => (tier === 'manager' ? 'Manager' : tier === 'supervisor' ? 'Supervisor' : 'Steward')
@@ -60,7 +63,7 @@ export function SettingsRoles() {
   async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft) return
-    const body = { label: draft.label, tier: draft.tier, permissions: draft.permissions }
+    const body = { label: draft.label, tier: draft.tier, permissions: draft.permissions, dashboard: draft.dashboard ?? [] }
     const ok = await run(() => api(draft.id ? `/roles/${draft.id}` : '/roles', { method: draft.id ? 'PUT' : 'POST', body }), 'Role saved')
     if (ok) {
       setDraft(null)
@@ -76,11 +79,12 @@ export function SettingsRoles() {
   }
 
   if (!roles.data || !catalog.data) return <Skeleton className="h-48 w-full" />
+  const parts = catalog.data.dashboard ?? []
   const total = catalog.data.groups.reduce((n, g) => n + g.permissions.length, 0)
   return (
     <div className="space-y-6">
       <SectionHeader title="Roles" count={roles.data.length}
-        action={<Button onClick={() => setDraft({ id: null, label: '', tier: 'supervisor', builtin: false, defaults: null, permissions: ['dashboard.view', 'notification.view'] })}><Plus className="h-4 w-4" /> New role</Button>} />
+        action={<Button onClick={() => setDraft({ id: null, label: '', tier: 'supervisor', builtin: false, defaults: null, permissions: ['dashboard.view', 'notification.view'], dashboard: null })}><Plus className="h-4 w-4" /> New role</Button>} />
 
       <CardGrid>
         {roles.data.map((r) => (
@@ -94,8 +98,8 @@ export function SettingsRoles() {
               { label: 'Permissions', value: `${r.permissions.length} of ${total}` },
             ]}
             actions={[
-              ...(r.name !== 'manager' ? [{ label: 'Edit', icon: Pencil, onClick: () => setDraft({ id: r.id, label: r.label, tier: r.tier, builtin: r.builtin, defaults: r.defaults, permissions: r.permissions }) }] : []),
-              { label: 'Copy', icon: Copy, onClick: () => setDraft({ id: null, label: `${r.label} copy`, tier: r.tier === 'manager' ? 'supervisor' : r.tier, builtin: false, defaults: null, permissions: r.permissions }) },
+              ...(r.name !== 'manager' ? [{ label: 'Edit', icon: Pencil, onClick: () => setDraft({ id: r.id, label: r.label, tier: r.tier, builtin: r.builtin, defaults: r.defaults, permissions: r.permissions, dashboard: r.dashboard ?? null }) }] : []),
+              { label: 'Copy', icon: Copy, onClick: () => setDraft({ id: null, label: `${r.label} copy`, tier: r.tier === 'manager' ? 'supervisor' : r.tier, builtin: false, defaults: null, permissions: r.permissions, dashboard: r.dashboard ?? null }) },
               { label: 'Delete', icon: Trash2, tone: 'danger' as const, disabled: whyNoDelete(r) !== undefined, title: whyNoDelete(r), onClick: () => setRemoving(r) },
             ]}
           />
@@ -125,6 +129,28 @@ export function SettingsRoles() {
                 </Select>
               </Field>
             </div>
+            <fieldset className="rounded-xl border border-border p-4">
+              <legend className="px-2 text-sm font-semibold">Dashboard shows</legend>
+              <p className="mb-3 text-sm text-ink-muted">Choose which parts of the dashboard and the pending list this role sees. A role never sees more than its permissions allow.</p>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2.5 text-sm">
+                  <input type="radio" name="dash" checked={draft.dashboard === null} onChange={() => setDraft({ ...draft, dashboard: null })} /> Everything this role may open
+                </label>
+                <label className="flex items-center gap-2.5 text-sm">
+                  <input type="radio" name="dash" checked={draft.dashboard !== null} onChange={() => setDraft({ ...draft, dashboard: draft.dashboard ?? parts.map((p) => p.key) })} /> Only the parts ticked below
+                </label>
+                {draft.dashboard !== null && (
+                  <div className="ml-6 grid gap-2 sm:grid-cols-2">
+                    {parts.map((p) => (
+                      <label key={p.key} className="flex items-center gap-2.5 text-sm">
+                        <input type="checkbox" checked={draft.dashboard?.includes(p.key) ?? false}
+                          onChange={(e) => setDraft({ ...draft, dashboard: e.target.checked ? [...(draft.dashboard ?? []), p.key] : (draft.dashboard ?? []).filter((k) => k !== p.key) })} /> {p.label}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </fieldset>
             <div className="grid gap-4 lg:grid-cols-2">
               {catalog.data.groups.map((g) => {
                 const keys = g.permissions.map((p) => p.key)

@@ -22,6 +22,7 @@ class Role(Base):
     label: Mapped[str | None] = mapped_column(String(80))  # what people see; the name is the stable key
     tier: Mapped[str] = mapped_column(String(20), default="steward", server_default="steward")  # manager | supervisor | steward behaviour
     builtin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    dashboard: Mapped[list | None] = mapped_column(JSON)  # dashboard parts this role is shown; none means all the role may open
     permissions: Mapped[list["RolePermission"]] = relationship(cascade="all, delete-orphan", lazy="selectin")
 
 
