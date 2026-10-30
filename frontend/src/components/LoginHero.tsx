@@ -59,13 +59,13 @@ export function LoginHero({ variant }: { variant: 'panel' | 'banner' }) {
       <Shapes />
       <div className="relative z-10 max-w-lg">
         <LogoTile size="h-24 w-24" />
-        <div className="login-rise mt-8 rounded-3xl bg-[#0d2a47]/85 p-6 ring-1 ring-white/10 backdrop-blur-sm [animation-delay:150ms]">
+        <div className="login-rise mt-8 rounded-3xl bg-[#0d2a47] p-6 ring-1 ring-white/10 [animation-delay:150ms]">
           <h2 className="text-4xl font-semibold leading-tight tracking-tight xl:text-5xl">Run every outlet with confidence.</h2>
           <p className="mt-4 max-w-md text-base text-white/85">Food safety, stock and people in one place, so nothing slips between shifts.</p>
         </div>
         <ul className="mt-10 space-y-4">
           {FEATURES.map(({ icon: Icon, title, text }, i) => (
-            <li key={title} className="login-rise flex items-start gap-4 rounded-2xl bg-[#0d2a47]/85 p-3 ring-1 ring-white/10 backdrop-blur-sm" style={{ animationDelay: `${380 + i * 120}ms` }}>
+            <li key={title} className="login-rise flex items-start gap-4 rounded-2xl bg-[#0d2a47] p-3 ring-1 ring-white/10" style={{ animationDelay: `${380 + i * 120}ms` }}>
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/12 ring-1 ring-white/15">
                 <Icon aria-hidden className="h-5 w-5" />
               </span>
