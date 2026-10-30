@@ -9,6 +9,7 @@ from ..audit import audit
 from ..db import get_db
 from ..deps import permissions_of, require
 from ..models import Role, RolePermission, User
+from .dashboard import DASHBOARD_PARTS
 from ..permissions import ALL_PERMISSIONS, CUSTOM_TIERS, MANAGER, PERMISSION_CATALOG, ROLE_PERMISSIONS
 
 router = APIRouter(prefix="/api/roles", tags=["roles"])
@@ -35,22 +36,35 @@ def _known_permissions(value: list[str] | None) -> list[str] | None:
     return sorted(set(value))
 
 
+def _known_parts(value: list[str] | None) -> list[str] | None:
+    if value is None:
+        return None
+    unknown = sorted(set(value) - set(DASHBOARD_PARTS))
+    if unknown:
+        raise ValueError(f"Unknown dashboard part: {', '.join(unknown)}")
+    return sorted(set(value))
+
+
 class RoleIn(BaseModel):
     label: str = Field(min_length=2, max_length=80)
     tier: str
     permissions: list[str] = Field(min_length=1)
+    dashboard: list[str] | None = None
 
     _tier = field_validator("tier")(_known_tier)
     _permissions = field_validator("permissions")(_known_permissions)
+    _dashboard = field_validator("dashboard")(_known_parts)
 
 
 class RoleUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=2, max_length=80)
     tier: str | None = None
     permissions: list[str] | None = Field(default=None, min_length=1)
+    dashboard: list[str] | None = None  # the parts of the dashboard shown; null shows everything the role may open
 
     _tier = field_validator("tier")(_known_tier)
     _permissions = field_validator("permissions")(_known_permissions)
+    _dashboard = field_validator("dashboard")(_known_parts)
 
 
 def _users_per_role(db: Session) -> dict[int, int]:
@@ -59,7 +73,7 @@ def _users_per_role(db: Session) -> dict[int, int]:
 
 def _dict(role: Role, users: int) -> dict:
     return {"id": role.id, "name": role.name, "label": role.label or role.name, "tier": role.tier, "builtin": role.builtin,
-            "permissions": sorted(p.permission for p in role.permissions), "users": users,
+            "permissions": sorted(p.permission for p in role.permissions), "dashboard": role.dashboard, "users": users,
             "defaults": sorted(ROLE_PERMISSIONS[role.name]) if role.builtin and role.name in ROLE_PERMISSIONS else None}
 
 
@@ -85,7 +99,7 @@ def list_roles(user: User = Depends(_manager_only), db: Session = Depends(get_db
 
 @router.get("/catalog")
 def catalog(user: User = Depends(_manager_only)):
-    return {"tiers": list(CUSTOM_TIERS),
+    return {"tiers": list(CUSTOM_TIERS), "dashboard": [{"key": k, "label": v} for k, v in DASHBOARD_PARTS.items()],
             "groups": [{"group": group, "permissions": [{"key": k, "label": label} for k, label in entries]} for group, entries in PERMISSION_CATALOG]}
 
 
@@ -103,7 +117,7 @@ def create_role(body: RoleIn, user: User = Depends(_manager_only), db: Session =
     label = " ".join(body.label.split())
     if _label_taken(db, label):
         raise HTTPException(status.HTTP_409_CONFLICT, "A role with that name already exists")
-    role = Role(name=_name_for(db, label), label=label, tier=body.tier, builtin=False)
+    role = Role(name=_name_for(db, label), label=label, tier=body.tier, builtin=False, dashboard=body.dashboard or None)
     role.permissions = [RolePermission(permission=p) for p in body.permissions]
     db.add(role)
     db.flush()
@@ -126,16 +140,18 @@ def update_role(role_id: int, body: RoleUpdate, user: User = Depends(_manager_on
         data["label"] = " ".join(data["label"].split())
         if _label_taken(db, data["label"], role.id):
             raise HTTPException(status.HTTP_409_CONFLICT, "A role with that name already exists")
-    before = {"label": role.label, "tier": role.tier, "permissions": sorted(p.permission for p in role.permissions)}
+    before = {"label": role.label, "tier": role.tier, "permissions": sorted(p.permission for p in role.permissions), "dashboard": role.dashboard}
     if "label" in data:
         role.label = data["label"]
     if "tier" in data:
         role.tier = data["tier"]
     if "permissions" in data:
         role.permissions = [RolePermission(permission=p) for p in data["permissions"]]
+    if "dashboard" in data:
+        role.dashboard = data["dashboard"] or None  # an empty choice goes back to showing everything the role may open
     db.flush()
     audit(db, user, "role.update", "role", role.id, before,
-          {"label": role.label, "tier": role.tier, "permissions": sorted(p.permission for p in role.permissions)})
+          {"label": role.label, "tier": role.tier, "permissions": sorted(p.permission for p in role.permissions), "dashboard": role.dashboard})
     db.commit()
     return _dict(role, _users_per_role(db).get(role.id, 0))
 

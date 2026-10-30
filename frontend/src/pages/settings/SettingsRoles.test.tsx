@@ -7,10 +7,10 @@ const mocks = vi.hoisted(() => ({ reload: vi.fn(), api: vi.fn(async () => ({})) 
 const roles = [
   { id: 1, name: 'manager', label: 'Back of House Manager', tier: 'manager', builtin: true, permissions: ['a', 'b', 'c'], users: 1, defaults: null },
   { id: 2, name: 'steward', label: 'Steward', tier: 'steward', builtin: true, permissions: ['a'], users: 4, defaults: ['a'] },
-  { id: 3, name: 'butcher', label: 'Butcher', tier: 'steward', builtin: false, permissions: ['a'], users: 2, defaults: null },
+  { id: 3, name: 'butcher', label: 'Butcher', tier: 'steward', builtin: false, permissions: ['a'], dashboard: null, users: 2, defaults: null },
   { id: 4, name: 'spare', label: 'Spare role', tier: 'supervisor', builtin: false, permissions: ['a', 'b'], users: 0, defaults: null },
 ]
-const catalog = { tiers: ['supervisor', 'steward'], groups: [{ group: 'General', permissions: [{ key: 'a', label: 'See a' }, { key: 'b', label: 'See b' }, { key: 'c', label: 'See c' }] }] }
+const catalog = { tiers: ['supervisor', 'steward'], dashboard: [{ key: 'checklists', label: 'Checklists and tasks' }, { key: 'monitoring', label: 'Monitoring and food safety' }], groups: [{ group: 'General', permissions: [{ key: 'a', label: 'See a' }, { key: 'b', label: 'See b' }, { key: 'c', label: 'See c' }] }] }
 
 vi.mock('@/lib/useApi', () => ({ useApi: (path: string) => ({ data: path === '/roles' ? roles : catalog, reload: mocks.reload }) }))
 vi.mock('@/lib/api', () => ({ api: mocks.api }))
@@ -52,5 +52,15 @@ describe('SettingsRoles', () => {
     await user.click(within(card('Steward')).getByRole('button', { name: /Copy/ }))
     expect((screen.getByLabelText('Role name') as HTMLInputElement).value).toBe('Steward copy')
     expect(screen.getByText('1 of 3 permissions chosen')).toBeTruthy()
+  })
+
+  it('limits the dashboard of a role to the parts ticked', async () => {
+    const user = userEvent.setup()
+    render(<SettingsRoles />)
+    await user.click(within(card('Butcher')).getByRole('button', { name: /Edit/ }))
+    await user.click(screen.getByLabelText('Only the parts ticked below'))
+    await user.click(screen.getByLabelText('Monitoring and food safety'))  // untick it: checklists remain
+    await user.click(screen.getByRole('button', { name: 'Save role' }))
+    expect(mocks.api).toHaveBeenCalledWith('/roles/3', { method: 'PUT', body: expect.objectContaining({ dashboard: ['checklists'] }) })
   })
 })

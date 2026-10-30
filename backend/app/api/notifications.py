@@ -5,9 +5,10 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..db import get_db
-from ..deps import check_location, require, scoped_locations
+from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import Notification, User
 from ..pagination import paginate, row
+from .dashboard import CATEGORY_SECTION, _sections
 from ..services.summary import grouped, pending_items
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -110,4 +111,8 @@ def pending_summary(location_id: int | None = None, user: User = Depends(require
         check_location(user, db, location_id)
         scope = {location_id}
     items = pending_items(db, scope, timeutil.utc_now())
+    chosen = user.role.dashboard if user.role.tier != "manager" else None
+    if chosen is not None:  # the list follows what this role's dashboard shows
+        shown = set(_sections(permissions_of(user), chosen))
+        items = [i for i in items if CATEGORY_SECTION.get(i["category"]) in shown]
     return {**grouped(items), "items": items[:PENDING_LIST]}
