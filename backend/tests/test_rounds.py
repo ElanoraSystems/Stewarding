@@ -364,6 +364,27 @@ def test_the_count_sheet_shows_what_the_books_hold_at_that_location_and_a_transf
     assert row(client, m, rid, pl)["by_location"]["Banquet Hall"] == before + 30
 
 
+def test_a_round_can_count_only_the_locations_chosen(client, login, db, clock):
+    m = login(MGR)
+    chosen = [loc_id(db, "MK"), loc_id(db, "BQ")]
+    assert start(client, m, db, location_ids=[]).status_code == 400
+    assert start(client, m, db, location_ids=[99999]).status_code == 400
+    made = start(client, m, db, location_ids=chosen)
+    assert made.status_code == 201 and sorted(p["location_id"] for p in made.json()["locations"]) == sorted(chosen)
+    rid = made.json()["id"]
+    pl = item_id(db, "PL-001")
+    skipped = client.get(f"/api/rounds/{rid}/entry?location_id={loc_id(db, 'RB')}", headers=m)
+    assert skipped.status_code == 404
+    # the books the counts are checked against are those of the chosen places only
+    sheet = client.get(f"/api/rounds/{rid}/entry?location_id={chosen[0]}", headers=m).json()
+    line = next(i for i in sheet["items"] if i["item_id"] == pl)
+    assert line["book"] == balance(db, "PL-001", "MK") + balance(db, "PL-001", "BQ")  # not the skipped place's stock
+    # and the round can be finished and posted without the skipped place
+    put(client, m, db, rid, "MK", {pl: (line["here"], "")})
+    for code in ("MK", "BQ"):
+        assert client.post(f"/api/rounds/{rid}/counts/{loc_id(db, code)}/done", headers=m).status_code == 200
+
+
 def test_a_recount_goes_only_to_the_locations_that_hold_the_item_and_says_which_items(client, login, db, clock):
     m = login(MGR)
     pl = db.scalar(select(InventoryItem).where(InventoryItem.code == "PL-001"))

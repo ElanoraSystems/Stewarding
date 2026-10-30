@@ -30,6 +30,7 @@ class RoundIn(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     deadline: date | None = None
     note: str | None = Field(default=None, max_length=500)
+    location_ids: list[int] | None = None  # the locations to count; none means every active location
 
 
 class PostIn(BaseModel):
@@ -73,14 +74,14 @@ def count_limit(db: Session, round_: CountRound) -> dict[int, int]:
     return {item_id: max(qty, 0) for item_id, qty in held.items()}
 
 
-def pool_book(db: Session) -> tuple[dict[int, int], dict[int, dict[int, int]], dict[int, Decimal]]:
-    """Per item: the quantity the books hold across all locations, per location, and the average cost of what is held."""
+def pool_book(db: Session, places=None) -> tuple[dict[int, int], dict[int, dict[int, int]], dict[int, Decimal]]:
+    """Per item: the quantity the books hold across the locations (all of them, or just a round's), per location, and the average cost of what is held."""
     book: dict[int, int] = {}
     where: dict[int, dict[int, int]] = {}
     worth: dict[int, Decimal] = {}
     held: dict[int, int] = {}
     items = {i.id: i for i in db.scalars(select(InventoryItem))}
-    for b in db.scalars(select(InventoryBalance)):
+    for b in db.scalars(select(InventoryBalance).where(InventoryBalance.location_id.in_(list(places) or [0])) if places is not None else select(InventoryBalance)):
         book[b.item_id] = book.get(b.item_id, 0) + b.qty
         where.setdefault(b.item_id, {})[b.location_id] = b.qty
         cost = b.avg_cost if b.avg_cost is not None else items[b.item_id].unit_cost
@@ -222,11 +223,15 @@ def list_rounds(user: User = Depends(require("inventory.count")), db: Session = 
 def start_round(body: RoundIn, user: User = Depends(_manager), db: Session = Depends(get_db)):
     if db.scalar(select(CountRound.id).where(CountRound.status == "counting")):
         raise HTTPException(status.HTTP_409_CONFLICT, "A count round is already open. Post or cancel it before starting another")
+    active = _locations(db)
+    chosen = [loc for loc in active if body.location_ids is None or loc.id in set(body.location_ids)]
+    if not chosen or (body.location_ids is not None and len(chosen) != len(set(body.location_ids))):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose at least one active location to count")
     round_ = CountRound(name=" ".join(body.name.split()), baseline=False,
                         deadline=body.deadline, created_by=user.id, note=body.note)
     db.add(round_)
     db.flush()
-    db.add_all(RoundCount(round_id=round_.id, location_id=loc.id) for loc in _locations(db))
+    db.add_all(RoundCount(round_id=round_.id, location_id=loc.id) for loc in chosen)
     audit(db, user, "round.start", "count_round", round_.id, None, body.model_dump(mode="json"))
     db.commit()
     return _summary(db, round_)
@@ -278,7 +283,7 @@ def entry_sheet(round_id: int, location_id: int, user: User = Depends(require("i
     """What to count at one location: each item in the pool with what others have counted and how much is left to enter."""
     round_ = _round(db, user, round_id)
     rc = _round_count(db, user, round_, location_id)
-    ceiling, limit, (book, where, _) = pool_ceiling(db), count_limit(db, round_), pool_book(db)
+    ceiling, limit, (book, where, _) = pool_ceiling(db), count_limit(db, round_), pool_book(db, round_places(db, round_))
     counted, reasons = round_counts(db, round_)
     flagged = _flagged(db, round_)
     categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
@@ -304,7 +309,7 @@ def save_counts(round_id: int, location_id: int, body: CountsIn, user: User = De
     rc = _round_count(db, user, round_, location_id)
     if round_.status != "counting" or rc.status == "done":
         raise HTTPException(status.HTTP_409_CONFLICT, "This count is finished. Reopen it to change a number")
-    limit, (book, _, _) = count_limit(db, round_), pool_book(db)
+    limit, (book, _, _) = count_limit(db, round_), pool_book(db, round_places(db, round_))
     counted, _ = round_counts(db, round_)
     items = {i.id: i for i in db.scalars(select(InventoryItem).where(InventoryItem.id.in_(list(body.entries) or [0])))}
     have = {ln.item_id: ln for ln in db.scalars(select(RoundCountLine).where(RoundCountLine.round_count_id == rc.id))}
@@ -369,7 +374,7 @@ def finish_location(round_id: int, location_id: int, user: User = Depends(requir
     rc = _round_count(db, user, round_, location_id)
     if round_.status != "counting":
         raise HTTPException(status.HTTP_409_CONFLICT, f"The round is already {round_.status}")
-    book = pool_book(db)[0]
+    book = pool_book(db, round_places(db, round_))[0]
     counted, reasons = round_counts(db, round_)
     missing = [i for i, per in counted.items() if sum(per.values()) > book.get(i, 0) and location_id in per
                and len(reasons.get(i, {}).get(location_id, "")) < REASON_MIN]
@@ -412,7 +417,7 @@ def _gap_value(item_id: int, books: dict[int, int], counted: dict[int, int], ave
 
 def review_rows(db: Session, round_: CountRound) -> list[dict]:
     """Per item: what the books hold, what was received, what each location counted, and the stock that cannot be accounted for."""
-    ceiling, (book, where, pool_average) = pool_ceiling(db), pool_book(db)
+    ceiling, (book, where, pool_average) = pool_ceiling(db), pool_book(db, round_places(db, round_))
     average, later = location_average(db, pool_average), movements_after(db, round_)
     places = round_places(db, round_)
     counted, reasons = round_counts(db, round_)

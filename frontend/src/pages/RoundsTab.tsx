@@ -41,6 +41,9 @@ export function RoundsTab() {
   const [starting, setStarting] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [form, setForm] = useState({ name: '', deadline: '' })
+  const [skipped, setSkipped] = useState<number[]>([])  // locations left out of the round; all are counted unless ticked off
+  const places = me?.locations ?? []
+  const counted = places.filter((l) => !skipped.includes(l.id))
 
   const list = rounds.data ?? []
   const current = list.find((r) => r.id === openId) ?? list.find((r) => r.status === 'counting') ?? list[0] ?? null
@@ -48,7 +51,7 @@ export function RoundsTab() {
   async function start(event: FormEvent) {
     event.preventDefault()
     const ok = await run(async () => {
-      const made = await api<Round>('/rounds', { body: { name: form.name, deadline: form.deadline || null } })
+      const made = await api<Round>('/rounds', { body: { name: form.name, deadline: form.deadline || null, location_ids: skipped.length ? counted.map((l) => l.id) : null } })
       setOpenId(made.id)
     }, 'Count round started')
     if (ok) {
@@ -67,7 +70,7 @@ export function RoundsTab() {
           <p className="text-sm text-ink-muted">Count every location, including the store. The counts added together can never be more than the books hold: everything received, less breakage, write-offs and earlier counts.</p>
         </div>
         {canManage && !list.some((r) => r.status === 'counting') && (
-          <Button onClick={() => { setForm({ name: `${new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(new Date())} count`, deadline: '' }); setStarting(true) }}>
+          <Button onClick={() => { setForm({ name: `${new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(new Date())} count`, deadline: '' }); setSkipped([]); setStarting(true) }}>
             <Plus className="h-4 w-4" /> Start a round
           </Button>
         )}
@@ -80,8 +83,20 @@ export function RoundsTab() {
             <form onSubmit={start} className="grid gap-4 sm:grid-cols-2">
               <Field label="Name"><Input required minLength={2} maxLength={80} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
               <Field label="Finish counting by (optional)"><Input type="date" min={iso(new Date())} value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} /></Field>
+              <fieldset className="sm:col-span-2">
+                <legend className="mb-1 text-sm font-medium">Locations to count</legend>
+                <div className="flex flex-wrap gap-x-5 gap-y-2">
+                  {places.map((l) => (
+                    <label key={l.id} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={!skipped.includes(l.id)}
+                        onChange={(e) => setSkipped((s) => (e.target.checked ? s.filter((id) => id !== l.id) : [...s, l.id]))} /> {l.name}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-ink-muted">Untick a location to leave it out. Its stock is not counted or changed by this round.</p>
+              </fieldset>
               <div className="flex gap-2 sm:col-span-2">
-                <Button type="submit">Start</Button>
+                <Button type="submit" disabled={counted.length === 0}>Start</Button>
                 <Button type="button" variant="outline" onClick={() => setStarting(false)}>Cancel</Button>
               </div>
             </form>
