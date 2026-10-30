@@ -35,34 +35,82 @@ interface ColumnChartProps {
   labelKey: string
   series: Series[]
   height?: number
+  format?: (n: number) => string  // how a value reads in the tooltip and legend, for example as money
+  empty?: string
 }
 
-export function ColumnChart({ data, labelKey, series, height = 140 }: ColumnChartProps) {
-  const max = Math.max(1, ...data.flatMap((d) => series.map((s) => Number(d[s.key]) || 0)))
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** "2026-10-28" reads 28 Oct, "2026-10" reads Oct 2026; anything else is shown as it came. */
+function chartLabel(raw: string): string {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw)
+  if (day) return `${Number(day[3])} ${MONTHS[Number(day[2]) - 1]}`
+  const month = /^(\d{4})-(\d{2})$/.exec(raw)
+  return month ? `${MONTHS[Number(month[2]) - 1]} ${month[1]}` : raw
+}
+
+/** The next round number at or above the largest value, so the scale reads 0, 25, 50, 75, 100 rather than odd figures. */
+function niceMax(value: number): number {
+  const size = 10 ** Math.floor(Math.log10(Math.max(value, 1)))
+  return [1, 2, 2.5, 5, 10].map((m) => m * size).find((m) => m >= value) ?? 10 * size
+}
+
+const compact = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${+(n / 1000).toFixed(1)}k` : String(+n.toFixed(2)))
+
+/** Bars by day or month with a value scale, readable date labels and a pop-up with the exact figures on hover or focus. */
+export function ColumnChart({ data, labelKey, series, height = 180, format = (n) => n.toLocaleString(), empty = 'Nothing recorded in this period.' }: ColumnChartProps) {
+  const values = data.flatMap((d) => series.map((s) => Number(d[s.key]) || 0))
+  if (values.every((v) => v === 0)) return <p className="py-10 text-center text-sm text-ink-muted">{empty}</p>
+  const top = niceMax(Math.max(...values))
+  const ticks = [1, 0.75, 0.5, 0.25, 0]
+  const every = Math.ceil(data.length / 6)  // about six date labels fit whatever the width, even on a phone
+  const total = (key: string) => data.reduce((sum, d) => sum + (Number(d[key]) || 0), 0)
   return (
     <div>
-      <div className="flex items-end gap-1 overflow-x-auto" style={{ height }} role="img"
-        aria-label={`${series.map((s) => s.label).join(' and ')} by ${labelKey}`}>
-        {data.map((d) => (
-          <div key={String(d[labelKey])} className="flex h-full min-w-0 flex-1 items-end justify-center gap-0.5"
-            title={`${d[labelKey]}: ${series.map((s) => `${s.label} ${d[s.key]}`).join(', ')}`}>
-            {series.map((s) => (
-              <div key={s.key} className={cn('w-full max-w-4 rounded-t', s.className)}
-                style={{ height: `${((Number(d[s.key]) || 0) / max) * 100}%`, minHeight: Number(d[s.key]) ? 2 : 0 }} />
+      <div className="flex gap-2" role="img" aria-label={`${series.map((s) => s.label).join(' and ')} by ${labelKey}`}>
+        <div className="relative w-10 shrink-0 text-right text-[11px] tabular-nums text-ink-muted" style={{ height }}>
+          {ticks.map((t) => <span key={t} className="absolute right-0 -translate-y-1/2" style={{ top: `${(1 - t) * 100}%` }}>{compact(top * t)}</span>)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="relative" style={{ height }}>
+            {ticks.map((t) => <div key={t} className="absolute inset-x-0 border-t border-border/70" style={{ top: `${(1 - t) * 100}%` }} />)}
+            <div className="absolute inset-0 flex items-end gap-[3px]">
+              {data.map((d, i) => {
+                const place = i < data.length / 3 ? 'left-0' : i > (data.length * 2) / 3 ? 'right-0' : 'left-1/2 -translate-x-1/2'
+                return (
+                  <div key={String(d[labelKey])} tabIndex={0} className="group relative flex h-full min-w-0 flex-1 items-end justify-center gap-px rounded-sm outline-offset-2 hover:bg-surface-muted/60 focus:bg-surface-muted/60">
+                    {series.map((s) => (
+                      <div key={s.key} className={cn('w-full max-w-5 rounded-t-sm', s.className)}
+                        style={{ height: `${((Number(d[s.key]) || 0) / top) * 100}%`, minHeight: Number(d[s.key]) ? 3 : 0 }} />
+                    ))}
+                    <div className={cn('pointer-events-none absolute bottom-full z-10 mb-1 hidden w-max min-w-28 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs shadow-lg group-hover:block group-focus:block', place)}>
+                      <p className="font-semibold">{chartLabel(String(d[labelKey]))}</p>
+                      {series.map((s) => (
+                        <p key={s.key} className="flex items-center justify-between gap-3">
+                          <span className="flex items-center gap-1.5"><span className={cn('inline-block h-2 w-2 rounded-sm', s.className)} />{s.label}</span>
+                          <span className="font-medium tabular-nums">{format(Number(d[s.key]) || 0)}</span>
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          <div className="mt-1 flex gap-[3px] text-[11px] text-ink-muted">
+            {data.map((d, i) => (
+              <span key={String(d[labelKey])} className="relative h-4 min-w-0 flex-1">
+                {i % every === 0 && <span className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap">{chartLabel(String(d[labelKey]))}</span>}
+              </span>
             ))}
           </div>
-        ))}
+        </div>
       </div>
-      <div className="mt-1 flex gap-1 text-[10px] text-ink-muted">
-        {data.map((d, i) => (
-          <span key={String(d[labelKey])} className="min-w-0 flex-1 truncate text-center">
-            {data.length > 10 && i % 2 === 1 ? '' : String(d[labelKey]).slice(-5)}
-          </span>
-        ))}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-ink-muted">
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-muted">
         {series.map((s) => (
-          <span key={s.key} className="flex items-center gap-1"><span className={cn('inline-block h-2 w-2 rounded-sm', s.className)} />{s.label}</span>
+          <span key={s.key} className="flex items-center gap-1.5">
+            <span className={cn('inline-block h-2.5 w-2.5 rounded-sm', s.className)} />{s.label}: <span className="font-semibold text-ink tabular-nums">{format(total(s.key))}</span> in total
+          </span>
         ))}
       </div>
     </div>
