@@ -99,32 +99,13 @@ describe('theme switch', () => {
   })
 })
 
-const mixHex = (front: string, back: string, share: number) =>
-  '#' + [1, 3, 5].map((i) => Math.round(parseInt(front.slice(i, i + 2), 16) * share + parseInt(back.slice(i, i + 2), 16) * (1 - share)).toString(16).padStart(2, '0')).join('')
-
-describe('frosted surfaces', () => {
-  const supported = css.slice(css.indexOf('@supports (backdrop-filter'), css.indexOf('@media (prefers-reduced-transparency'))
-  const reduced = css.slice(css.indexOf('@media (prefers-reduced-transparency'), css.indexOf('@keyframes toast-in'))
-
-  it('starts from a solid colour and only blurs where the browser can', () => {
+describe('solid surfaces', () => {
+  it('uses no blur or see-through effect, so text is never read over what is behind it', () => {
+    expect(css).not.toContain('backdrop-filter')
     expect(css).toMatch(/\.glass\s*\{\s*background:\s*var\(--color-page\);/)
-    expect(css.indexOf('.glass {')).toBeLessThan(css.indexOf('@supports (backdrop-filter'))
-    expect(supported).toContain('backdrop-filter: blur(14px)')
-    expect(supported).toContain('backdrop-filter: blur(5px)')
   })
 
-  it('turns the blur off and goes solid when transparency is reduced', () => {
-    expect(reduced.match(/backdrop-filter:\s*none/g)).toHaveLength(2)
-    expect(reduced).toContain('background: var(--color-page)')
-  })
-
-  it.each([['light', light, '#000000'], ['dark', dark, '#ffffff']] as const)('keeps secondary header text at 4.5:1 over the harshest %s backdrop', (_name, palette, harshest) => {
-    const share = Number(supported.match(/var\(--color-page\) (\d+)%/)?.[1]) / 100
-    expect(ratio(palette['ink-muted'], mixHex(palette.page, harshest, share))).toBeGreaterThanOrEqual(4.5)
-    expect(ratio(palette.ink, mixHex(palette.page, harshest, share))).toBeGreaterThanOrEqual(4.5)
-  })
-
-  it('puts the blurred scrim behind every dialog and keeps the dialog itself solid', () => {
+  it('puts a dimmed scrim behind every dialog and keeps the dialog itself solid', () => {
     render(<Modal open title="Check" onClose={() => {}}>Body</Modal>)
     const dialog = screen.getByRole('dialog')
     expect(dialog.parentElement?.className).toContain('scrim')
