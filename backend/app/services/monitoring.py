@@ -244,3 +244,10 @@ def failure_count(db: Session, equipment_id: int, now: datetime) -> int:
     return db.scalar(select(func.count()).select_from(TemperatureReading).where(
         TemperatureReading.equipment_id == equipment_id, TemperatureReading.passed.is_(False), TemperatureReading.rejected_at.is_(None),
         TemperatureReading.recorded_at >= since))
+
+
+def may_record(user, eq: Equipment) -> bool:
+    """A log limited to certain roles is recorded only by those roles; managers and whoever sets monitoring up can always reach it."""
+    if not eq.visible_to or user.role.tier == "manager":
+        return True
+    return user.role.name in eq.visible_to or any(p.permission == "equipment.manage" for p in user.role.permissions)
