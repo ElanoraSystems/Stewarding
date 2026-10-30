@@ -15,6 +15,7 @@ from ..deps import check_location, require, scoped_locations
 from ..models import Employee, InventoryItem, ItemSupplier, Location, Receipt, ReceiptLine, StockTransaction, Supplier, User
 from ..pagination import paginate, row
 from ..services.inventory import StockError, post_txn
+from ..services.receipt_search import apply_search
 from ..services.settings import get_setting
 
 router = APIRouter(prefix="/api/receipts", tags=["receiving"])
@@ -248,8 +249,7 @@ def list_receipts(supplier_id: int | None = None, location_id: int | None = None
         stmt = stmt.where(Receipt.supplier_id == supplier_id)
     if receipt_status:
         stmt = stmt.where(Receipt.status == receipt_status)
-    if q:
-        stmt = stmt.where(or_(Receipt.invoice_number.ilike(f"%{q.strip()}%"), Receipt.note.ilike(f"%{q.strip()}%")))
+    stmt = apply_search(stmt, q)
     if date_by == "received":  # the day the goods arrived
         if date_from:
             stmt = stmt.where(func.coalesce(Receipt.received_on, func.date(Receipt.received_at)) >= date_from)
