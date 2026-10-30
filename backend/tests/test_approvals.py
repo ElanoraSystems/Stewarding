@@ -85,3 +85,17 @@ def test_unapproved_readings_show_in_the_pending_list_until_approved(client, log
     assert len(pending()) == 1 and "1 monitoring reading" in pending()[0]["description"]
     client.post("/api/monitoring/readings/review", json={"reading_ids": [rid]}, headers=sup)
     assert pending() == []
+
+
+def test_readings_of_a_switched_off_point_stay_out_of_the_pending_list(client, login, db, clock):
+    steward = login(STEWARD)
+    eq, wash = mk_stage(client, steward)
+    record(client, steward, eq, wash, 60)
+
+    def pending():
+        items = client.get("/api/notifications/pending-summary", headers=login(MGR)).json()["items"]
+        return [i for i in items if i["category"] == "monitoring_review"]
+
+    assert len(pending()) == 1
+    assert client.put(f"/api/equipment/{eq['id']}", json={"active": False}, headers=login(MGR)).status_code == 200
+    assert pending() == []

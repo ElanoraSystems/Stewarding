@@ -10,8 +10,9 @@ from sqlalchemy.sql import Select
 
 from ..audit import audit
 from ..db import get_db
+from .uploads import upload_path
 from ..deps import check_location, permissions_of, require, scoped_locations
-from ..models import CorrectiveAction, Employee, Equipment, EquipmentSchedule, Location, ReadingLot, Shift, TemperatureReading, User
+from ..models import ChecklistInstance, CorrectiveAction, Employee, Equipment, EquipmentSchedule, Location, ReadingLot, Shift, TemperatureReading, User
 from ..pagination import row
 from ..services.settings import get_setting
 from ..services.monitoring import failure_count
@@ -237,17 +238,26 @@ def set_schedule_active(schedule_id: int, body: ActiveIn, user: User = Depends(r
     return schedule_out(sched)
 
 
-def _remove_readings(db: Session, user: User, readings: Select) -> int:
+def _remove_readings(db: Session, user: User, readings: Select, photos: list[str]) -> int:
     """Deletes readings with the records that hang on them. Only for someone allowed to, and the caller must have said so."""
     if "equipment.delete" not in permissions_of(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Back of House Manager can delete readings")
     ids = list(db.scalars(readings))
     if ids:
+        photos += db.scalars(select(TemperatureReading.evidence_path).where(TemperatureReading.id.in_(ids), TemperatureReading.evidence_path.is_not(None)))
         db.execute(update(TemperatureReading).where(TemperatureReading.retest_of_id.in_(ids) | TemperatureReading.start_reading_id.in_(ids)).values(retest_of_id=None, start_reading_id=None))
         db.execute(delete(CorrectiveAction).where(CorrectiveAction.reading_id.in_(ids)))
         db.execute(delete(ReadingLot).where(ReadingLot.reading_id.in_(ids)))
         db.execute(delete(TemperatureReading).where(TemperatureReading.id.in_(ids)))
     return len(ids)
+
+
+def _remove_photos(db: Session, photos: list[str]) -> None:
+    """After the delete is saved, removes the photos of the deleted readings, unless something else still shows one."""
+    for name in set(photos):
+        if not db.scalar(select(TemperatureReading.id).where(TemperatureReading.evidence_path == name).limit(1)) and \
+                not db.scalar(select(ChecklistInstance.id).where(ChecklistInstance.evidence_path == name).limit(1)):
+            upload_path(name).unlink(missing_ok=True)
 
 
 @router.delete("/schedules/{schedule_id}")
@@ -257,14 +267,15 @@ def delete_schedule(schedule_id: int, with_readings: bool = False, user: User = 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Schedule not found")
     _get(db, user, sched.equipment_id)
     readings = select(TemperatureReading.id).where(TemperatureReading.schedule_id == sched.id)
-    removed = 0
+    removed, photos = 0, []
     if db.scalar(readings.limit(1)):
         if not with_readings:
             raise HTTPException(status.HTTP_409_CONFLICT, "This check has recorded readings; make it inactive instead")
-        removed = _remove_readings(db, user, readings)
+        removed = _remove_readings(db, user, readings, photos)
     audit(db, user, "equipment.schedule_delete", "equipment_schedule", sched.id, {**_schedule_snapshot(sched), "readings_deleted": removed}, None)
     db.delete(sched)
     db.commit()
+    _remove_photos(db, photos)
     return {"deleted": schedule_id, "readings_deleted": removed}
 
 
@@ -272,17 +283,18 @@ def delete_schedule(schedule_id: int, with_readings: bool = False, user: User = 
 def delete_equipment(equipment_id: int, with_readings: bool = False, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
     eq = _get(db, user, equipment_id)
     readings = select(TemperatureReading.id).where(TemperatureReading.equipment_id == eq.id)
-    removed = 0
+    removed, photos = 0, []
     if db.scalar(readings.limit(1)):
         if not with_readings:
             raise HTTPException(status.HTTP_409_CONFLICT, "This monitoring point has recorded readings; make it inactive instead")
-        removed = _remove_readings(db, user, readings)
+        removed = _remove_readings(db, user, readings, photos)
     audit(db, user, "equipment.delete", "equipment", eq.id, {**{k: getattr(eq, k) for k in EQUIPMENT_FIELDS}, "readings_deleted": removed}, None)
     for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id)):
         db.delete(sched)
     db.flush()  # the checks go first, the point they belong to after
     db.delete(eq)
     db.commit()
+    _remove_photos(db, photos)
     return {"deleted": equipment_id, "readings_deleted": removed}
 
 

@@ -2,6 +2,9 @@ from sqlalchemy import delete, select
 
 from app.models import CorrectiveAction, RolePermission, TemperatureReading
 
+from app.api.uploads import upload_path
+
+from .test_checklists import PNG
 from .test_monitoring import MGR, STEWARD, mk_stage, record
 
 CHECK = {"stage": "Probe check", "timing": "manual", "value_type": "yes_no"}
@@ -47,7 +50,9 @@ def test_check_and_point_with_readings_cannot_be_deleted(client, login, clock):
 def test_manager_can_delete_a_point_together_with_its_readings(client, login, db, clock):
     h = login(MGR)
     eq, sched = mk_stage(client, h)
-    assert record(client, h, eq, sched, 40.0).status_code == 201  # out of range: opens a corrective action
+    photo = client.post("/api/uploads", files={"file": ("a.png", PNG, "image/png")}, headers=h).json()["name"]
+    assert record(client, h, eq, sched, 40.0, evidence_path=photo).status_code == 201  # out of range: opens a corrective action
+    assert upload_path(photo).is_file()
     assert db.scalars(select(CorrectiveAction.id)).all()
     # without the permission the readings stay, whatever the request says
     db.execute(delete(RolePermission).where(RolePermission.permission == "equipment.delete"))
@@ -58,6 +63,7 @@ def test_manager_can_delete_a_point_together_with_its_readings(client, login, db
     db.commit()
     r = client.delete(f"/api/equipment/{eq['id']}?with_readings=true", headers=h)
     assert r.status_code == 200 and r.json()["readings_deleted"] == 1
+    assert not upload_path(photo).exists()  # the photo goes with its reading
     db.expire_all()
     assert not db.scalars(select(TemperatureReading.id).where(TemperatureReading.equipment_id == eq["id"])).all()
     assert not db.scalars(select(CorrectiveAction.id)).all()

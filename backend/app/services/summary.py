@@ -76,7 +76,8 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
     cutoff = now - timedelta(days=14)
     for loc_id, count, oldest in db.execute(
             select(TemperatureReading.location_id, func.count(), func.min(TemperatureReading.recorded_at))
-            .where(TemperatureReading.location_id.in_(locations), TemperatureReading.reviewed_at.is_(None), TemperatureReading.rejected_at.is_(None),
+            .join(Equipment, Equipment.id == TemperatureReading.equipment_id)
+            .where(Equipment.active.is_(True), TemperatureReading.location_id.in_(locations), TemperatureReading.reviewed_at.is_(None), TemperatureReading.rejected_at.is_(None),
                    TemperatureReading.retest_of_id.is_(None), TemperatureReading.recorded_at >= cutoff)
             .group_by(TemperatureReading.location_id)):
         add("monitoring_review", loc_id, "normal", "Supervisor or manager", f"{count} monitoring reading(s) awaiting approval",
