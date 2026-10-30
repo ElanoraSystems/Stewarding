@@ -490,3 +490,22 @@ def test_missing_and_written_off_stock_is_shown_apart_from_breakage_and_dated_wh
     totals = report()
     assert totals["breakage_damage"] > 0 and totals["missing_written_off"] > 0
     assert round(totals["cost_consumed"], 3) == round(totals["breakage_damage"] + totals["missing_written_off"], 3)
+
+
+def test_the_receipts_and_movements_exports_follow_the_filters_on_screen(client, login, db, clock):
+    sup, m = login(SUP), manager_headers(client)
+    receive(client, sup, db, [{"item_id": item_id(db, "PL-001"), "qty": 5, "unit_cost": 2.0}], invoice="A-1", invoice_date="2026-02-10")
+    receive(client, sup, db, [{"item_id": item_id(db, "BW-001"), "qty": 7, "unit_cost": 2.0}], invoice="B-2")
+    def rows(kind, **q):
+        query = "&".join(f"{k}={v}" for k, v in q.items())
+        doc = client.get(f"/api/reports/records/{kind}?{query}", headers=m).json()
+        return [r for g in doc["groups"] for r in g["rows"]]
+    # the same search words as the document list, and the invoice date for the range
+    assert [r["invoice"] for r in rows("receipts", date_from="2026-02-10", date_to="2026-02-10", q="dinner")] == ["A-1"]
+    assert rows("receipts", date_from="2026-02-10", date_to="2026-02-10", q="bowl") == []
+    assert [r["invoice"] for r in rows("receipts", date_from="2026-03-02", date_to="2026-03-02", date_by="received")] == ["A-1", "B-2"]
+    assert [r["invoice"] for r in rows("receipts", date_from="2026-03-02", date_to="2026-03-02", date_by="received", status="posted", q="bw-001")] == ["B-2"]
+    assert rows("receipts", date_from="2026-03-02", date_to="2026-03-02", date_by="received", status="void") == []
+    # movements: an exact type, and a delivery on its invoice date
+    moves = rows("movements", date_from="2026-02-10", date_to="2026-02-10", txn_type="receipt")
+    assert [r["qty"] for r in moves] == [5]

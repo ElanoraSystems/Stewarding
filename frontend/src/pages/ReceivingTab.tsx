@@ -18,6 +18,7 @@ import { fmtDate, fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { ExportButtons } from '@/components/ExportButtons'
 import { ItemPicker } from '@/components/ItemPicker'
 import { useLineEntry } from '@/lib/useLineEntry'
 import { useMoney } from '@/lib/money'
@@ -376,6 +377,8 @@ export function ReceivingTab() {
         <Input aria-label="From date" type="date" className="w-auto" value={filterFrom} onChange={(e) => { setFilterFrom(e.target.value); setPage(1) }} />
         <Input aria-label="To date" type="date" className="w-auto" value={filterTo} onChange={(e) => { setFilterTo(e.target.value); setPage(1) }} />
       </div>
+      <ExportButtons kind="receipts" from={filterFrom} to={filterTo}
+        filters={{ supplier_id: filterSupplier, status: filterStatus, q: search, date_by: dateBy }} />
       <Table>
         <thead><tr><Th>#</Th><Th>Received</Th><Th>Type</Th><Th>Supplier</Th><Th>Invoice</Th><Th>Invoice date</Th><Th>Location</Th><Th className="text-right">Total</Th><Th>Status</Th><Th /></tr></thead>
         <tbody>

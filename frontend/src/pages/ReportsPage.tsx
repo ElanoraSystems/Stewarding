@@ -53,7 +53,8 @@ export function ReportsPage() {
     equipment_id: point, equipment_kind: kindFilter, template_id: checklist, supplier_id: extra.supplier,
     movement: extra.movement, item_id: extra.item, status: extra.status, food_group: extra.foodGroup,
   }
-  const preview = useApi<RecordDoc>(def.summary ? null : `/reports/records/${key}${qs(params)}`)
+  const record = key === 'stock_cost' && extra.costView === 'category' ? 'stock_cost_category' : key  // one report, shown by item or by category
+  const preview = useApi<RecordDoc>(def.summary ? null : `/reports/records/${record}${qs(params)}`)
   const setFilter = (name: string, value: string) => setExtra((e) => ({ ...e, [name]: value }))
   const choose = (next: string) => { setKey(next); setExtra({}) }
   const pickPoint = (value: string) => {
@@ -64,7 +65,7 @@ export function ReportsPage() {
   const activePreset = PRESETS.find((p) => p.range()[0] === range[0] && p.range()[1] === range[1])?.key
 
   async function download(fmt: string) {
-    const ok = await downloadFile(`/api/reports/records/${key}/export${qs({ ...params, fmt })}`, `${key}.${fmt}`)
+    const ok = await downloadFile(`/api/reports/records/${record}/export${qs({ ...params, fmt })}`, `${record}.${fmt}`)
     if (!ok) toast('error', 'Could not create the report. Check the dates and filters.')
   }
 
@@ -139,6 +140,14 @@ export function ReportsPage() {
                     <Select value={extra.supplier ?? ''} onChange={(e) => setFilter('supplier', e.target.value)}>
                       <option value="">All suppliers</option>
                       {suppliers.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </Select>
+                  </Field>
+                )}
+                {has('costView') && (
+                  <Field label="Show cost">
+                    <Select value={extra.costView ?? ''} onChange={(e) => setFilter('costView', e.target.value)}>
+                      <option value="">Item by item</option>
+                      <option value="category">By category</option>
                     </Select>
                   </Field>
                 )}

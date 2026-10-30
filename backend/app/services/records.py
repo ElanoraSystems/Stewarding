@@ -13,6 +13,7 @@ from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, Corre
                       Supplier, TemperatureReading)
 from . import metrics
 from .traceability import CONDITIONS, GROUPS
+from .receipt_search import apply_search
 from .costing import MEASURES, category_rows, cost_report
 from .monitoring import describe
 from .reference import user_names
@@ -24,7 +25,7 @@ KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "c
 STATUS_FILTERS = {"monitoring": ("passed", "failed", "awaiting"),
                   "checklists": ("pending", "completed", "pending_verification", "verified", "failed", "waived"),
                   "attendance": ("present", "late", "absent", "leave", "week_off"),
-                  "lots": ("active", "used_up", "discarded", "on_hold")}
+                  "lots": ("active", "used_up", "discarded", "on_hold"), "receipts": ("posted", "void")}
 MAX_DAYS = 731
 CHART_DAYS = 31
 MOVEMENTS = {"receipts": ("receipt",), "issues": ("issue",), "returns": ("return",), "transfers": ("transfer_in", "transfer_out"),
@@ -44,6 +45,9 @@ class Filters:
     food_group: str | None = None
     equipment_kind: str | None = None
     template_id: int | None = None
+    q: str | None = None  # receipts: words to find on the document
+    txn_type: str | None = None  # movements: one exact kind of movement
+    date_by: str = "invoice"  # receipts and movements: date deliveries by their invoice date or the day they were received
 
 
 def _local(dt: datetime | None, tz: str) -> str:
@@ -525,13 +529,19 @@ def _receipt_groups(db: Session, locations: list[Location], f: Filters, day_from
     groups = []
     for loc in locations:
         start, end = _bounds(day_from, day_to, loc.timezone)
-        # the range is of the invoice date; a document with no invoice date falls back to the day it was entered
-        on, after = datetime.combine(day_from, time(0, 0)), datetime.combine(day_to + timedelta(days=1), time(0, 0))
-        stmt = select(Receipt).where(Receipt.location_id == loc.id, or_(
-            and_(Receipt.invoice_date.is_not(None), Receipt.invoice_date >= on, Receipt.invoice_date < after),
-            and_(Receipt.invoice_date.is_(None), Receipt.received_at >= start, Receipt.received_at < end)))
+        if f.date_by == "received":  # the day the goods arrived
+            day = func.coalesce(Receipt.received_on, func.date(Receipt.received_at))
+            stmt = select(Receipt).where(Receipt.location_id == loc.id, day >= day_from, day <= day_to)
+        else:  # the range is of the invoice date; a document with no invoice date falls back to the day it was entered
+            on, after = datetime.combine(day_from, time(0, 0)), datetime.combine(day_to + timedelta(days=1), time(0, 0))
+            stmt = select(Receipt).where(Receipt.location_id == loc.id, or_(
+                and_(Receipt.invoice_date.is_not(None), Receipt.invoice_date >= on, Receipt.invoice_date < after),
+                and_(Receipt.invoice_date.is_(None), Receipt.received_at >= start, Receipt.received_at < end)))
         if f.supplier_id is not None:
             stmt = stmt.where(Receipt.supplier_id == f.supplier_id)
+        if f.status:
+            stmt = stmt.where(Receipt.status == f.status)
+        stmt = apply_search(stmt, f.q)
         docs = list(db.scalars(stmt.order_by(Receipt.received_at)))
         if not docs:
             continue
@@ -568,8 +578,14 @@ def _movement_groups(db: Session, locations: list[Location], f: Filters, day_fro
     groups = []
     for loc in locations:
         start, end = _bounds(day_from, day_to, loc.timezone)
-        stmt = select(StockTransaction).where(StockTransaction.location_id == loc.id, StockTransaction.occurred_at >= start,
-                                              StockTransaction.occurred_at < end)
+        # a delivery counts on its invoice date (when it has one), like the list on screen; everything else on the day it happened
+        on, after = datetime.combine(day_from, time(0, 0)), datetime.combine(day_to + timedelta(days=1), time(0, 0))
+        stmt = select(StockTransaction).outerjoin(Receipt, and_(Receipt.id == StockTransaction.ref_id, StockTransaction.ref_type.in_(("receipt", "receipt_void")))).where(
+            StockTransaction.location_id == loc.id, or_(
+                and_(Receipt.invoice_date.is_not(None), Receipt.invoice_date >= on, Receipt.invoice_date < after),
+                and_(Receipt.invoice_date.is_(None), StockTransaction.occurred_at >= start, StockTransaction.occurred_at < end)))
+        if f.txn_type:
+            stmt = stmt.where(StockTransaction.txn_type == f.txn_type)
         if f.movement in MOVEMENTS:
             stmt = stmt.where(StockTransaction.txn_type.in_(MOVEMENTS[f.movement]))
         if f.item_id is not None:
