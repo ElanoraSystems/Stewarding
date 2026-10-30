@@ -27,6 +27,8 @@ interface Row {
   book: number
   allowance: number
   here: number
+  recount: boolean
+  recount_note: string | null
 }
 
 interface Sheet { status: string; round_status: string; items: Row[] }
@@ -44,6 +46,7 @@ export function RoundCountEntry({ roundId, locationId, locationName, onBack }: {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const [onlyOpen, setOnlyOpen] = useState(false)
+  const [onlyRecount, setOnlyRecount] = useState(false)
   const [showPictures, setShowPictures] = useState(true)
   const [showBooks, setShowBooks] = useState(true)  // turn off to count without seeing the system figure
   const loaded = useRef(false)
@@ -115,8 +118,10 @@ export function RoundCountEntry({ roundId, locationId, locationName, onBack }: {
     if (category && i.category !== category) return false
     const words = search.toLowerCase().split(/\s+/).filter(Boolean)
     if (words.length && !words.every((w) => `${i.code} ${i.name}`.toLowerCase().includes(w))) return false
+    if (onlyRecount && !i.recount) return false
     return !onlyOpen || (typed[i.item_id]?.qty ?? '') === ''
   })
+  const toRecount = (sheet.data?.items ?? []).filter((i) => i.recount)
   const counted = Object.values(typed).filter((t) => t.qty !== '').length
 
   async function finish() {
@@ -145,12 +150,18 @@ export function RoundCountEntry({ roundId, locationId, locationName, onBack }: {
               <option value="">All categories</option>
               {categories.map((c) => <option key={c} value={c}>{c}</option>)}
             </Select>
+            {toRecount.length > 0 && <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={onlyRecount} onChange={(e) => setOnlyRecount(e.target.checked)} /> Only items to count again ({toRecount.length})</label>}
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} /> Not counted yet</label>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showPictures} onChange={(e) => setShowPictures(e.target.checked)} /> Show pictures</label>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showBooks} onChange={(e) => setShowBooks(e.target.checked)} /> Show the system stock here</label>
             <Button variant="outline" size="sm" onClick={() => window.open(`/count-sheet${qs({ location_id: locationId, all: 1 })}`, '_blank')}><Printer className="h-4 w-4" /> Print count sheet</Button>
           </div>
           {problems[0] && <p role="alert" className="text-sm text-danger">{problems[0]}</p>}
+          {toRecount.length > 0 && (
+            <p role="status" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
+              The manager asked for {toRecount.length} item(s) to be counted again here. Count them, or press Confirm if the number shown is right. They are marked below.
+            </p>
+          )}
           <Card>
             <CardContent className="space-y-3 pt-5">
               <p className="text-xs text-ink-muted" aria-live="polite">
@@ -180,7 +191,7 @@ export function RoundCountEntry({ roundId, locationId, locationName, onBack }: {
                       <Fragment key={i.item_id}>
                         <tr>
                           {showPictures && <Td><ItemThumb path={i.image_path} name={i.name} className="h-14 w-14" /></Td>}
-                          <Td className="font-medium">{i.code} - {i.name}{i.storage_location && <span className="block text-xs font-normal text-ink-muted">{i.storage_location}</span>}</Td>
+                          <Td className="font-medium">{i.code} - {i.name}{i.recount && <Badge tone="warn" className="ml-2">Count again</Badge>}{i.recount && i.recount_note && <span className="block text-xs font-normal text-warn">{i.recount_note}</span>}{i.storage_location && <span className="block text-xs font-normal text-ink-muted">{i.storage_location}</span>}</Td>
                           <Td className="text-xs">{i.category}</Td>
                           <Td className="text-xs">{i.unit}</Td>
                           {showBooks && <Td className="text-right font-semibold tabular-nums">{i.here}</Td>}
@@ -188,7 +199,9 @@ export function RoundCountEntry({ roundId, locationId, locationName, onBack }: {
                           <Td className="text-right tabular-nums">{i.others}</Td>
                           <Td className="text-right tabular-nums">{i.allowance}</Td>
                           <Td><Input aria-label={`Counted ${i.name}`} type="number" min={0} inputMode="numeric" className="w-28" disabled={finished} value={mine.qty}
-                            onChange={(e) => change(i.item_id, { qty: e.target.value })} onBlur={() => void persist()} /></Td>
+                            onChange={(e) => change(i.item_id, { qty: e.target.value })} onBlur={() => void persist()} />
+                            {i.recount && !dirty.has(i.item_id) && <Button size="sm" variant="outline" className="ml-2" onClick={() => change(i.item_id, {})}>Confirm</Button>}
+                          </Td>
                         </tr>
                         {note && (
                           <tr>

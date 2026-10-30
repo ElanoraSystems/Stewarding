@@ -16,7 +16,7 @@ from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (CountRound, InventoryBalance, InventoryCategory, InventoryItem, InventoryUnit, Location, RoundCount, RoundCountLine,
                       RoundReview, StockTransaction, User)
-from ..permissions import MANAGER, SUPERVISOR
+from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services.inventory import StockError, post_txn
 from ..services.notify import holders_of, notify, recipients
 from ..services.settings import get_setting
@@ -258,6 +258,21 @@ def _round_count(db: Session, user: User, round_: CountRound, location_id: int) 
     return found
 
 
+def _flagged(db: Session, round_: CountRound) -> dict[int, str | None]:
+    """The items the manager sent back for a recount, with the note, that nobody has looked at again yet."""
+    return {r.item_id: r.note for r in db.scalars(select(RoundReview).where(RoundReview.round_id == round_.id, RoundReview.decision == "recount"))}
+
+
+def _holders_of_items(db: Session, round_: CountRound, item_ids: list[int]) -> set[int]:
+    """The round's locations that hold, or counted, any of these items: only they need to look again."""
+    where = pool_book(db)[1]
+    found = {rc.location_id for rc, in db.execute(select(RoundCount).join(RoundCountLine, RoundCountLine.round_count_id == RoundCount.id).where(
+        RoundCount.round_id == round_.id, RoundCountLine.item_id.in_(item_ids)))}
+    for item_id in item_ids:
+        found |= {loc for loc, qty in where.get(item_id, {}).items() if qty}
+    return found
+
+
 @router.get("/{round_id}/entry")
 def entry_sheet(round_id: int, location_id: int, user: User = Depends(require("inventory.count")), db: Session = Depends(get_db)):
     """What to count at one location: each item in the pool with what others have counted and how much is left to enter."""
@@ -265,6 +280,7 @@ def entry_sheet(round_id: int, location_id: int, user: User = Depends(require("i
     rc = _round_count(db, user, round_, location_id)
     ceiling, limit, (book, where, _) = pool_ceiling(db), count_limit(db, round_), pool_book(db)
     counted, reasons = round_counts(db, round_)
+    flagged = _flagged(db, round_)
     categories = {c.id: c.name for c in db.scalars(select(InventoryCategory))}
     units = {u.id: u.name for u in db.scalars(select(InventoryUnit))}
     out = []
@@ -276,7 +292,8 @@ def entry_sheet(round_id: int, location_id: int, user: User = Depends(require("i
         out.append({"item_id": item.id, "code": item.code, "name": item.name, "image_path": item.image_path, "unit": units.get(item.unit_id), "category": categories.get(item.category_id),
                     "storage_location": item.storage_location, "qty": mine, "reason": reasons.get(item.id, {}).get(location_id, ""),
                     "others": others, "received": ceiling.get(item.id, 0), "book": book.get(item.id, 0), "here": where.get(item.id, {}).get(location_id, 0),
-                    "allowance": max(limit.get(item.id, 0) - others, 0)})
+                    "allowance": max(limit.get(item.id, 0) - others, 0),
+                    "recount": item.id in flagged, "recount_note": flagged.get(item.id)})
     return {"round_id": round_.id, "status": rc.status, "round_status": round_.status, "location_id": location_id, "items": out}
 
 
@@ -293,6 +310,8 @@ def save_counts(round_id: int, location_id: int, body: CountsIn, user: User = De
     have = {ln.item_id: ln for ln in db.scalars(select(RoundCountLine).where(RoundCountLine.round_count_id == rc.id))}
     refused, needs_reason, saved = [], [], 0
     place = db.get(Location, location_id)
+    flagged = _flagged(db, round_)
+    looked_at = set()
     for item_id, entry in body.entries.items():
         item = items.get(item_id)
         text = entry.qty.strip()
@@ -302,6 +321,7 @@ def save_counts(round_id: int, location_id: int, body: CountsIn, user: User = De
             if item_id in have:
                 db.delete(have.pop(item_id))
                 counted.get(item_id, {}).pop(location_id, None)
+            looked_at.add(item_id)
             continue
         if not text.isdigit():
             refused.append({"item_id": item_id, "message": "Enter a whole number, zero or more"})
@@ -329,9 +349,12 @@ def save_counts(round_id: int, location_id: int, body: CountsIn, user: User = De
             have[item_id] = line
             changed = True
         counted.setdefault(item_id, {})[location_id] = qty
+        looked_at.add(item_id)
         if changed:
             db.execute(RoundReview.__table__.delete().where(RoundReview.round_id == round_.id, RoundReview.item_id == item_id))  # a changed number needs looking at again
         saved += 1
+    for item_id in looked_at & set(flagged):  # entering the number again, even the same one, answers the recount request
+        db.execute(RoundReview.__table__.delete().where(RoundReview.round_id == round_.id, RoundReview.item_id == item_id, RoundReview.decision == "recount"))
     for item_id in {i for i in counted if i in body.entries}:
         if sum(counted[item_id].values()) > book.get(item_id, 0) and len((have.get(item_id).reason or "") if item_id in have else "") < REASON_MIN:
             needs_reason.append(item_id)
@@ -354,6 +377,10 @@ def finish_location(round_id: int, location_id: int, user: User = Depends(requir
         names = {i.id: i.name for i in db.scalars(select(InventoryItem).where(InventoryItem.id.in_(missing)))}
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "These items are counted above what the books hold, so each needs a reason: "
                             + ", ".join(sorted(names.values())[:8]))
+    waiting = [i for i in _flagged(db, round_) if location_id in _holders_of_items(db, round_, [i])]
+    if waiting:
+        names = sorted(i.name for i in db.scalars(select(InventoryItem).where(InventoryItem.id.in_(waiting))))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Count these again first (enter the number, or confirm it is right): " + ", ".join(names[:8]))
     rc.status, rc.done_at, rc.updated_by, rc.updated_at = "done", timeutil.utc_now(), user.id, timeutil.utc_now()
     db.flush()
     if not db.scalar(select(RoundCount.id).where(RoundCount.round_id == round_.id, RoundCount.status != "done")):
@@ -486,18 +513,26 @@ def approve_items(round_id: int, body: ItemsIn, user: User = Depends(_manager), 
 
 @router.post("/{round_id}/recount")
 def ask_recount(round_id: int, body: ItemsIn, user: User = Depends(_manager), db: Session = Depends(get_db)):
-    """Sends items back to be counted again: every location is reopened so the numbers can be corrected."""
+    """Sends items back to be counted again. Only the locations that hold or counted those items are reopened, and their counters are told which items."""
     round_ = _round(db, user, round_id)
     if round_.status != "counting":
         raise HTTPException(status.HTTP_409_CONFLICT, f"The round is already {round_.status}")
     if not body.item_ids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose the items to count again")
     count = _decide(db, user, round_, body.item_ids, "recount", body.note)
-    for rc in db.scalars(select(RoundCount).where(RoundCount.round_id == round_.id)):
+    holders = _holders_of_items(db, round_, body.item_ids)
+    places = list(db.scalars(select(RoundCount).where(RoundCount.round_id == round_.id)))
+    reopen = [rc for rc in places if rc.location_id in holders] or places  # an item held nowhere reopens every location
+    names = {i.id: i.name for i in db.scalars(select(InventoryItem).where(InventoryItem.id.in_(body.item_ids)))}
+    for rc in reopen:
         rc.status, rc.done_at = "counting", None
+        notify(db, recipients(db, rc.location_id, SUPERVISOR, STEWARD), "round_recount",
+               f"Count again at {db.get(Location, rc.location_id).name}: {', '.join(sorted(names.values())[:4])}{' and more' if len(names) > 4 else ''}",
+               key=f"recount:{round_.id}:{rc.location_id}:{timeutil.utc_now().isoformat(timespec='minutes')}", priority="high",
+               location_id=rc.location_id, link="/stock-movements?tab=rounds", body=body.note or "The manager asked for these items to be counted again.")
     audit(db, user, "round.recount", "count_round", round_.id, None, {"items": body.item_ids, "note": body.note})
     db.commit()
-    return {"recount": count}
+    return {"recount": count, "reopened": [db.get(Location, rc.location_id).name for rc in reopen]}
 
 
 # ---- posting ------------------------------------------------------------------------------------------------------
