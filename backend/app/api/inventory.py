@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -657,10 +657,14 @@ def list_transactions(item_id: int | None = None, location_id: int | None = None
         stmt = stmt.where(StockTransaction.item_id == item_id)
     if txn_type:
         stmt = stmt.where(StockTransaction.txn_type == txn_type)
-    if date_from:
-        stmt = stmt.where(StockTransaction.occurred_at >= datetime.combine(date_from, datetime.min.time()))
-    if date_to:
-        stmt = stmt.where(StockTransaction.occurred_at < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
+    if date_from or date_to:
+        # a delivery counts on its invoice date, not the day it was entered; everything else on the day it was posted
+        stmt = stmt.outerjoin(Receipt, and_(Receipt.id == StockTransaction.ref_id, StockTransaction.ref_type.in_(("receipt", "receipt_void"))))
+        day = case((Receipt.invoice_date.is_not(None), Receipt.invoice_date), else_=StockTransaction.occurred_at)
+        if date_from:
+            stmt = stmt.where(day >= datetime.combine(date_from, datetime.min.time()))
+        if date_to:
+            stmt = stmt.where(day < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
     total, rows = paginate(db, stmt.order_by(StockTransaction.id.desc()), page, size)
     names = dict(db.execute(select(Employee.user_id, Employee.full_name)).all())
     receipt_ids = {t.ref_id for t, in rows if t.ref_type in ("receipt", "receipt_void") and t.ref_id}
