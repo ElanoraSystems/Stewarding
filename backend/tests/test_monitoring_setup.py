@@ -79,3 +79,21 @@ def test_inactive_check_is_not_recorded_and_editing_keeps_it_inactive(client, lo
     assert client.put(f"/api/equipment/schedules/{sched['id']}", json=edit, headers=h).json()["active"] is False
     assert client.put(f"/api/equipment/schedules/{sched['id']}/active", json={"active": True}, headers=h).json()["active"] is True
     assert record(client, h, eq, sched, 60.0).status_code == 201
+
+
+def test_a_log_can_be_limited_to_certain_roles(client, login, clock):
+    m, sup, steward = login(MGR), login("sup.mk@example.test"), login(STEWARD)
+    eq, sched = mk_stage(client, steward)
+    url = f"/api/equipment/{eq['id']}"
+    assert client.put(url, json={"visible_to": ["no_such_role"]}, headers=m).status_code == 400
+    assert client.put(url, json={"visible_to": ["supervisor"]}, headers=m).json()["visible_to"] == ["supervisor"]
+
+    def listed(h):
+        return [e["id"] for e in client.get("/api/monitoring/equipment", headers=h).json()]
+    assert eq["id"] not in listed(steward) and eq["id"] in listed(sup) and eq["id"] in listed(m)
+    refused = record(client, steward, eq, sched, 60.0)
+    assert refused.status_code == 403 and "not open to your role" in refused.json()["detail"]
+    assert record(client, sup, eq, sched, 60.0).status_code == 201
+    # an empty list opens it to everyone again
+    assert client.put(url, json={"visible_to": []}, headers=m).json()["visible_to"] is None
+    assert eq["id"] in listed(steward)
