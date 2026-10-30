@@ -6,9 +6,11 @@ import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'
 import { EmptyState, SkeletonRows, Table, Td, Th } from '@/components/ui/table'
+import { useAuth } from '@/lib/auth'
 import { fmtDate, fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { AdjustStockModal } from '@/pages/AdjustStockModal'
 import { CostTab } from '@/pages/CostTab'
 import { RoundsTab } from '@/pages/RoundsTab'
 import { InsightsTab } from '@/pages/InsightsTab'
@@ -37,8 +39,10 @@ function Transactions() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
+  const [adjusting, setAdjusting] = useState(false)
+  const { me } = useAuth()
   const { byId } = useAllItems()
-  const { data, loading } = useApi<{ total: number; items: Txn[] }>(
+  const { data, loading, reload } = useApi<{ total: number; items: Txn[] }>(
     `/inventory/transactions${qs({ location_id: locationId, txn_type: type, date_from: from, date_to: to, page, size: SIZE })}`,
   )
   const places = new Map(useApi<{ id: number; name: string }[]>('/stock/locations').data?.map((l) => [l.id, l.name]))
@@ -53,7 +57,9 @@ function Transactions() {
         </Select>
         <Input aria-label="From date" type="date" className="w-auto" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
         <Input aria-label="To date" type="date" className="w-auto" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
+        {me?.permissions.includes('stock.approve') && <Button variant="outline" className="ml-auto" onClick={() => setAdjusting(true)}>Adjust stock</Button>}
       </div>
+      <AdjustStockModal open={adjusting} onClose={() => setAdjusting(false)} onDone={reload} />
       <Table>
         <thead><tr><Th>Time</Th><Th>Invoice date</Th><Th>Item</Th><Th>Location</Th><Th>Type</Th><Th className="text-right">Qty</Th><Th>By</Th><Th>Reason</Th></tr></thead>
         <tbody>
