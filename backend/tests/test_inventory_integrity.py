@@ -137,3 +137,21 @@ def test_a_requested_transfer_moves_the_tags_only_when_approved(client, login, d
     assert at_mk[0].id in {a.id for a in knives(db, "MK")}
     assert client.post(f"/api/stock/transfers/{asked.json()['id']}/decision", headers=login(MGR), json={"approve": True}).status_code == 200
     assert at_mk[0].id in {a.id for a in knives(db, "BQ")}
+
+
+def test_a_manager_can_move_opening_stock_to_another_day_but_not_past_later_movements(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    pl = item_id(db, "PL-001")
+    opening = client.get(f"/api/inventory/transactions?item_id={pl}&location_id={loc_id(db, 'MK')}&txn_type=opening", headers=m).json()["items"][0]
+    url = f"/api/inventory/transactions/{opening['id']}/date"
+    assert client.put(url, headers=sup, json={"new_date": "2026-01-15", "reason": "Belongs to January"}).status_code == 403
+    assert client.put(url, headers=m, json={"new_date": "2026-01-15", "reason": "x"}).status_code == 422
+    assert client.put(url, headers=m, json={"new_date": "2026-03-03", "reason": "Not yet happened"}).status_code == 400  # the future
+    moved = client.put(url, headers=m, json={"new_date": "2026-01-15", "reason": "Belongs to January"})
+    assert moved.status_code == 200 and moved.json()["occurred_at"].startswith("2026-01-15")
+    assert held(db)[0] == 200  # the stock itself does not change
+    issue = client.post("/api/inventory/transactions", headers=sup, json={"item_id": pl, "location_id": loc_id(db, "MK"), "txn_type": "issue", "qty": 5}).json()
+    assert issue.get("id"), issue
+    late = client.put(url, headers=m, json={"new_date": "2026-03-02", "reason": "After the issue"})
+    assert late.status_code == 409 and "before the other movements" in late.json()["detail"]
+    assert client.put(f"/api/inventory/transactions/{issue['id']}/date", headers=m, json={"new_date": "2026-01-20", "reason": "Not opening"}).status_code == 400

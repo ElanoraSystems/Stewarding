@@ -1,8 +1,9 @@
 from sqlalchemy import select
 
-from app.models import Notification, User
+from app.models import Employee, EmployeeLocation, Notification, Shift, ShiftAssignment, User
 from app.services.alerts import run_alerts
-from app.services.notify import notify
+from app.services.notify import notify, recipients
+from app.services.scan import make_token
 
 from .helpers import MGR, STEWARD, SUP, SUP_RB, loc_id
 
@@ -127,3 +128,33 @@ def test_pending_summary_lists_verification_breakage_and_transfers(client, login
 def test_run_alerts_returns_counts(db, clock):
     totals = run_alerts(db, clock.now)
     assert set(totals) == {"checkins", "checklists", "monitoring", "summary", "checkouts", "corrective", "low_stock", "pending_time_outs", "closed", "rounds"}
+
+
+def mk_crew(db):
+    return {db.get(User, uid).email for uid in recipients(db, loc_id(db, "MK"), "steward")}
+
+
+def test_staff_who_move_between_outlets_get_the_reminders_of_the_outlet_they_are_at(client, login, db, clock):
+    rover = "steward.bq@example.test"
+    assert rover not in mk_crew(db)                                                              # assigned to another outlet
+    db.query(EmployeeLocation).filter(EmployeeLocation.employee_id == db.scalar(select(Employee.id).join(User, User.id == Employee.user_id).where(User.email == rover))).delete()
+    db.commit()                                                                                    # tied to no outlet: they rotate
+    assert rover not in mk_crew(db)
+    # scanning the outlet's QR code puts them there for the scan window
+    scan = client.post("/api/scan", json={"token": make_token("location", loc_id(db, "MK"))}, headers=login(rover))
+    assert scan.status_code == 200
+    assert rover in mk_crew(db)
+    clock.advance(minutes=31)
+    assert rover not in mk_crew(db)                                                                # the window has passed
+
+
+def test_staff_on_the_roster_for_an_outlet_today_get_its_reminders(client, login, db, clock):
+    rostered = "steward.bq@example.test"
+    emp = db.scalar(select(Employee).join(User, User.id == Employee.user_id).where(User.email == rostered))
+    assert rostered not in mk_crew(db)
+    shift = db.scalar(select(Shift).where(Shift.kind == "work"))
+    db.add(ShiftAssignment(employee_id=emp.id, shift_id=shift.id, location_id=loc_id(db, "MK"), weekday=clock.now.weekday(), valid_from=clock.now.date()))
+    db.commit()
+    assert rostered in mk_crew(db)
+    clock.advance(days=1)  # tomorrow is another weekday
+    assert rostered not in mk_crew(db)

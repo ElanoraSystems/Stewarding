@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
-                      CountRound, EquipmentSchedule, Location, Notification, RoundCount, Shift, ShiftAssignment, TemperatureReading)
+                      CountRound, EquipmentSchedule, Location, Notification, RoundCount, Role, Shift, ShiftAssignment, TemperatureReading, User)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
 from .checklists import OPEN, alerts_for, is_closed, overdue_after
@@ -126,6 +126,8 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
     equipment = list(db.scalars(select(Equipment).where(Equipment.location_id == location.id, Equipment.active.is_(True))))
     created = 0
     checks = due_checks(db, equipment, now)
+    roles_of = {eq.id: eq.visible_to for eq in equipment if eq.visible_to}
+    names = dict(db.execute(select(User.id, Role.name).join(Role, Role.id == User.role_id)).all()) if roles_of else {}
     # earlier overdue slots of a schedule are already missed; only the latest one is worth an alert
     latest_overdue = {c["schedule_id"]: c for c in checks if c["status"] == "overdue"}
     for check in checks:
@@ -134,7 +136,11 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
         slot = check["slot_at"][:16].replace("-", "").replace(":", "").replace("T", "")
         title = f"{check['equipment']} - {check['stage']} check"
         if check["status"] == "due":
-            created += notify(db, recipients(db, location.id, STEWARD, SUPERVISOR), "monitoring_due", f"Check due: {title}",
+            crew = recipients(db, location.id, STEWARD, SUPERVISOR)
+            allowed = roles_of.get(check["equipment_id"])
+            if allowed:  # a log limited to certain roles reminds only those roles
+                crew = [uid for uid in crew if uid in {u for u, role in names.items() if role in allowed}]
+            created += notify(db, crew, "monitoring_due", f"Check due: {title}",
                               key=f"checkdue:{check['schedule_id']}:{slot}", location_id=location.id, link="/monitoring")
         elif check["status"] == "overdue":
             created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "monitoring_overdue",

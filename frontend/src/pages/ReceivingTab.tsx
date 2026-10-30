@@ -18,6 +18,7 @@ import { fmtDate, fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { ExportButtons } from '@/components/ExportButtons'
 import { ItemPicker } from '@/components/ItemPicker'
 import { useLineEntry } from '@/lib/useLineEntry'
 import { useMoney } from '@/lib/money'
@@ -138,6 +139,7 @@ export function ReceivingTab() {
   const hasCosts = filled.some((l) => l.cost !== '')
 
   function clearForm() {
+    setSupplierId('')  // a new document starts with no supplier chosen, so the last one is not posted against by mistake
     setInvoice('')
     setReceivedOn(iso(new Date()))
     setInvoiceDate(iso(new Date()))
@@ -367,7 +369,7 @@ export function ReceivingTab() {
           <option value="posted">Posted</option>
           <option value="void">Void</option>
         </Select>
-        <Input aria-label="Search invoices" className="w-56" placeholder="Search invoice or note" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
+        <Input aria-label="Search invoices" className="w-56" placeholder="Search invoice, supplier, item or note" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
         <Select aria-label="Date filter basis" className="w-auto" value={dateBy} onChange={(e) => { setDateBy(e.target.value as typeof dateBy); setPage(1) }}>
           <option value="invoice">By invoice date</option>
           <option value="received">By received date</option>
@@ -375,6 +377,8 @@ export function ReceivingTab() {
         <Input aria-label="From date" type="date" className="w-auto" value={filterFrom} onChange={(e) => { setFilterFrom(e.target.value); setPage(1) }} />
         <Input aria-label="To date" type="date" className="w-auto" value={filterTo} onChange={(e) => { setFilterTo(e.target.value); setPage(1) }} />
       </div>
+      <ExportButtons kind="receipts" from={filterFrom} to={filterTo}
+        filters={{ supplier_id: filterSupplier, status: filterStatus, q: search, date_by: dateBy }} />
       <Table>
         <thead><tr><Th>#</Th><Th>Received</Th><Th>Type</Th><Th>Supplier</Th><Th>Invoice</Th><Th>Invoice date</Th><Th>Location</Th><Th className="text-right">Total</Th><Th>Status</Th><Th /></tr></thead>
         <tbody>

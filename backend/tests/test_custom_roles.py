@@ -195,3 +195,28 @@ def test_the_head_chef_role_approves_monitoring_and_sees_nothing_of_stock_staff_
         assert client.get(url, headers=chef).status_code == 403, url
     modules = {m["key"] for m in client.get("/api/auth/me", headers=chef).json()["modules"]}
     assert modules == {"dashboard", "checklists", "monitoring", "training", "tasks"}
+
+
+def role_id(client, h, name):
+    return next(r["id"] for r in client.get("/api/roles", headers=h).json() if r["name"] == name)
+
+
+def test_a_role_can_be_limited_to_parts_of_the_dashboard(client, login, db, clock):
+    m, sup, steward = login(MGR), login(SUP), login(STEWARD)
+    everything = client.get("/api/dashboard", headers=sup).json()
+    assert "checklists" in everything["sections"] and len(everything["sections"]) > 1
+    sup_id, steward_id = role_id(client, m, "supervisor"), role_id(client, m, "steward")
+    assert client.put(f"/api/roles/{sup_id}", json={"dashboard": ["nonsense"]}, headers=m).status_code == 422
+    assert client.put(f"/api/roles/{sup_id}", json={"dashboard": ["monitoring"]}, headers=m).json()["dashboard"] == ["monitoring"]
+    narrowed = client.get("/api/dashboard", headers=sup).json()
+    assert narrowed["sections"] == ["monitoring"] and narrowed["approvals"] == []
+    assert {i["category"] for i in narrowed["supervisor"]["pending"]["items"]} <= {"monitoring_check", "corrective_action", "monitoring_review"}
+    # a steward's two parts can be limited the same way
+    assert client.get("/api/dashboard", headers=steward).json()["sections"] == ["checklists", "monitoring"]
+    client.put(f"/api/roles/{steward_id}", json={"dashboard": ["checklists"]}, headers=m)
+    mine = client.get("/api/dashboard", headers=steward).json()
+    assert mine["sections"] == ["checklists"] and mine["monitoring_checks"] == {"due": 0, "overdue": 0} and mine["unresolved_issues"] == 0
+    # nothing chosen puts it back; the manager is never limited
+    assert client.put(f"/api/roles/{sup_id}", json={"dashboard": []}, headers=m).json()["dashboard"] is None
+    assert client.get("/api/dashboard", headers=sup).json()["sections"] == everything["sections"]
+    assert "approvals" in client.get("/api/dashboard", headers=m).json()

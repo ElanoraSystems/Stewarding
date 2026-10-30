@@ -18,7 +18,7 @@ from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
 from ..services.traceability import usable
-from ..services.monitoring import (CLOSED_ACTIONS, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
+from ..services.monitoring import (CLOSED_ACTIONS, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
@@ -81,6 +81,8 @@ def _equipment_for(db: Session, user: User, equipment_id: int) -> Equipment:
     if not eq:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Monitoring point not found")
     check_location(user, db, eq.location_id)
+    if not may_record(user, eq):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This log is not open to your role")
     return eq
 
 
@@ -92,7 +94,7 @@ def _visible_equipment(db: Session, user: User, location_id: int | None) -> list
         stmt = stmt.where(Equipment.location_id == location_id)
     elif allowed is not None:
         stmt = stmt.where(Equipment.location_id.in_(allowed))
-    return list(db.scalars(stmt.order_by(Equipment.location_id, Equipment.code)))
+    return [eq for eq in db.scalars(stmt.order_by(Equipment.location_id, Equipment.code)) if may_record(user, eq)]
 
 
 def _latest_action(db: Session, reading_id: int) -> CorrectiveAction | None:

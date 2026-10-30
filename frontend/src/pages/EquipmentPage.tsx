@@ -18,6 +18,7 @@ import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { CheckFormModal } from '@/pages/CheckFormModal'
+import { PointRolesModal } from '@/pages/PointRolesModal'
 import { FormBuilderModal } from '@/pages/FormBuilderModal'
 import type { EquipmentItem, Schedule } from '@/pages/MonitoringRecordForm'
 
@@ -52,6 +53,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const canDeleteReadings = me?.permissions.includes('equipment.delete') ?? false
   const [locationId, setLocationId] = useState<number | null>(null)
   const { data, reload } = useApi<EquipmentItem[]>(locationId ? `/equipment${qs({ location_id: locationId })}` : null)
+  const [limiting, setLimiting] = useState<EquipmentItem | null>(null)
   const [editing, setEditing] = useState<{ equipmentId: number; schedule: Schedule | null } | null>(null)
   const [adding, setAdding] = useState(false)
   const [deleting, setDeleting] = useState<{ kind: 'point' | 'check'; id: number; name: string } | null>(null)
@@ -122,6 +124,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
               <span className="text-sm font-normal text-ink-muted">{eq.code} - {label(eq.kind)}</span>
               <StatusBadge status={eq.status} />
               {!eq.active && <StatusBadge status="inactive" />}
+              {eq.visible_to && eq.visible_to.length > 0 && <Badge>Only: {eq.visible_to.map((n) => label(n)).join(', ')}</Badge>}
               {eq.needs_attention && <Badge tone="warn">Needs attention ({eq.recent_failures} recent failures)</Badge>}
             </CardTitle>
           </CardHeader>
@@ -135,6 +138,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
                   <option value="out_of_service">Out of service</option>
                 </Select>
                 <Button size="sm" variant="outline" onClick={() => setRenaming({ id: eq.id, name: eq.name })}>Rename</Button>
+                <Button size="sm" variant="outline" onClick={() => setLimiting(eq)}>Who records it</Button>
                 <Button size="sm" variant="outline" className="whitespace-nowrap" onClick={() => setPointActive(eq)}>{eq.active ? 'Make inactive' : 'Make active'}</Button>
                 <Button size="sm" variant="outline" onClick={() => setDeleting({ kind: 'point', id: eq.id, name: eq.name })}>Delete</Button>
               </div>
@@ -172,6 +176,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
           : `Delete ${deleting?.name ?? ''}? This cannot be undone. Anything with recorded readings cannot be deleted; make it inactive instead.`}
         confirmLabel="Delete" onConfirm={confirmDelete} onCancel={() => setDeleting(null)} />
 
+      {limiting && <PointRolesModal point={limiting} onClose={() => setLimiting(null)} onSaved={() => { setLimiting(null); reload() }} />}
       {editing && <CheckFormModal equipmentId={editing.equipmentId} schedule={editing.schedule} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
 
       <Modal open={presetOpen} title="Add from template" description="A ready-made monitoring point with its checks and limits." onClose={() => setPresetOpen(false)}

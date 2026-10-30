@@ -16,6 +16,10 @@ interface FaceCaptureProps {
   onCapture: (descriptor: number[], evidence: FaceEvidence) => Promise<FaceResult>
   /** The head turns to ask for, from the server; none means a plain steady-face capture, as when enrolling. */
   steps?: Step[]
+  /** The check-in look: a round camera view on a dark background, with a turning ring and a scanning line. */
+  round?: boolean
+  /** Called when the camera cannot be used (access refused, no secure page, or the model failed to start). */
+  onBlocked?: () => void
 }
 
 const STEADY_FRAMES = 3
@@ -34,7 +38,7 @@ type Stage = 'anchor' | 'turns' | 'final'
  * video, then a steady look at the camera that must be the same person as at the start, and takes a snapshot.
  * The camera and the model run in this browser; only the template, the turns and one small photo leave it.
  */
-export function FaceCapture({ onCapture, steps }: FaceCaptureProps) {
+export function FaceCapture({ onCapture, steps, round = false, onBlocked }: FaceCaptureProps) {
   const video = useRef<HTMLVideoElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const [phase, setPhase] = useState<Phase>('starting')
@@ -42,10 +46,24 @@ export function FaceCapture({ onCapture, steps }: FaceCaptureProps) {
   const [progress, setProgress] = useState({ done: 0, current: null as Step | null })
   const capture = useRef(onCapture)
   const plan = useRef(steps)
+  const blocked = useRef(onBlocked)
+  const roundLook = useRef(round)
+  const [slow, setSlow] = useState(false)  // no face found for a while: probably too dark or cut off
   useEffect(() => {
     capture.current = onCapture
     plan.current = steps
+    blocked.current = onBlocked
+    roundLook.current = round
   })
+  useEffect(() => {
+    if (phase === 'blocked') blocked.current?.()
+    if (phase !== 'looking') return
+    const timer = setTimeout(() => setSlow(true), 8000)
+    return () => {
+      clearTimeout(timer)
+      setSlow(false)
+    }
+  }, [phase])
 
   useEffect(() => {
     let stopped = false
@@ -99,7 +117,7 @@ export function FaceCapture({ onCapture, steps }: FaceCaptureProps) {
           canvas.width = video.current.videoWidth
           canvas.height = video.current.videoHeight
           context.clearRect(0, 0, canvas.width, canvas.height)
-          if (box) {
+          if (box && !roundLook.current) {
             context.lineWidth = 4
             context.strokeStyle = colour
             context.strokeRect(box.x, box.y, box.width, box.height)
@@ -202,6 +220,39 @@ export function FaceCapture({ onCapture, steps }: FaceCaptureProps) {
   }, [])
 
   const total = steps?.length ?? 0
+  const text = cn('text-center text-sm font-medium', phase === 'ok' && (round ? 'text-[#7fd6c2]' : 'text-ok'), (phase === 'failed' || phase === 'blocked') && (round ? 'text-[#ff9d92]' : 'text-danger'))
+  if (round) {
+    const failing = phase === 'failed'
+    return (
+      <div className="flex flex-col items-center gap-5">
+        <div className="relative h-60 w-60">
+          <svg width="240" height="240" viewBox="0 0 236 236" aria-hidden className={cn('absolute inset-0', failing ? '' : 'ci-spin')}>
+            <circle cx="118" cy="118" r="112" fill="none" stroke={failing ? '#ff9d92' : '#7fd6c2'} strokeWidth="3" strokeDasharray={failing ? '1 0' : '6 12'} strokeLinecap="round" />
+          </svg>
+          <div className={cn('absolute inset-3.5 overflow-hidden rounded-full bg-black/40', failing && 'ci-shake')}>
+            <video ref={video} muted playsInline className="h-full w-full -scale-x-100 object-cover" />
+            <canvas ref={overlay} aria-hidden className="hidden" />
+            {phase !== 'ok' && <span aria-hidden className="ci-scan absolute inset-x-0 h-[3px] bg-gradient-to-r from-transparent via-[#7fd6c2] to-transparent shadow-[0_0_18px_4px_rgba(127,214,194,0.6)]" />}
+            <span className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-0.5 text-xs font-bold text-white">
+              <span aria-hidden className="ci-breathe h-1.5 w-1.5 rounded-full bg-[#ff9d92]" /> Live camera
+            </span>
+          </div>
+          {progress.current && (
+            <span aria-hidden className={cn('absolute top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white', progress.current === 'turn_left' ? '-left-3' : '-right-3')}>
+              {progress.current === 'turn_left' ? <ArrowLeft className="h-7 w-7" /> : <ArrowRight className="h-7 w-7" />}
+            </span>
+          )}
+        </div>
+        {total > 0 && (
+          <div className="flex justify-center gap-2" aria-hidden>
+            {Array.from({ length: total }, (_, i) => <span key={i} className={cn('h-2 w-8 rounded-full transition-colors', i < progress.done ? 'bg-[#7fd6c2]' : 'bg-white/30')} />)}
+          </div>
+        )}
+        <p role="status" className={text}>{message}</p>
+        {slow && <p className="max-w-xs text-center text-sm text-white/80">Cannot see your face. Turn towards a light and keep your whole face in the circle.</p>}
+      </div>
+    )
+  }
   return (
     <div className="space-y-3">
       <div className="relative mx-auto aspect-[4/3] w-full max-w-sm overflow-hidden rounded-xl bg-black">
@@ -218,7 +269,7 @@ export function FaceCapture({ onCapture, steps }: FaceCaptureProps) {
           {Array.from({ length: total }, (_, i) => <span key={i} className={cn('h-2 w-8 rounded-full', i < progress.done ? 'bg-ok' : 'bg-border')} />)}
         </div>
       )}
-      <p role="status" className={cn('text-center text-sm font-medium', phase === 'ok' && 'text-ok', (phase === 'failed' || phase === 'blocked') && 'text-danger')}>{message}</p>
+      <p role="status" className={text}>{message}</p>
     </div>
   )
 }

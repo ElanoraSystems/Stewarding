@@ -1,13 +1,36 @@
-from sqlalchemy import select
+from datetime import timedelta
+
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from ..models import Employee, EmployeeLocation, Notification, Role, RolePermission, User
+from .. import timeutil
+from ..models import Employee, EmployeeLocation, Equipment, Location, Notification, Role, RolePermission, ScanEvent, ShiftAssignment, User
 from ..permissions import MANAGER
 from .push import queue
+from .settings import get_setting
+
+
+def _working_here(db: Session, location_id: int) -> set[int]:
+    """Users who are at the location without being assigned to it: rostered there today, or who scanned its QR code within the scan window."""
+    now = timeutil.utc_now()
+    place = db.get(Location, location_id)
+    day = timeutil.local_date(now, place.timezone) if place else now.date()
+    rostered = [a for a in db.scalars(select(ShiftAssignment).where(ShiftAssignment.location_id == location_id, ShiftAssignment.weekday == day.weekday()))
+                if a.applies_on(day)]
+    users = set(db.scalars(select(Employee.user_id).where(Employee.id.in_({a.employee_id for a in rostered}), Employee.user_id.is_not(None)))) if rostered else set()
+    since = now - timedelta(minutes=get_setting(db, "scan.valid_minutes"))
+    points = select(Equipment.id).where(Equipment.location_id == location_id)
+    users |= set(db.scalars(select(ScanEvent.user_id).where(ScanEvent.created_at >= since, or_(
+        and_(ScanEvent.kind == "location", ScanEvent.target_id == location_id),
+        and_(ScanEvent.kind == "equipment", ScanEvent.target_id.in_(points))))))
+    return users
 
 
 def recipients(db: Session, location_id: int | None, *roles: str) -> list[int]:
-    """Active users whose role behaves like one of `roles` (a tier) at the location; managers are included when asked for."""
+    """Active users whose role behaves like one of `roles` (a tier) at the location; managers are included when asked for.
+
+    "At the location" means assigned to it, rostered there today, or having scanned its QR code within the scan window,
+    so staff who move between outlets get the reminders of the outlet they are working at."""
     base = (
         select(User.id)
         .join(Role, User.role_id == Role.id)
@@ -23,6 +46,9 @@ def recipients(db: Session, location_id: int | None, *roles: str) -> list[int]:
             EmployeeLocation.location_id == location_id, Role.tier.in_(non_manager)
         )
         ids |= set(db.scalars(q))
+        here = _working_here(db, location_id)
+        if here:
+            ids |= set(db.scalars(base.where(User.id.in_(here), Role.tier.in_(non_manager))))
     return sorted(ids)
 
 

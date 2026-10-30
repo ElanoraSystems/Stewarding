@@ -1,6 +1,6 @@
 from sqlalchemy import select
 
-from app.models import InventoryBalance, Notification, StockTransaction
+from app.models import InventoryBalance, InventoryItem, Notification, StockTransaction
 
 from .helpers import MGR, SUP, balance, item_id, ledger_sum, loc_id
 
@@ -383,3 +383,28 @@ def test_a_round_can_count_only_the_locations_chosen(client, login, db, clock):
     put(client, m, db, rid, "MK", {pl: (line["here"], "")})
     for code in ("MK", "BQ"):
         assert client.post(f"/api/rounds/{rid}/counts/{loc_id(db, code)}/done", headers=m).status_code == 200
+
+
+def test_a_recount_goes_only_to_the_locations_that_hold_the_item_and_says_which_items(client, login, db, clock):
+    m = login(MGR)
+    pl = db.scalar(select(InventoryItem).where(InventoryItem.code == "PL-001"))
+    made = client.post("/api/inventory/items", headers=m, json={"name": "Shelf Only Tray", "category_id": pl.category_id, "unit_id": pl.unit_id,
+                                                                "opening_qty": 12, "opening_location_id": loc_id(db, "BQ")}).json()
+    item, place = made["id"], "BQ"  # held in one location only
+    rid = start(client, m, db).json()["id"]
+    finish_all(client, m, db, rid)
+    sent = client.post(f"/api/rounds/{rid}/recount", json={"item_ids": [item], "note": "Check the back shelf"}, headers=m).json()
+    assert len(sent["reopened"]) == 1
+    status = {p["location"]: p["status"] for p in client.get(f"/api/rounds/{rid}", headers=m).json()["locations"]}
+    assert sorted(status.values()) == ["counting", "done", "done"]
+    sheet = client.get(f"/api/rounds/{rid}/entry?location_id={loc_id(db, place)}", headers=m).json()
+    flagged = [i for i in sheet["items"] if i["recount"]]
+    assert [i["item_id"] for i in flagged] == [item] and flagged[0]["recount_note"] == "Check the back shelf"
+    assert any(n.kind == "round_recount" for n in db.scalars(select(Notification)))
+    # the location cannot be marked counted until the item has been looked at again; entering the same number is enough
+    assert client.post(f"/api/rounds/{rid}/counts/{loc_id(db, place)}/done", headers=m).status_code == 400
+    assert put(client, m, db, rid, place, {item: ("", "")}).status_code == 200
+    db.expire_all()
+    sheet = client.get(f"/api/rounds/{rid}/entry?location_id={loc_id(db, place)}", headers=m).json()
+    assert not any(i["recount"] for i in sheet["items"])
+    assert client.post(f"/api/rounds/{rid}/counts/{loc_id(db, place)}/done", headers=m).status_code == 200

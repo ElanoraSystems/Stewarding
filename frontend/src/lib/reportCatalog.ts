@@ -1,4 +1,4 @@
-export type ExtraFilter = 'employee' | 'frequency' | 'monitoringPoint' | 'supplier' | 'movement' | 'item' | 'status' | 'foodGroup' | 'monitoringType' | 'checklist'
+export type ExtraFilter = 'employee' | 'frequency' | 'monitoringPoint' | 'supplier' | 'movement' | 'item' | 'status' | 'foodGroup' | 'monitoringType' | 'checklist' | 'costView'
 
 export interface ReportDef {
   key: string
@@ -20,10 +20,8 @@ export const REPORTS: ReportDef[] = [
     statuses: [['failed', 'Failed'], ['passed', 'Passed'], ['awaiting', 'Awaiting approval']] },
   { key: 'lots', title: 'Lot register', section: 'Food safety', filters: ['supplier', 'foodGroup', 'status'],
     statuses: [['active', 'Active'], ['on_hold', 'On hold'], ['used_up', 'Used up'], ['discarded', 'Discarded']] },
-  { key: 'receipts', title: 'Receipts and invoices', section: 'Stock', filters: ['supplier'] },
-  { key: 'movements', title: 'Stock issues and movements', section: 'Stock', filters: ['movement', 'item'] },
-  { key: 'stock_cost', title: 'Stock cost report', section: 'Stock', filters: [] },
-  { key: 'stock_cost_category', title: 'Stock cost by category', section: 'Stock', filters: [] },
+  // receipts and stock movements are downloaded from the Receiving and Transactions lists, with the filters shown there
+  { key: 'stock_cost', title: 'Stock cost report', section: 'Stock', filters: ['costView'] },
   { key: 'inventory_detail', title: 'Detailed inventory report (by location and item)', section: 'Stock', filters: [] },
   { key: 'summary', title: 'Operations summary', section: 'Overview', filters: [], summary: true },
 ]

@@ -48,6 +48,7 @@ export interface EquipmentItem {
   supervisor_id: number | null
   procedure_reference: string | null
   maintenance_notes: string | null
+  visible_to: string[] | null
   schedules: Schedule[]
   needs_attention: boolean
   recent_failures: number

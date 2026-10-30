@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { ExportButtons } from '@/components/ExportButtons'
+import { ItemPicker } from '@/components/ItemPicker'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +13,9 @@ import { fmtDate, fmtDateTime, label } from '@/lib/format'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
 import { AdjustStockModal } from '@/pages/AdjustStockModal'
+import { OpeningDateModal } from '@/pages/OpeningDateModal'
 import { CostTab } from '@/pages/CostTab'
+import { ItemHistory } from '@/pages/ItemHistory'
 import { RoundsTab } from '@/pages/RoundsTab'
 import { InsightsTab } from '@/pages/InsightsTab'
 import { ReceivingTab } from '@/pages/ReceivingTab'
@@ -36,14 +40,17 @@ const SIZE = 15
 function Transactions() {
   const [locationId, setLocationId] = useState<number | null>(null)
   const [type, setType] = useState('')
+  const [itemId, setItemId] = useState('')
+  const [history, setHistory] = useState<{ id: number; code: string; name: string } | null>(null)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
   const [adjusting, setAdjusting] = useState(false)
+  const [redating, setRedating] = useState<Txn | null>(null)
   const { me } = useAuth()
-  const { byId } = useAllItems()
+  const { items: allItems, byId } = useAllItems()
   const { data, loading, reload } = useApi<{ total: number; items: Txn[] }>(
-    `/inventory/transactions${qs({ location_id: locationId, txn_type: type, date_from: from, date_to: to, page, size: SIZE })}`,
+    `/inventory/transactions${qs({ location_id: locationId, txn_type: type, item_id: itemId, date_from: from, date_to: to, page, size: SIZE })}`,
   )
   const places = new Map(useApi<{ id: number; name: string }[]>('/stock/locations').data?.map((l) => [l.id, l.name]))
 
@@ -55,19 +62,32 @@ function Transactions() {
           <option value="">All types</option>
           {['opening', 'receipt', 'issue', 'return', 'damage', 'breakage', 'transfer_in', 'transfer_out', 'adjustment'].map((t) => <option key={t} value={t}>{label(t)}</option>)}
         </Select>
+        <div className="w-72"><ItemPicker items={allItems} value={itemId} onChange={(id) => { setItemId(id); setPage(1) }} label="Filter by item" placeholder="All items - type to find one" /></div>
+        {itemId && <Button variant="ghost" size="sm" onClick={() => { setItemId(''); setPage(1) }}>Clear item</Button>}
         <Input aria-label="From date" type="date" className="w-auto" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} />
         <Input aria-label="To date" type="date" className="w-auto" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} />
         {me?.permissions.includes('stock.approve') && <Button variant="outline" className="ml-auto" onClick={() => setAdjusting(true)}>Adjust stock</Button>}
       </div>
       <AdjustStockModal open={adjusting} onClose={() => setAdjusting(false)} onDone={reload} />
+      <ExportButtons kind="movements" from={from} to={to} filters={{ location_id: locationId, txn_type: type, item_id: itemId }} />
+      <OpeningDateModal txn={redating} onClose={() => setRedating(null)} onDone={reload} />
       <Table>
         <thead><tr><Th>Time</Th><Th>Invoice date</Th><Th>Item</Th><Th>Location</Th><Th>Type</Th><Th className="text-right">Qty</Th><Th>By</Th><Th>Reason</Th></tr></thead>
         <tbody>
           {loading && !data ? <SkeletonRows cols={8} /> : data?.items.map((t) => (
             <tr key={t.id}>
-              <Td>{fmtDateTime(t.occurred_at)}</Td>
+              <Td>{fmtDateTime(t.occurred_at)}
+                {t.txn_type === 'opening' && me?.permissions.includes('stock.approve') && (
+                  <button type="button" className="block text-xs font-medium text-brand underline" onClick={() => setRedating(t)}>Change date</button>
+                )}
+              </Td>
               <Td>{t.invoice_date ? fmtDate(t.invoice_date) : '-'}</Td>
-              <Td className="font-medium">{byId.get(t.item_id)?.name ?? t.item_id}</Td>
+              <Td className="font-medium">
+                <button type="button" className="text-left underline-offset-2 hover:underline" title="Open the full history of this item"
+                  onClick={() => { const item = byId.get(t.item_id); if (item) setHistory({ id: item.id, code: item.code, name: item.name }) }}>
+                  {byId.get(t.item_id)?.name ?? t.item_id}
+                </button>
+              </Td>
               <Td>{places.get(t.location_id)}</Td>
               <Td>{label(t.txn_type)}</Td>
               <Td className={`text-right tabular-nums ${t.qty_delta < 0 ? 'text-danger' : 'text-ok'}`}>{t.qty_delta > 0 ? `+${t.qty_delta}` : t.qty_delta}</Td>
@@ -77,6 +97,7 @@ function Transactions() {
           ))}
         </tbody>
       </Table>
+      {history && <ItemHistory item={history} onClose={() => setHistory(null)} />}
       {data?.items.length === 0 && <EmptyState title="No stock movements for this selection" />}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
     </div>

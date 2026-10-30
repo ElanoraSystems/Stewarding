@@ -171,6 +171,14 @@ def test_monitoring_due_then_overdue_alerts(client, login, db, clock):
     assert len(notes(db, "monitoring_overdue")) == count
 
 
+def test_a_log_limited_to_supervisors_does_not_remind_stewards(client, login, db, clock):
+    eq = next(e for e in client.get("/api/monitoring/equipment", headers=login(STEWARD)).json() if e["code"] == "DW-MK-1")
+    assert client.put(f"/api/equipment/{eq['id']}", json={"visible_to": ["supervisor"]}, headers=login(MGR)).status_code == 200
+    run(db, clock)
+    mine = [n for n in notes(db, "monitoring_due") if "Main Kitchen Dishwasher 1" in n.title]
+    assert mine and emails(db, mine) == {"sup.mk@example.test"}
+
+
 def test_retest_overdue_and_escalation_to_manager(client, login, db, clock):
     h = login(STEWARD)
     eq = next(e for e in client.get("/api/monitoring/equipment", headers=h).json() if e["code"] == "DW-MK-1")

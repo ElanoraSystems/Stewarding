@@ -78,11 +78,11 @@ export function InsightsTab() {
           <section aria-label="Charts" className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader><CardTitle>Stock in and out {data.range.grain === 'month' ? 'by month' : 'by day'} ({dateBy === 'invoice' ? 'invoice date' : 'received date'})</CardTitle></CardHeader>
-              <CardContent><ColumnChart data={data.movement} labelKey="date" series={[{ key: 'in', label: 'In', className: 'bg-ok' }, { key: 'out', label: 'Out', className: 'bg-brand' }]} /></CardContent>
+              <CardContent><ColumnChart data={data.movement} labelKey="date" series={[{ key: 'in', label: 'In', className: 'bg-ok' }, { key: 'out', label: 'Out', className: 'bg-warn' }]} /></CardContent>
             </Card>
             <Card>
               <CardHeader><CardTitle>Breakage trend</CardTitle></CardHeader>
-              <CardContent><ColumnChart data={data.breakage_trend} labelKey="period" series={[{ key: 'qty', label: 'Units broken', className: 'bg-danger' }, { key: 'incidents', label: 'Incidents', className: 'bg-warn' }]} /></CardContent>
+              <CardContent><ColumnChart data={data.breakage_trend} labelKey="period" series={[{ key: 'qty', label: 'Units broken', className: 'bg-danger' }, { key: 'incidents', label: 'Incidents', className: 'bg-warn' }]} empty="No breakage in this period." /></CardContent>
             </Card>
             <Card>
               <CardHeader><CardTitle>Movement by type (units)</CardTitle></CardHeader>
@@ -105,7 +105,7 @@ export function InsightsTab() {
             <section aria-label="Purchasing and stock value" className="grid gap-4 lg:grid-cols-2">
               <Card>
                 <CardHeader><CardTitle>Purchases (value) {data.range.grain === 'month' ? 'by month' : 'by day'}: {money(analysis.total_spend)}</CardTitle></CardHeader>
-                <CardContent><ColumnChart data={analysis.spend_trend} labelKey="period" series={[{ key: 'spend', label: 'Purchases', className: 'bg-brand' }]} /></CardContent>
+                <CardContent><ColumnChart data={analysis.spend_trend} labelKey="period" series={[{ key: 'spend', label: 'Purchases', className: 'bg-brand' }]} format={money} empty="No purchases in this period." /></CardContent>
               </Card>
               <Card>
                 <CardHeader><CardTitle>Spend by supplier</CardTitle></CardHeader>
