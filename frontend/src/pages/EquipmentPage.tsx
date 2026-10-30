@@ -49,6 +49,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const { me } = useAuth()
   const run = useRun()
   const canManage = me?.permissions.includes('equipment.manage') ?? false
+  const canDeleteReadings = me?.permissions.includes('equipment.delete') ?? false
   const [locationId, setLocationId] = useState<number | null>(null)
   const { data, reload } = useApi<EquipmentItem[]>(locationId ? `/equipment${qs({ location_id: locationId })}` : null)
   const [editing, setEditing] = useState<{ equipmentId: number; schedule: Schedule | null } | null>(null)
@@ -76,7 +77,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   async function confirmDelete() {
     if (!deleting) return
     const path = deleting.kind === 'point' ? `/equipment/${deleting.id}` : `/equipment/schedules/${deleting.id}`
-    if (await run(() => api(path, { method: 'DELETE' }), 'Deleted')) {
+    if (await run(() => api(`${path}${canDeleteReadings ? '?with_readings=true' : ''}`, { method: 'DELETE' }), 'Deleted')) {
       setDeleting(null)
       reload()
     }
@@ -166,7 +167,9 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
       ))}
 
       <ConfirmDialog open={deleting !== null} title={deleting?.kind === 'point' ? 'Delete monitoring point' : 'Delete check'}
-        message={`Delete ${deleting?.name ?? ''}? This cannot be undone. Anything with recorded readings cannot be deleted; make it inactive instead.`}
+        message={canDeleteReadings
+          ? `Delete ${deleting?.name ?? ''}? If it has recorded readings, they will be deleted as well, together with their corrective actions. This cannot be undone.`
+          : `Delete ${deleting?.name ?? ''}? This cannot be undone. Anything with recorded readings cannot be deleted; make it inactive instead.`}
         confirmLabel="Delete" onConfirm={confirmDelete} onCancel={() => setDeleting(null)} />
 
       {editing && <CheckFormModal equipmentId={editing.equipmentId} schedule={editing.schedule} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}

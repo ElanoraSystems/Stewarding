@@ -4,13 +4,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 
 from ..audit import audit
 from ..db import get_db
-from ..deps import check_location, require, scoped_locations
-from ..models import Employee, Equipment, EquipmentSchedule, Location, Shift, TemperatureReading, User
+from ..deps import check_location, permissions_of, require, scoped_locations
+from ..models import CorrectiveAction, Employee, Equipment, EquipmentSchedule, Location, ReadingLot, Shift, TemperatureReading, User
 from ..pagination import row
 from ..services.settings import get_setting
 from ..services.monitoring import failure_count
@@ -236,31 +237,53 @@ def set_schedule_active(schedule_id: int, body: ActiveIn, user: User = Depends(r
     return schedule_out(sched)
 
 
+def _remove_readings(db: Session, user: User, readings: Select) -> int:
+    """Deletes readings with the records that hang on them. Only for someone allowed to, and the caller must have said so."""
+    if "equipment.delete" not in permissions_of(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Back of House Manager can delete readings")
+    ids = list(db.scalars(readings))
+    if ids:
+        db.execute(update(TemperatureReading).where(TemperatureReading.retest_of_id.in_(ids) | TemperatureReading.start_reading_id.in_(ids)).values(retest_of_id=None, start_reading_id=None))
+        db.execute(delete(CorrectiveAction).where(CorrectiveAction.reading_id.in_(ids)))
+        db.execute(delete(ReadingLot).where(ReadingLot.reading_id.in_(ids)))
+        db.execute(delete(TemperatureReading).where(TemperatureReading.id.in_(ids)))
+    return len(ids)
+
+
 @router.delete("/schedules/{schedule_id}")
-def delete_schedule(schedule_id: int, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
+def delete_schedule(schedule_id: int, with_readings: bool = False, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
     sched = db.get(EquipmentSchedule, schedule_id)
     if not sched:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Schedule not found")
     _get(db, user, sched.equipment_id)
-    if db.scalar(select(TemperatureReading.id).where(TemperatureReading.schedule_id == sched.id).limit(1)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "This check has recorded readings; make it inactive instead")
-    audit(db, user, "equipment.schedule_delete", "equipment_schedule", sched.id, _schedule_snapshot(sched), None)
+    readings = select(TemperatureReading.id).where(TemperatureReading.schedule_id == sched.id)
+    removed = 0
+    if db.scalar(readings.limit(1)):
+        if not with_readings:
+            raise HTTPException(status.HTTP_409_CONFLICT, "This check has recorded readings; make it inactive instead")
+        removed = _remove_readings(db, user, readings)
+    audit(db, user, "equipment.schedule_delete", "equipment_schedule", sched.id, {**_schedule_snapshot(sched), "readings_deleted": removed}, None)
     db.delete(sched)
     db.commit()
-    return {"deleted": schedule_id}
+    return {"deleted": schedule_id, "readings_deleted": removed}
 
 
 @router.delete("/{equipment_id}")
-def delete_equipment(equipment_id: int, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
+def delete_equipment(equipment_id: int, with_readings: bool = False, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
     eq = _get(db, user, equipment_id)
-    if db.scalar(select(TemperatureReading.id).where(TemperatureReading.equipment_id == eq.id).limit(1)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "This monitoring point has recorded readings; make it inactive instead")
-    audit(db, user, "equipment.delete", "equipment", eq.id, {k: getattr(eq, k) for k in EQUIPMENT_FIELDS}, None)
+    readings = select(TemperatureReading.id).where(TemperatureReading.equipment_id == eq.id)
+    removed = 0
+    if db.scalar(readings.limit(1)):
+        if not with_readings:
+            raise HTTPException(status.HTTP_409_CONFLICT, "This monitoring point has recorded readings; make it inactive instead")
+        removed = _remove_readings(db, user, readings)
+    audit(db, user, "equipment.delete", "equipment", eq.id, {**{k: getattr(eq, k) for k in EQUIPMENT_FIELDS}, "readings_deleted": removed}, None)
     for sched in db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id)):
         db.delete(sched)
+    db.flush()  # the checks go first, the point they belong to after
     db.delete(eq)
     db.commit()
-    return {"deleted": equipment_id}
+    return {"deleted": equipment_id, "readings_deleted": removed}
 
 
 class FromTemplateIn(BaseModel):
