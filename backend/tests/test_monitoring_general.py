@@ -106,15 +106,20 @@ def test_templates_create_ready_made_monitoring_points(client, login, db):
 
 
 def test_every_template_check_can_be_recorded(client, login, db, clock):
-    clock.set(2026, 3, 2, 18, 30)
+    clock.set(2026, 3, 2, 22, 30)  # late evening at the location, so even the dinner-time checks are open
     m = login(MGR)
     templates = client.get("/api/equipment/templates", headers=m).json()
     for t in templates:
         made = client.post("/api/equipment/from-template", json={"template": t["key"], "location_id": loc_id(db, "RB")}, headers=m).json()
         started = None
         for sched in sorted(made["schedules"], key=lambda c: c["phase"] == "finish"):
+            if sched["value_type"] == "image":
+                continue  # a photo is optional and needs an uploaded file
             value = 1 if sched["value_type"] == "yes_no" else (float(sched["min_value"] or 0) + float(sched["max_value"] or 0)) / 2
             extra = {"reference": "Batch 1"} if sched["require_reference"] else {}
+            if sched["value_type"] in ("text", "date", "choice"):  # written, date and dropdown answers instead of a number
+                value = None
+                extra["answer"] = {"text": "Sample", "date": "2026-03-01"}.get(sched["value_type"]) or next(o for o in sched["options"] if o not in (sched["fail_options"] or []))
             if sched["trace_lots"] and sched["phase"] != "finish":
                 extra["lot_ids"] = [make_lot(made["location_id"])]
             if sched["phase"] == "finish":

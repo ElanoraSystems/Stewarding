@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/equipment", tags=["monitoring points"])
 EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer", "model", "serial_number",
                     "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active", "visible_to")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
-                   "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "options",
+                   "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "warn_min", "warn_max", "options",
                    "fail_options", "max_length", "required", "reference_label", "phase", "trace_lots", "active")
 
 
@@ -79,12 +79,14 @@ class ScheduleIn(BaseModel):
     shift_id: int | None = None
     min_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
     max_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
+    warn_min: Decimal | None = Field(default=None, ge=-100000, le=100000)  # amber from here down (still a pass)
+    warn_max: Decimal | None = Field(default=None, ge=-100000, le=100000)  # amber from here up (still a pass)
     active: bool = True
 
     @model_validator(mode="after")
     def _check(self):
         if self.value_type != "number":
-            self.min_value = self.max_value = self.unit = None
+            self.min_value = self.max_value = self.unit = self.warn_min = self.warn_max = None
         if self.value_type != "choice":
             self.options = self.fail_options = None
         if self.value_type != "text":
@@ -103,6 +105,10 @@ class ScheduleIn(BaseModel):
             raise ValueError("A number field needs a minimum or a maximum; use Short text for anything without limits")
         if None not in (self.min_value, self.max_value) and self.min_value > self.max_value:
             raise ValueError("Minimum limit cannot exceed the maximum limit")
+        if self.warn_max is not None and (self.warn_max > (self.max_value if self.max_value is not None else self.warn_max) or (self.min_value is not None and self.warn_max < self.min_value)):
+            raise ValueError("The warning level above must sit within the limits")
+        if self.warn_min is not None and (self.warn_min < (self.min_value if self.min_value is not None else self.warn_min) or (self.max_value is not None and self.warn_min > self.max_value)):
+            raise ValueError("The warning level below must sit within the limits")
         if self.timing == "interval" and not self.interval_minutes:
             raise ValueError("Interval monitoring needs interval_minutes")
         if self.weekdays is not None and any(d < 0 or d > 6 for d in self.weekdays):

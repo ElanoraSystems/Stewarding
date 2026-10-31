@@ -28,6 +28,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     time_of_day: schedule?.time_of_day?.slice(0, 5) ?? '', interval_minutes: schedule?.interval_minutes ? String(schedule.interval_minutes) : '',
     weekdays: schedule?.weekdays ?? [], day_of_month: schedule?.day_of_month ? String(schedule.day_of_month) : '',
     min_value: schedule?.min_value != null ? String(Number(schedule.min_value)) : '', max_value: schedule?.max_value != null ? String(Number(schedule.max_value)) : '',
+    warn_min: schedule?.warn_min != null ? String(Number(schedule.warn_min)) : '', warn_max: schedule?.warn_max != null ? String(Number(schedule.warn_max)) : '',
     require_reference: schedule?.require_reference ?? false, trace_lots: schedule?.trace_lots ?? false, required: schedule?.required ?? true, reference_label: schedule?.reference_label ?? '', phase: schedule?.phase ?? '',
   })
   const [extra, setExtra] = useState({ options: (schedule?.options ?? []).join('\n'), fail: schedule?.fail_options ?? [], maxLength: String(schedule?.max_length ?? 200) })
@@ -52,6 +53,8 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
       weekdays: form.weekdays.length && !manual ? form.weekdays : null, day_of_month: form.day_of_month && !manual ? Number(form.day_of_month) : null,
       min_value: isNumber && form.min_value !== '' ? Number(form.min_value) : null,
       max_value: isNumber && form.max_value !== '' ? Number(form.max_value) : null,
+      warn_min: isNumber && form.warn_min !== '' ? Number(form.warn_min) : null,
+      warn_max: isNumber && form.warn_max !== '' ? Number(form.warn_max) : null,
       options: form.value_type === 'choice' ? optionList(extra.options) : null,
       fail_options: form.value_type === 'choice' ? extra.fail.filter((o) => optionList(extra.options).includes(o)) : null,
       max_length: form.value_type === 'text' ? Number(extra.maxLength) : null,
@@ -111,6 +114,8 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
             {isNumber && <span className="hidden sm:block" />}
             {isNumber && <Field label="Minimum"><Input type="number" step="any" value={form.min_value} onChange={(e) => set('min_value', e.target.value)} /></Field>}
             {isNumber && <Field label="Maximum"><Input type="number" step="any" value={form.max_value} onChange={(e) => set('max_value', e.target.value)} /></Field>}
+            {isNumber && <Field label="Amber warning from (optional)"><Input type="number" step="any" placeholder="Passes, but is flagged at or above this" value={form.warn_max} onChange={(e) => set('warn_max', e.target.value)} /></Field>}
+            {isNumber && <Field label="Amber warning down to (optional)"><Input type="number" step="any" placeholder="Passes, but is flagged at or below this" value={form.warn_min} onChange={(e) => set('warn_min', e.target.value)} /></Field>}
           </div>
           {(form.value_type === 'text' || form.value_type === 'choice') && (
             <FieldRestrictions value={{ ...blankField(), type: form.value_type, ...extra }} onChange={(v) => setExtra({ options: v.options, fail: v.fail, maxLength: v.maxLength })} />

@@ -13,6 +13,25 @@ def at(hour: int, minute: int = 0) -> dict:
     return {"timing": "checkpoint", "time_of_day": time(hour, minute)}
 
 
+def _fryer_oil_checks() -> list[dict]:
+    """The TPM oil test, once after lunch and once after dinner: the reading (amber from 20%, fail above 25%), the oil's heat, what the oil is and how it looks."""
+    checks = []
+    for label, hour in (("lunch", 15), ("dinner", 22)):
+        when = at(hour)
+        checks += [
+            {"stage": f"TPM reading ({label})", "parameter": "TPM", "unit": "%", "value_type": "number", **when, "min_value": 0, "max_value": 25, "warn_max": 20, "source": "independent_probe"},
+            {"stage": f"Oil temperature at test ({label})", **TEMP, **when, "min_value": 160, "max_value": 190, "source": "independent_probe"},
+            {"stage": f"Oil type or batch ({label})", "parameter": "Oil", "unit": None, "value_type": "text", "max_length": 80, **when},
+            {"stage": f"Date oil last changed ({label})", "parameter": "Date", "unit": None, "value_type": "date", **when},
+            {"stage": f"Oil look and smell ({label})", "parameter": "Condition", "unit": None, "value_type": "choice", **when,
+             "options": ["Normal", "Dark", "Foaming", "Smoking", "Off smell"], "fail_options": ["Foaming", "Smoking", "Off smell"]},
+            {"stage": f"Oil filtered today ({label})", **YES_NO, "parameter": "Filtered", **when},
+            {"stage": f"Photo of the meter display ({label})", "parameter": "Photo", "unit": None, "value_type": "image", "required": False, **when},
+            {"stage": f"Meter used ({label})", "parameter": "Meter", "unit": None, "value_type": "text", "max_length": 40, "required": False, **when},
+        ]
+    return checks
+
+
 TEMPLATES = [
     {"key": "chiller", "name": "Chiller or fridge", "prefix": "CH", "type": "Cold storage", "checks": [
         {"stage": "Morning temperature", **TEMP, **at(8), "min_value": 0, "max_value": 5, "source": "independent_probe"},
@@ -46,6 +65,7 @@ TEMPLATES = [
         {"stage": "Delivery temperature", **TEMP, **at(10), "min_value": -25, "max_value": 5, "require_reference": True,
          "source": "independent_probe"},
         {"stage": "Labels, batch and expiry checked", **YES_NO, **at(10, 30), "require_reference": True}]},
+    {"key": "fryer_oil", "name": "Frying oil (TPM)", "prefix": "FO", "type": "Frying oil", "checks": _fryer_oil_checks()},
     {"key": "probe_calibration", "name": "Probe calibration", "prefix": "PC", "type": "Calibration", "checks": [
         {"stage": "Ice water test", **YES_NO, **at(8), "weekdays": "0"}]},
 ]

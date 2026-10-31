@@ -142,6 +142,8 @@ class EquipmentSchedule(Base):
     shift_id: Mapped[int | None] = mapped_column(ForeignKey("shift.id"))
     min_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     max_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    warn_min: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # a number at or below this still passes but shows an amber warning
+    warn_max: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # a number at or above this still passes but shows an amber warning
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -163,6 +165,7 @@ class TemperatureReading(Base):
     min_limit: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     max_limit: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     passed: Mapped[bool] = mapped_column(Boolean)
+    warning: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())  # passed, but inside the amber zone near a limit
     recorded_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     comment: Mapped[str | None] = mapped_column(Text)
     evidence_path: Mapped[str | None] = mapped_column(String(300))

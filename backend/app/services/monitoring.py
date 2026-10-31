@@ -22,6 +22,13 @@ def evaluate(value: Decimal, minimum: Decimal | None, maximum: Decimal | None) -
     return (minimum is None or value >= minimum) and (maximum is None or value <= maximum)
 
 
+def warns(sched, value: Decimal | None, passed: bool) -> bool:
+    """A number that passes but sits in the amber zone: at or past the warning level on either side."""
+    if sched.value_type != "number" or value is None or not passed:
+        return False
+    return (sched.warn_max is not None and value >= sched.warn_max) or (sched.warn_min is not None and value <= sched.warn_min)
+
+
 def describe(reading) -> str:
     """A reading as people say it: the written or chosen answer, 'Yes' or 'No', or the number with its unit."""
     if reading.value_type in ("text", "choice", "date", "time", "signature", "image"):
