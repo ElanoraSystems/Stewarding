@@ -155,3 +155,24 @@ def test_dashboard_counts_what_is_waiting_for_approval(client, login, db, clock)
     assert waiting == {"tasks": 1, "readings": 1, "breakage": 0}
     only_rb = dash(client, login(MGR), location_id=loc_id(db, "RB"))["kpis"]["awaiting_approval"]
     assert only_rb == {"tasks": 0, "readings": 0, "breakage": 0}
+
+
+def test_supervisor_totals_and_charts_leave_out_what_their_job_title_does_not_see(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)
+    generate(client, login, db)
+    clock.advance(hours=12)  # well past every deadline, so tasks are overdue and checks are due
+    before, mgr_before = dash(client, sup), dash(client, m)
+    assert before["kpis"]["daily_completion"]["denominator"] > 0 and before["kpis"]["overdue_tasks"] > 0
+    assert before["kpis"]["monitoring_checks"]["due"] > 0
+    # every checklist and every monitoring point is limited to the Steward job title; the supervisor's title is not among them
+    for t in client.get("/api/checklists/templates", headers=m).json():
+        assert client.put(f"/api/checklists/templates/{t['id']}", json={"visible_to": ["Steward"]}, headers=m).status_code == 200
+    for e in client.get("/api/equipment", headers=m).json():
+        assert client.put(f"/api/equipment/{e['id']}", json={"visible_to": ["Steward"]}, headers=m).status_code == 200
+    after = dash(client, sup)
+    k = after["kpis"]
+    assert k["daily_completion"]["denominator"] == 0 and k["weekly_completion"]["denominator"] == 0 and k["overdue_tasks"] == 0
+    assert k["monitoring_checks"] == {"done": 0, "due": 0} and k["failed_checks"] == 0 and k["equipment_attention"] == 0
+    assert all(d["due"] == 0 for d in after["charts"]["task_trend"]) and after["charts"]["monitoring_compliance"] == []
+    assert all(row["denominator"] == 0 for row in after["charts"]["weekly_compliance"])
+    assert dash(client, m)["kpis"]["overdue_tasks"] == mgr_before["kpis"]["overdue_tasks"]  # a manager still sees everything
