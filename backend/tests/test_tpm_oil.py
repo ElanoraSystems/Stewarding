@@ -27,7 +27,7 @@ def test_the_frying_oil_template_has_a_form_for_lunch_and_dinner_with_the_tpm_li
     assert point["kind"] == "Frying oil" and point["code"].startswith("FO-")
     assert len(point["schedules"]) == 16
     tpm = next(s for s in point["schedules"] if s["stage"] == "TPM reading (dinner)")
-    assert (tpm["unit"], float(tpm["max_value"]), float(tpm["warn_max"])) == ("%", 25.0, 20.0) and str(tpm["time_of_day"])[:5] == "23:00"
+    assert (tpm["unit"], float(tpm["max_value"]), float(tpm["warn_max"])) == ("%", 25.0, 20.0) and str(tpm["time_of_day"])[:5] == "22:00"
     look = next(s for s in point["schedules"] if s["stage"] == "Oil look and smell (lunch)")
     assert look["fail_options"] == ["Foaming", "Smoking", "Off smell"]
     assert all(not s["required"] for s in point["schedules"] if s["parameter"] in ("Photo", "Meter"))

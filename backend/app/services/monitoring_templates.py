@@ -16,7 +16,7 @@ def at(hour: int, minute: int = 0) -> dict:
 def _fryer_oil_checks() -> list[dict]:
     """The TPM oil test, once after lunch and once after dinner: the reading (amber from 20%, fail above 25%), the oil's heat, what the oil is and how it looks."""
     checks = []
-    for label, hour in (("lunch", 15), ("dinner", 23)):
+    for label, hour in (("lunch", 15), ("dinner", 22)):
         when = at(hour)
         checks += [
             {"stage": f"TPM reading ({label})", "parameter": "TPM", "unit": "%", "value_type": "number", **when, "min_value": 0, "max_value": 25, "warn_max": 20, "source": "independent_probe"},
