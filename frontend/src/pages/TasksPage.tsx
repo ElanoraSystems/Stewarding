@@ -67,11 +67,11 @@ function Notifications() {
   async function acknowledgeMany(ids: number[]) {
     const result = await api<{ acknowledged: number }>('/notifications/acknowledge-many', { body: { ids } }).catch(() => null)
     if (result) {
-      toast('ok', `${result.acknowledged} alert${result.acknowledged === 1 ? '' : 's'} acknowledged`)
+      toast('ok', `${result.acknowledged} alert${result.acknowledged === 1 ? '' : 's'} approved`)
       setSelected([])
       reload()
       notificationsChanged()
-    } else toast('error', 'Could not acknowledge the alerts')
+    } else toast('error', 'Could not approve the alerts')
   }
 
   async function act(path: string, success?: string) {
@@ -90,9 +90,9 @@ function Notifications() {
       </div>
       {open.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
-          <span>{open.length} alert{open.length === 1 ? '' : 's'} on this page need acknowledging</span>
+          <span>{open.length} alert{open.length === 1 ? '' : 's'} on this page need your approval</span>
           <Button size="sm" variant="outline" onClick={() => setSelected(open.map((n) => n.id))}>Select all</Button>
-          <Button size="sm" disabled={selected.length === 0} onClick={() => acknowledgeMany(selected)}>Acknowledge selected ({selected.length})</Button>
+          <Button size="sm" disabled={selected.length === 0} onClick={() => acknowledgeMany(selected)}>Approve selected ({selected.length})</Button>
         </div>
       )}
       {loading && !data ? <Skeleton className="h-32 w-full" /> : data?.items.length === 0 ? <EmptyState title="No notifications" /> : (
@@ -115,7 +115,7 @@ function Notifications() {
               <div className="mt-2 flex flex-wrap gap-2">
                 {n.link && <Button asChild size="sm" variant="outline"><Link to={n.link}>Open</Link></Button>}
                 {!n.read_at && <Button size="sm" variant="ghost" onClick={() => act(`${n.id}/read`)}>Mark read</Button>}
-                {n.requires_ack && !n.acknowledged_at && <Button size="sm" onClick={() => act(`${n.id}/acknowledge`, 'Acknowledged')}>Acknowledge</Button>}
+                {n.requires_ack && !n.acknowledged_at && <Button size="sm" onClick={() => act(`${n.id}/acknowledge`, 'Approved')}>Approve</Button>}
               </div>
             </li>
           ))}
