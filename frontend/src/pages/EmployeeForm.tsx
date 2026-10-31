@@ -47,7 +47,7 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
   const [form, setForm] = useState({
     employee_code: employee?.employee_code ?? '',
     full_name: employee?.full_name ?? '',
-    job_title: employee?.job_title ?? 'Steward',
+    job_title: employee?.job_title ?? '',
     company: employee?.company ?? '',
     email: employee?.email ?? '',
     password: '',
@@ -59,6 +59,8 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
     location_ids: employee?.location_ids ?? [],
   })
   const [busy, setBusy] = useState(false)
+  // the titles set up in Settings, plus the one this person already has so an older or retired title is still shown when editing
+  const jobTitles = form.job_title && !titles.includes(form.job_title) ? [form.job_title, ...titles] : titles
   const set = (key: keyof typeof form, value: string | number[]) => setForm((f) => ({ ...f, [key]: value }))
 
   function toggleLocation(id: number) {
@@ -135,8 +137,10 @@ export function EmployeeForm({ open, employee, supervisors, onClose, onSaved }: 
               <Input required value={form.full_name} onChange={(e) => set('full_name', e.target.value)} />
             </Field>
             <Field label="Job title">
-              <Input required list="job-titles" value={form.job_title} onChange={(e) => set('job_title', e.target.value)} />
-              <datalist id="job-titles">{titles.map((t) => <option key={t} value={t} />)}</datalist>
+              <Select required value={form.job_title} onChange={(e) => set('job_title', e.target.value)}>
+                <option value="" disabled>Choose a job title</option>
+                {jobTitles.map((t) => <option key={t} value={t}>{t}</option>)}
+              </Select>
             </Field>
             <Field label="Organization or company">
               <Input maxLength={120} value={form.company} onChange={(e) => set('company', e.target.value)} />
