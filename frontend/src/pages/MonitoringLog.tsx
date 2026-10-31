@@ -30,6 +30,7 @@ interface Reading {
   min_limit: number | null
   max_limit: number | null
   passed: boolean
+  open_minutes?: number | null
   warning?: boolean
   recorded_by: number
   recorded_by_name: string | null
@@ -107,7 +108,9 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
   )
 
   const limitsOf = (r: Reading) => (r.value_type === 'yes_no' ? 'Must be Yes' : r.value_type === 'number' ? `${r.min_limit ?? '-'} to ${r.max_limit ?? '-'}` : '-')
-  const valueOf = (r: Reading) => (r.value_type === 'signature' || r.value_type === 'image' ? <AuthImage name={r.display} alt={r.value_type === 'signature' ? 'Signature' : 'Image'} /> : r.display)
+  const valueOf = (r: Reading) => (r.value_type === 'signature' || r.value_type === 'image' ? <AuthImage name={r.display} alt={r.value_type === 'signature' ? 'Signature' : 'Image'} /> : (
+    <>{r.display}{r.open_minutes != null && <span className="block text-xs font-normal text-ink-muted">Open for {Math.floor(r.open_minutes / 60)} h {String(r.open_minutes % 60).padStart(2, '0')} min</span>}</>
+  ))
 
   return (
     <div className="space-y-4">

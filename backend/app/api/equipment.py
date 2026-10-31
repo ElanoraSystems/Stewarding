@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/equipment", tags=["monitoring points"])
 EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer", "model", "serial_number",
                     "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active", "visible_to")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
-                   "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "warn_min", "warn_max", "options",
+                   "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "warn_min", "warn_max", "max_open_minutes", "options",
                    "fail_options", "max_length", "required", "reference_label", "phase", "trace_lots", "active")
 
 
@@ -79,12 +79,15 @@ class ScheduleIn(BaseModel):
     shift_id: int | None = None
     min_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
     max_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
+    max_open_minutes: int | None = Field(default=None, ge=1, le=20160)  # time in only: the time out is due this many minutes later
     warn_min: Decimal | None = Field(default=None, ge=-100000, le=100000)  # amber from here down (still a pass)
     warn_max: Decimal | None = Field(default=None, ge=-100000, le=100000)  # amber from here up (still a pass)
     active: bool = True
 
     @model_validator(mode="after")
     def _check(self):
+        if self.phase != "start":
+            self.max_open_minutes = None  # only a time in has a time out to wait for
         if self.value_type != "number":
             self.min_value = self.max_value = self.unit = self.warn_min = self.warn_max = None
         if self.value_type != "choice":

@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/auth'
 import { fmtTime, label } from '@/lib/format'
 import { cycleOf } from '@/lib/monitoring'
 import { qs, useApi } from '@/lib/useApi'
+import { useTick } from '@/lib/useTick'
 import { CorrectiveActionsPanel } from '@/pages/CorrectiveActionsPanel'
 import { MonitoringLog } from '@/pages/MonitoringLog'
 import { MonitoringRecordForm, type EquipmentItem, type Prefill } from '@/pages/MonitoringRecordForm'
@@ -27,6 +28,25 @@ interface Due {
   status: 'done' | 'due' | 'overdue' | 'upcoming'
 }
 
+const hm = (minutes: number) => `${Math.floor(Math.abs(minutes) / 60)} h ${String(Math.abs(minutes) % 60).padStart(2, '0')} min`
+/** Minutes the entry has been open and, when it has a limit, minutes left, counted from the start time so the clock keeps running while the page is open. */
+const minutesOpen = (p: { started_at: string }, now: number) => Math.max(0, Math.floor((now - new Date(p.started_at).getTime()) / 60000))
+const minutesLeft = (p: { started_at: string; limit_minutes: number | null }, now: number) => (p.limit_minutes ? p.limit_minutes - minutesOpen(p, now) : null)
+const clockState = (p: { started_at: string; limit_minutes: number | null }, now: number): 'ok' | 'soon' | 'overdue' => {
+  const left = minutesLeft(p, now)
+  return left === null ? 'ok' : left <= 0 ? 'overdue' : left <= 60 ? 'soon' : 'ok'
+}
+
+function PendingClock({ entry, now }: { entry: Pending; now: number }) {
+  const left = minutesLeft(entry, now)
+  return (
+    <span className="mt-0.5 block text-xs tabular-nums">
+      <span className="text-ink-muted">Open {hm(minutesOpen(entry, now))}</span>
+      {left !== null && <span className={left <= 0 ? ' font-semibold text-danger' : left <= 60 ? ' font-semibold text-warn' : ' text-ink-muted'}> - {left <= 0 ? `overdue by ${hm(left)}` : `time out due in ${hm(left)}`}</span>}
+    </span>
+  )
+}
+
 interface Pending {
   start_reading_id: number
   equipment_id: number
@@ -34,12 +54,15 @@ interface Pending {
   item: string | null
   started_at: string
   minutes_open: number
+  limit_minutes: number | null
+  minutes_left: number | null
 }
 
 const RANK = { overdue: 3, due: 2, upcoming: 1, done: 0 } as const
 const TONE = { done: 'ok', due: 'warn', overdue: 'critical', upcoming: 'neutral' } as const
 
 export function MonitoringPage() {
+  const now = useTick(true)
   const { me } = useAuth()
   const arrived = useLocation().state as { locationId?: number; equipmentId?: number } | null
   const [locationId, setLocationId] = useState<number | null>(arrived?.locationId ?? null)
@@ -182,8 +205,12 @@ export function MonitoringPage() {
                 <li key={p.start_reading_id}>
                   <button type="button" disabled={!canRecord} onClick={() => timeOut(p)}
                     className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-surface-muted">
-                    <span><span className="block font-medium">{p.item ?? p.equipment}</span><span className="text-ink-muted">{p.equipment}, in at {fmtTime(p.started_at, timezone)}, {Math.floor(p.minutes_open / 60)} h {p.minutes_open % 60} min ago</span></span>
-                    <Badge tone="warn">Pending</Badge>
+                    <span>
+                      <span className="block font-medium">{p.item ?? p.equipment}</span>
+                      <span className="text-ink-muted">{p.equipment}, in at {fmtTime(p.started_at, timezone)}</span>
+                      <PendingClock entry={p} now={now} />
+                    </span>
+                    <Badge tone={clockState(p, now) === 'overdue' ? 'critical' : clockState(p, now) === 'soon' ? 'warn' : 'neutral'}>{clockState(p, now) === 'overdue' ? 'Time out overdue' : clockState(p, now) === 'soon' ? 'Time out soon' : 'Pending'}</Badge>
                   </button>
                 </li>
               ))}

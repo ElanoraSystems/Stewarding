@@ -123,7 +123,7 @@ def test_a_time_out_that_stays_missing_raises_one_alert(client, login, db, clock
     m = login(MGR)
     point = make(client, m, db, "defrosting")
     start(client, m, point)
-    assert alerts.pending_time_outs(db, clock.now + timedelta(hours=1)) == 0
-    assert alerts.pending_time_outs(db, clock.now + timedelta(hours=13)) > 0
-    assert alerts.pending_time_outs(db, clock.now + timedelta(hours=14)) == 0
+    assert alerts.pending_time_outs(db, clock.now + timedelta(hours=13)) == 0   # the defrosting check allows 24 hours
+    assert alerts.pending_time_outs(db, clock.now + timedelta(hours=25)) > 0
+    assert alerts.pending_time_outs(db, clock.now + timedelta(hours=26)) == 0
     assert db.scalar(select(Notification).where(Notification.kind == "time_out_missing")) is not None

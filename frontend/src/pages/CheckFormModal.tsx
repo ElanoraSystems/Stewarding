@@ -29,6 +29,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     weekdays: schedule?.weekdays ?? [], day_of_month: schedule?.day_of_month ? String(schedule.day_of_month) : '',
     min_value: schedule?.min_value != null ? String(Number(schedule.min_value)) : '', max_value: schedule?.max_value != null ? String(Number(schedule.max_value)) : '',
     warn_min: schedule?.warn_min != null ? String(Number(schedule.warn_min)) : '', warn_max: schedule?.warn_max != null ? String(Number(schedule.warn_max)) : '',
+    max_open_hours: schedule?.max_open_minutes ? String(schedule.max_open_minutes / 60) : '',
     require_reference: schedule?.require_reference ?? false, trace_lots: schedule?.trace_lots ?? false, required: schedule?.required ?? true, reference_label: schedule?.reference_label ?? '', phase: schedule?.phase ?? '',
   })
   const [extra, setExtra] = useState({ options: (schedule?.options ?? []).join('\n'), fail: schedule?.fail_options ?? [], maxLength: String(schedule?.max_length ?? 200) })
@@ -48,6 +49,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
       stage: form.stage, parameter: form.parameter, unit: isNumber ? form.unit || null : null, value_type: form.value_type,
       require_reference: form.require_reference, trace_lots: form.trace_lots, required: form.required, reference_label: form.require_reference ? form.reference_label.trim() || null : null,
       phase: form.phase || null, source: form.source, timing: form.timing,
+      max_open_minutes: form.phase === 'start' && form.max_open_hours !== '' ? Math.round(Number(form.max_open_hours) * 60) : null,
       time_of_day: form.time_of_day && !manual ? `${form.time_of_day}:00` : null,
       interval_minutes: form.timing === 'interval' ? Number(form.interval_minutes) : null,
       weekdays: form.weekdays.length && !manual ? form.weekdays : null, day_of_month: form.day_of_month && !manual ? Number(form.day_of_month) : null,
@@ -162,6 +164,12 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
               <option value="finish">Time out (closes an entry)</option>
             </Select>
           </Field>
+          {form.phase === 'start' && (
+            <Field label="Time out due within (hours, optional)">
+              <Input type="number" min={0.5} step="0.5" placeholder="For example 24" value={form.max_open_hours} onChange={(e) => set('max_open_hours', e.target.value)} />
+              <p className="mt-1 text-xs text-ink-muted">The pending entry shows a running clock, and an alert goes to whoever started it, the supervisor and the manager when this time is reached. Empty uses the general limit in Settings.</p>
+            </Field>
+          )}
           <div className="divide-y divide-border rounded-xl border border-border">
             {toggles.map((t) => (
               <label key={t.key} className="flex cursor-pointer items-start gap-3 px-4 py-3 text-sm">

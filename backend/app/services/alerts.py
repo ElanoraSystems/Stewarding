@@ -180,14 +180,17 @@ def corrective_alerts(db: Session, now: datetime) -> int:
 
 
 def pending_time_outs(db: Session, now: datetime) -> int:
-    """Warns about time-in entries (defrosting, cooling) still waiting for their time out after the set number of hours."""
-    limit = get_setting(db, "temp.pending_alert_hours")
+    """Warns that a time out is due: when a time-in entry (defrosting, cooling) has been open as long as its check allows."""
     created = 0
     live = select(Equipment).join(Location, Location.id == Equipment.location_id).where(Equipment.active.is_(True), Location.active.is_(True))  # off means silent
     for entry in pending_entries(db, list(db.scalars(live)), now):
-        if limit and entry["minutes_open"] >= limit * 60:
-            created += notify(db, recipients(db, entry["location_id"], SUPERVISOR, MANAGER), "time_out_missing",
-                              f"Time out still missing: {entry['item'] or entry['equipment']} ({entry['equipment']}), open {entry['minutes_open'] // 60} h",
+        if entry["limit_minutes"] and entry["minutes_open"] >= entry["limit_minutes"]:
+            hours, minutes = divmod(entry["minutes_open"], 60)
+            who = recipients(db, entry["location_id"], SUPERVISOR, MANAGER)
+            if entry["started_by"] and entry["started_by"] not in who:
+                who = [*who, entry["started_by"]]  # the person who started it is told too
+            created += notify(db, who, "time_out_missing",
+                              f"Time out due: {entry['item'] or entry['equipment']} ({entry['equipment']}), open {hours} h {minutes:02d} m, limit {entry['limit_minutes'] // 60} h {entry['limit_minutes'] % 60:02d} m",
                               key=f"pending_out:{entry['start_reading_id']}", priority="high", location_id=entry["location_id"],
                               link="/monitoring", requires_ack=True)
     return created

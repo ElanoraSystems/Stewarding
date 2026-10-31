@@ -120,10 +120,21 @@ def _lots_of(db: Session, reading_ids: list[int]) -> dict[int, list[dict]]:
     return out
 
 
+def _opened_at(db: Session, readings: list[TemperatureReading]) -> dict[int, datetime]:
+    """When the time in of each time-out reading was recorded, so the real time between them can be shown."""
+    ids = {r.start_reading_id for r in readings if r.start_reading_id}
+    return dict(db.execute(select(TemperatureReading.id, TemperatureReading.recorded_at).where(TemperatureReading.id.in_(ids or {0}))).all())
+
+
 def _serialize_readings(db: Session, readings: list[TemperatureReading], names: dict[int, str]) -> list[dict]:
     actions = _latest_actions(db, [r.id for r in readings])
     lots = _lots_of(db, [r.id for r in readings])
-    return [_serialize_reading(db, r, names, actions, lots[r.id]) for r in readings]
+    opened = _opened_at(db, readings)
+    out = [_serialize_reading(db, r, names, actions, lots[r.id]) for r in readings]
+    for reading, item in zip(readings, out):
+        started = opened.get(reading.start_reading_id) if reading.start_reading_id else None
+        item["open_minutes"] = int((reading.recorded_at - started).total_seconds() // 60) if started else None
+    return out
 
 
 def _serialize_reading(db: Session, reading: TemperatureReading, names: dict[int, str],
