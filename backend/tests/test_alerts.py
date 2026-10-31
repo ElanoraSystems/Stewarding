@@ -171,12 +171,24 @@ def test_monitoring_due_then_overdue_alerts(client, login, db, clock):
     assert len(notes(db, "monitoring_overdue")) == count
 
 
-def test_a_log_limited_to_supervisors_does_not_remind_stewards(client, login, db, clock):
+def test_a_log_limited_to_the_supervisors_job_title_does_not_remind_stewards(client, login, db, clock):
     eq = next(e for e in client.get("/api/monitoring/equipment", headers=login(STEWARD)).json() if e["code"] == "DW-MK-1")
-    assert client.put(f"/api/equipment/{eq['id']}", json={"visible_to": ["supervisor"]}, headers=login(MGR)).status_code == 200
+    assert client.put(f"/api/equipment/{eq['id']}", json={"visible_to": ["Stewarding Supervisor"]}, headers=login(MGR)).status_code == 200
     run(db, clock)
     mine = [n for n in notes(db, "monitoring_due") if "Main Kitchen Dishwasher 1" in n.title]
     assert mine and emails(db, mine) == {"sup.mk@example.test"}
+
+
+def test_a_checklist_limited_to_the_supervisors_job_title_is_not_alerted_to_stewards(client, login, db, clock):
+    no_grace(client, login)
+    generate(client, login, db)
+    for template in db.scalars(select(ChecklistTemplate)):
+        template.visible_to = ["Stewarding Supervisor"]
+    db.commit()
+    clock.set(2026, 3, 2, 9, 31)  # past the first deadline
+    run(db, clock)
+    overdue = notes(db, "task_overdue")
+    assert overdue and emails(db, overdue) == {"sup.mk@example.test"}
 
 
 def test_retest_overdue_and_escalation_to_manager(client, login, db, clock):

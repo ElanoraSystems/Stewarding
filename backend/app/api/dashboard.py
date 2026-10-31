@@ -15,6 +15,7 @@ from ..services import metrics
 from ..services.checklists import OPEN, effective_status, overdue_after
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
+from ..services.visibility import hidden_templates
 from ..services.monitoring import CLOSED_ACTIONS, due_checks, failure_count, failure_counts, may_record
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -222,7 +223,7 @@ def _supervisor_extras(db: Session, user: User, now: datetime, location_id: int 
     scope = scoped_locations(user, db)
     ids = {location_id} if location_id is not None else scope
     shown = _sections(allowed, chosen)
-    items = [i for i in pending_items(db, ids, now) if CATEGORY_SECTION.get(i["category"]) in shown]
+    items = [i for i in pending_items(db, ids, now, hidden_templates(db, user), user) if CATEGORY_SECTION.get(i["category"]) in shown]
     transfers = select(func.count()).select_from(InventoryTransfer).where(InventoryTransfer.status == "requested")
     if ids is not None:
         transfers = transfers.where(InventoryTransfer.from_location_id.in_(ids))
@@ -244,6 +245,7 @@ def _steward_view(db: Session, user: User, now: datetime, chosen: list[str] | No
                                                         AttendanceRecord.open_flag == 1)) if emp else None
     tasks: Counter = Counter()
     task_rows = []
+    hidden = hidden_templates(db, user)  # checklists this role does not see are left out of its counts too
     for loc in db.scalars(select(Location).where(Location.id.in_(scope), Location.active.is_(True))):
         day = timeutil.local_date(now, loc.timezone)
         rows = db.execute(select(ChecklistInstance, ChecklistTask).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
@@ -251,6 +253,7 @@ def _steward_view(db: Session, user: User, now: datetime, chosen: list[str] | No
                                  or_(ChecklistInstance.assigned_employee_id == (emp.id if emp else -1),
                                      and_(ChecklistInstance.assigned_employee_id.is_(None),
                                           or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role.in_(role_names(user))))))
+                          .where(ChecklistTask.template_id.not_in(hidden or {0}))
                           .order_by(ChecklistInstance.due_at)).all()
         for inst, task in rows:
             state = effective_status(inst, overdue_after(db, now))

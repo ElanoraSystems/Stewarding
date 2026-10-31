@@ -20,6 +20,7 @@ from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
 from ..services.starter import apply_starter
+from ..services.visibility import clean_titles, hidden_templates, may_see
 from .uploads import is_valid_evidence
 
 router = APIRouter(prefix="/api/checklists", tags=["checklists"])
@@ -36,6 +37,7 @@ class TemplateIn(BaseModel):
     category: str = Field(min_length=2, max_length=60)
     location_id: int
     frequency: str = Field(pattern="^(per_shift|daily|weekly|custom)$")
+    visible_to: list[str] | None = None  # job titles that see this checklist; empty or none means all
 
 
 class TemplateUpdate(BaseModel):
@@ -43,6 +45,7 @@ class TemplateUpdate(BaseModel):
     category: str | None = None
     frequency: str | None = Field(default=None, pattern="^(per_shift|daily|weekly|custom)$")
     active: bool | None = None
+    visible_to: list[str] | None = None
 
 
 class TaskIn(BaseModel):
@@ -114,9 +117,12 @@ def list_templates(location_id: int | None = None, user: User = Depends(require(
     elif allowed is not None:
         stmt = stmt.where(ChecklistTemplate.location_id.in_(allowed))
     out = []
+    hidden = hidden_templates(db, user)
     for t in db.scalars(stmt.order_by(ChecklistTemplate.location_id, ChecklistTemplate.name)):
+        if t.id in hidden:
+            continue
         tasks = db.scalars(select(ChecklistTask).where(ChecklistTask.template_id == t.id).order_by(ChecklistTask.id))
-        out.append({**row(t, "id", "name", "category", "location_id", "frequency", "active"),
+        out.append({**row(t, "id", "name", "category", "location_id", "frequency", "active", "visible_to"),
                     "tasks": [row(k, *TASK_FIELDS) for k in tasks]})
     return out
 
@@ -126,12 +132,12 @@ def create_template(body: TemplateIn, user: User = Depends(require("checklist.co
                     db: Session = Depends(get_db)):
     check_location(user, db, body.location_id)
     _ensure_unique_name(db, body.location_id, body.name)
-    template = ChecklistTemplate(**body.model_dump())
+    template = ChecklistTemplate(**{**body.model_dump(), "visible_to": clean_titles(db, body.visible_to)})
     db.add(template)
     db.flush()
     audit(db, user, "checklist.template_create", "checklist_template", template.id, None, body.model_dump())
     db.commit()
-    return row(template, "id", "name", "category", "location_id", "frequency", "active")
+    return row(template, "id", "name", "category", "location_id", "frequency", "active", "visible_to")
 
 
 @router.put("/templates/{template_id}")
@@ -139,6 +145,8 @@ def update_template(template_id: int, body: TemplateUpdate, user: User = Depends
                     db: Session = Depends(get_db)):
     template = _template_or_404(db, template_id)
     data = body.model_dump(exclude_unset=True)
+    if "visible_to" in data:
+        data["visible_to"] = clean_titles(db, data["visible_to"])
     if data.get("name"):
         _ensure_unique_name(db, template.location_id, data["name"], template.id)
     before = {k: getattr(template, k) for k in data}
@@ -146,7 +154,7 @@ def update_template(template_id: int, body: TemplateUpdate, user: User = Depends
         setattr(template, key, value)
     audit(db, user, "checklist.template_update", "checklist_template", template.id, before, data)
     db.commit()
-    return row(template, "id", "name", "category", "location_id", "frequency", "active")
+    return row(template, "id", "name", "category", "location_id", "frequency", "active", "visible_to")
 
 
 def _ensure_unique_name(db: Session, location_id: int, name: str, own_id: int | None = None) -> None:
@@ -277,6 +285,9 @@ def list_instances(location_id: int | None = None, day: date | None = None, date
         stmt = stmt.where(ChecklistInstance.status == status_)
     if user.role.tier == STEWARD:
         stmt = stmt.where(_steward_filter(user))
+    hidden = hidden_templates(db, user)
+    if hidden:
+        stmt = stmt.where(ChecklistTemplate.id.not_in(hidden))
     if mine and user.employee:
         stmt = stmt.where(ChecklistInstance.assigned_employee_id == user.employee.id)
     stmt = stmt.order_by(ChecklistInstance.local_date.desc(), ChecklistInstance.due_at, ChecklistInstance.id)
@@ -291,6 +302,8 @@ def _load(db: Session, user: User, instance_id: int):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     inst, task, template = found
     check_location(user, db, inst.location_id)
+    if not may_see(user, template):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This checklist is not open to your job title")
     if user.role.tier == STEWARD:
         mine = inst.assigned_employee_id in (None, user.employee.id if user.employee else -1)
         if not (mine and (task.assigned_role is None or task.assigned_role in role_names(user))):

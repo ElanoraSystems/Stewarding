@@ -10,6 +10,7 @@ from .. import timeutil
 from ..models import (CorrectiveAction, Equipment, EquipmentSchedule, Location, Notification, Shift,
                       TemperatureReading)
 from .checklists import is_closed
+from .visibility import may_record  # noqa: F401  (the monitoring code imports it from here)
 from .reference import locations_by_id, shifts_by_id
 from .settings import get_setting
 
@@ -244,10 +245,3 @@ def failure_count(db: Session, equipment_id: int, now: datetime) -> int:
     return db.scalar(select(func.count()).select_from(TemperatureReading).where(
         TemperatureReading.equipment_id == equipment_id, TemperatureReading.passed.is_(False), TemperatureReading.rejected_at.is_(None),
         TemperatureReading.recorded_at >= since))
-
-
-def may_record(user, eq: Equipment) -> bool:
-    """A log limited to certain roles is recorded only by those roles; managers and whoever sets monitoring up can always reach it."""
-    if not eq.visible_to or user.role.tier == "manager":
-        return True
-    return user.role.name in eq.visible_to or any(p.permission == "equipment.manage" for p in user.role.permissions)
