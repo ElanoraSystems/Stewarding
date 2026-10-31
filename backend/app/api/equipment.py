@@ -15,6 +15,7 @@ from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import ChecklistInstance, CorrectiveAction, Employee, Equipment, EquipmentSchedule, Location, ReadingLot, Role, Shift, TemperatureReading, User
 from ..pagination import row
 from ..services.settings import get_setting
+from ..services.visibility import clean_titles
 from ..services.monitoring import failure_count
 from ..services.monitoring_templates import BY_KEY, TEMPLATES
 from .. import timeutil
@@ -40,7 +41,7 @@ class EquipmentIn(BaseModel):
     status: str = Field(default="operational", pattern="^(operational|attention|out_of_service)$")
     procedure_reference: str | None = Field(default=None, max_length=300)
     maintenance_notes: str | None = None
-    visible_to: list[str] | None = None  # roles that record this log; empty or none means all
+    visible_to: list[str] | None = None  # job titles that record this log; empty or none means all
 
 
 class EquipmentUpdate(BaseModel):
@@ -138,17 +139,6 @@ def serialize(db: Session, eq: Equipment) -> dict:
             "needs_attention": eq.status != "operational" or failures >= get_setting(db, "temp.repeat_failure_count")}
 
 
-def _clean_roles(db: Session, names: list[str] | None) -> list[str] | None:
-    """The role names a log is limited to, checked against real roles; nothing chosen means every role."""
-    chosen = list(dict.fromkeys(names or []))
-    if not chosen:
-        return None
-    known = set(db.scalars(select(Role.name)))
-    if set(chosen) - known:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown role")
-    return chosen
-
-
 def _validate_refs(db: Session, supervisor_id: int | None, shift_id: int | None = None) -> None:
     if supervisor_id is not None and not db.get(Employee, supervisor_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown supervisor")
@@ -178,7 +168,7 @@ def create_equipment(body: EquipmentIn, user: User = Depends(require("equipment.
     _validate_refs(db, body.supervisor_id)
     if db.scalar(select(Equipment.id).where(Equipment.code == body.code)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Monitoring point code already exists")
-    eq = Equipment(**{**body.model_dump(), "visible_to": _clean_roles(db, body.visible_to)})
+    eq = Equipment(**{**body.model_dump(), "visible_to": clean_titles(db, body.visible_to)})
     db.add(eq)
     db.flush()
     audit(db, user, "equipment.create", "equipment", eq.id, None, body.model_dump())
@@ -193,7 +183,7 @@ def update_equipment(equipment_id: int, body: EquipmentUpdate, user: User = Depe
     data = body.model_dump(exclude_unset=True)
     _validate_refs(db, data.get("supervisor_id"))
     if "visible_to" in data:
-        data["visible_to"] = _clean_roles(db, data["visible_to"])
+        data["visible_to"] = clean_titles(db, data["visible_to"])
     before = {k: getattr(eq, k) for k in data}
     for key, value in data.items():
         setattr(eq, key, value)

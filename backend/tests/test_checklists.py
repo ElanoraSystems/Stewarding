@@ -208,3 +208,23 @@ def test_starter_templates_are_not_duplicated(client, login, db):
     m = login(MGR)
     r = client.post("/api/checklists/starter", json={"location_id": loc_id(db, "MK")}, headers=m)
     assert r.status_code == 201 and r.json()["tasks_added"] == 0
+
+
+def test_a_checklist_can_be_limited_to_certain_job_titles(client, login, db, clock):
+    m, sup, steward = login(MGR), login(SUP), login(STEWARD)
+    generate(client, login, db)
+    templates = client.get("/api/checklists/templates", headers=m).json()
+    chosen = next(t for t in templates if t["tasks"])
+    mine = lambda h: [i for i in instances(client, h) if i["template_name"] == chosen["name"]]
+    assert mine(steward) and mine(sup)
+    url = f"/api/checklists/templates/{chosen['id']}"
+    assert client.put(url, json={"visible_to": ["No Such Title"]}, headers=m).status_code == 400
+    assert client.put(url, json={"visible_to": ["Stewarding Supervisor"]}, headers=m).json()["visible_to"] == ["Stewarding Supervisor"]
+    assert mine(steward) == [] and mine(sup) and mine(m)                                  # stewards no longer see it; supervisors and the manager do
+    assert chosen["id"] not in [t["id"] for t in client.get("/api/checklists/templates", headers=steward).json()]
+    hidden_task = mine(sup)[0]["id"]
+    assert client.get(f"/api/checklists/instances/{hidden_task}", headers=steward).status_code == 403
+    assert client.get(f"/api/checklists/instances/{hidden_task}", headers=sup).status_code == 200
+    dash = client.get("/api/dashboard", headers=steward).json()["tasks"]["total"]
+    assert client.put(url, json={"visible_to": []}, headers=m).json()["visible_to"] is None   # nothing chosen: everyone again
+    assert client.get("/api/dashboard", headers=steward).json()["tasks"]["total"] > dash

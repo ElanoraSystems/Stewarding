@@ -16,6 +16,7 @@ import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useLookup } from '@/lib/useLookups'
 import { ChecklistTaskModal, type ConfigTask } from '@/pages/ChecklistTaskModal'
+import { JobTitlesModal } from '@/pages/JobTitlesModal'
 
 interface Template {
   id: number
@@ -23,6 +24,7 @@ interface Template {
   category: string
   frequency: string
   active: boolean
+  visible_to?: string[] | null
   tasks: ConfigTask[]
 }
 
@@ -44,6 +46,7 @@ interface ConfigProps {
 
 export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
   const run = useRun()
+  const [limiting, setLimiting] = useState<Template | null>(null)
   const { data, reload } = useApi<Template[]>(locationId ? `/checklists/templates${qs({ location_id: locationId })}` : null)
   const categories = useLookup('checklist_category')
   const [template, setTemplate] = useState<TemplateDraft | null>(null)
@@ -113,10 +116,12 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
                 <Badge>{label(t.frequency)}</Badge>
                 <Badge>{t.category}</Badge>
                 {!t.active && <Badge tone="warn">Inactive</Badge>}
+                {t.visible_to && t.visible_to.length > 0 && <Badge>Only: {t.visible_to.join(', ')}</Badge>}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => setTemplate({ id: t.id, name: t.name, category: t.category, frequency: t.frequency })}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
+              <Button size="sm" variant="outline" onClick={() => setLimiting(t)}>Who sees it</Button>
               <Button size="sm" variant="outline" onClick={() => setTemplateActive(t)}><Power className="h-3.5 w-3.5" /> {t.active ? 'Make inactive' : 'Make active'}</Button>
               <Button size="sm" variant="outline" className={DANGER} onClick={() => setRemovingTemplate(t)}><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
             </div>
@@ -148,6 +153,9 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
         </Card>
       ))}
 
+      {limiting && <JobTitlesModal point={{ id: limiting.id, name: limiting.name, visible_to: limiting.visible_to ?? null }} path={`/checklists/templates/${limiting.id}`} title={`Who sees ${limiting.name}`}
+        description="Tick the job titles that see and work on this checklist. Leave all unticked and everyone sees it. Managers and people who set up checklists always see it."
+        onClose={() => setLimiting(null)} onSaved={() => { setLimiting(null); reload() }} />}
       {editing && <ChecklistTaskModal templateId={editing.templateId} templateFrequency={editing.frequency} task={editing.task} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
 
       <Modal

@@ -18,7 +18,7 @@ import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { CheckFormModal } from '@/pages/CheckFormModal'
-import { PointRolesModal } from '@/pages/PointRolesModal'
+import { JobTitlesModal } from '@/pages/JobTitlesModal'
 import { FormBuilderModal } from '@/pages/FormBuilderModal'
 import type { EquipmentItem, Schedule } from '@/pages/MonitoringRecordForm'
 
@@ -124,7 +124,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
               <span className="text-sm font-normal text-ink-muted">{eq.code} - {label(eq.kind)}</span>
               <StatusBadge status={eq.status} />
               {!eq.active && <StatusBadge status="inactive" />}
-              {eq.visible_to && eq.visible_to.length > 0 && <Badge>Only: {eq.visible_to.map((n) => label(n)).join(', ')}</Badge>}
+              {eq.visible_to && eq.visible_to.length > 0 && <Badge>Only: {eq.visible_to.join(', ')}</Badge>}
               {eq.needs_attention && <Badge tone="warn">Needs attention ({eq.recent_failures} recent failures)</Badge>}
             </CardTitle>
           </CardHeader>
@@ -176,7 +176,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
           : `Delete ${deleting?.name ?? ''}? This cannot be undone. Anything with recorded readings cannot be deleted; make it inactive instead.`}
         confirmLabel="Delete" onConfirm={confirmDelete} onCancel={() => setDeleting(null)} />
 
-      {limiting && <PointRolesModal point={limiting} onClose={() => setLimiting(null)} onSaved={() => { setLimiting(null); reload() }} />}
+      {limiting && <JobTitlesModal point={limiting} onClose={() => setLimiting(null)} onSaved={() => { setLimiting(null); reload() }} />}
       {editing && <CheckFormModal equipmentId={editing.equipmentId} schedule={editing.schedule} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
 
       <Modal open={presetOpen} title="Add from template" description="A ready-made monitoring point with its checks and limits." onClose={() => setPresetOpen(false)}

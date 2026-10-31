@@ -82,7 +82,7 @@ def _equipment_for(db: Session, user: User, equipment_id: int) -> Equipment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Monitoring point not found")
     check_location(user, db, eq.location_id)
     if not may_record(user, eq):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "This log is not open to your role")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This log is not open to your job title")
     return eq
 
 

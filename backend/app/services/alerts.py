@@ -12,6 +12,7 @@ from .checklists import OPEN, alerts_for, is_closed, overdue_after
 from .inventory import shortage_rows
 from .notify import notify, recipients
 from .settings import get_setting
+from .visibility import norm_title
 from .monitoring import describe, due_checks, pending_entries
 
 SUMMARY_HOUR = time(8, 0)
@@ -73,40 +74,47 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
     to_manager = timedelta(minutes=get_setting(db, "escalation.manager_after_minutes"))
     tz = location.timezone
     rows = db.execute(
-        select(ChecklistInstance, ChecklistTask).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
+        select(ChecklistInstance, ChecklistTask, ChecklistTemplate).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
         .join(ChecklistTemplate, ChecklistTemplate.id == ChecklistTask.template_id)
         .where(ChecklistInstance.location_id == location.id, ChecklistInstance.status.in_(OPEN + ("overdue",)),
                ChecklistInstance.due_at.is_not(None), ChecklistTask.active.is_(True),
                ChecklistTemplate.active.is_(True))).all()  # a task or checklist turned off sends nothing, even for work already created today
-    groups: dict[datetime, list[tuple[ChecklistInstance, ChecklistTask]]] = {}
+    groups: dict[tuple[datetime, tuple[str, ...]], list[tuple[ChecklistInstance, ChecklistTask]]] = {}
     if is_closed(db, location.id, timeutil.local_date(now, tz)):
         return 0  # the place is closed today, so nothing is expected
     grace = now - overdue_after(db, now)
-    for inst, task in rows:
+    for inst, task, template in rows:
         if alerts_for(db, task.priority):  # tasks below the chosen priority still show on screen, they just do not alert
-            groups.setdefault(inst.due_at, []).append((inst, task))
+            # a checklist limited to certain job titles is alerted on its own, so only those hear about it
+            groups.setdefault((inst.due_at, tuple(sorted(template.visible_to or ()))), []).append((inst, task))
+    title_of_user = {u: norm_title(t) for u, t in db.execute(select(Employee.user_id, Employee.job_title).where(Employee.user_id.is_not(None))).all()} if any(a for _, a in groups) else {}
     created = 0
-    for due, members in groups.items():
+    for (due, audience), members in groups.items():
         stamp, label = due.strftime("%Y%m%d%H%M"), _hm(due, tz)
+        suffix = f":{'-'.join(audience)}" if audience else ""  # unrestricted checklists keep their original keys
         count = len(members)
-        crew = recipients(db, location.id, STEWARD, SUPERVISOR)
+
+        def only_audience(user_ids: list[int]) -> list[int]:
+            return [u for u in user_ids if title_of_user.get(u) in {norm_title(t) for t in audience}] if audience else user_ids
+
+        crew = only_audience(recipients(db, location.id, STEWARD, SUPERVISOR))
         if due - lead <= now < due:
             created += notify(db, crew, "task_due_soon", f"{count} task(s) due at {label} - {location.name}",
-                              key=f"approach:{location.id}:{stamp}", location_id=location.id, due_at=due, link="/checklists")
+                              key=f"approach:{location.id}:{stamp}{suffix}", location_id=location.id, due_at=due, link="/checklists")
         if now >= due + grace:
             late = now - due
             created += notify(db, crew, "task_overdue", f"{count} task(s) overdue since {label} - {location.name}",
-                              key=f"overdue:{location.id}:{stamp}", priority="high", location_id=location.id,
+                              key=f"overdue:{location.id}:{stamp}{suffix}", priority="high", location_id=location.id,
                               due_at=due, link="/checklists")
             if late >= to_supervisor:
-                created += notify(db, recipients(db, location.id, SUPERVISOR), "task_escalated",
+                created += notify(db, only_audience(recipients(db, location.id, SUPERVISOR)), "task_escalated",
                                   f"Escalation: {count} task(s) still open since {label} - {location.name}",
-                                  key=f"esc_sup:{location.id}:{stamp}", priority="high", location_id=location.id,
+                                  key=f"esc_sup:{location.id}:{stamp}{suffix}", priority="high", location_id=location.id,
                                   due_at=due, link="/checklists")
             if late >= to_manager:
                 created += notify(db, recipients(db, None, MANAGER), "task_escalated",
                                   f"Escalation to manager: {count} task(s) open since {label} - {location.name}",
-                                  key=f"esc_mgr:{location.id}:{stamp}", priority="critical", location_id=location.id,
+                                  key=f"esc_mgr:{location.id}:{stamp}{suffix}", priority="critical", location_id=location.id,
                                   due_at=due, link="/checklists", requires_ack=True)
         for inst, task in members:
             if now >= due + grace and inst.assigned_employee_id:
@@ -127,7 +135,7 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
     created = 0
     checks = due_checks(db, equipment, now)
     roles_of = {eq.id: eq.visible_to for eq in equipment if eq.visible_to}
-    names = dict(db.execute(select(User.id, Role.name).join(Role, Role.id == User.role_id)).all()) if roles_of else {}
+    names = {u: norm_title(t) for u, t in db.execute(select(Employee.user_id, Employee.job_title).where(Employee.user_id.is_not(None))).all()} if roles_of else {}
     # earlier overdue slots of a schedule are already missed; only the latest one is worth an alert
     latest_overdue = {c["schedule_id"]: c for c in checks if c["status"] == "overdue"}
     for check in checks:
@@ -138,8 +146,8 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
         if check["status"] == "due":
             crew = recipients(db, location.id, STEWARD, SUPERVISOR)
             allowed = roles_of.get(check["equipment_id"])
-            if allowed:  # a log limited to certain roles reminds only those roles
-                crew = [uid for uid in crew if uid in {u for u, role in names.items() if role in allowed}]
+            if allowed:  # a log limited to certain job titles reminds only those
+                crew = [uid for uid in crew if names.get(uid) in {norm_title(t) for t in allowed}]
             created += notify(db, crew, "monitoring_due", f"Check due: {title}",
                               key=f"checkdue:{check['schedule_id']}:{slot}", location_id=location.id, link="/monitoring")
         elif check["status"] == "overdue":
@@ -233,7 +241,7 @@ def close_stale_alerts(db: Session, now: datetime) -> int:
             ("task_due_soon", "task_overdue", "task_escalated")))):
         prefix, _, rest = n.dedupe_key.partition(":")
         if prefix in ("approach", "overdue", "esc_sup", "esc_mgr"):
-            gone = rest not in live_groups
+            gone = ":".join(rest.split(":")[:2]) not in live_groups  # location and time; a limited checklist's key carries its roles after them
         elif prefix in ("taskover", "esc_task") and rest.isdigit():
             gone = int(rest) not in live_task_ids
         else:

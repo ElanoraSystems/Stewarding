@@ -9,7 +9,7 @@ from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, Che
 from .checklists import OPEN, overdue_after
 from .inventory import shortage_rows
 from .settings import get_setting
-from .monitoring import CLOSED_ACTIONS, describe, due_checks
+from .monitoring import CLOSED_ACTIONS, describe, due_checks, may_record
 from .reference import employee_names, user_names
 
 URGENCY_RANK = {"critical": 0, "high": 1, "normal": 2}
@@ -31,7 +31,7 @@ def _minutes(now: datetime, since: datetime | None) -> int:
     return max(0, int((now - since).total_seconds() // 60)) if since else 0
 
 
-def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> list[dict]:
+def pending_items(db: Session, location_ids: set[int] | None, now: datetime, hidden: set[int] | None = None, viewer=None) -> list[dict]:
     """Everything outstanding right now, with location, urgency, responsible person and overdue minutes."""
     locations = {loc.id: loc.name for loc in db.scalars(select(Location)) if location_ids is None or loc.id in location_ids}
     names, by_user = employee_names(db), user_names(db)
@@ -45,12 +45,14 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
     since = now - timedelta(days=PENDING_DAYS)
     rows = db.execute(
         select(ChecklistInstance.location_id, ChecklistInstance.status, ChecklistInstance.completed_at, ChecklistInstance.due_at,
-               ChecklistInstance.assigned_employee_id, ChecklistTask.description, ChecklistTask.priority, ChecklistTask.assigned_role)
+               ChecklistInstance.assigned_employee_id, ChecklistTask.description, ChecklistTask.priority, ChecklistTask.assigned_role, ChecklistTask.template_id)
         .join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
         .where(ChecklistInstance.location_id.in_(locations), ChecklistInstance.due_at >= since,
                ((ChecklistInstance.status.in_(OPEN + ("overdue", "failed"))) & (ChecklistInstance.due_at < overdue_after(db, now)))
                | (ChecklistInstance.status == "pending_verification"))).all()
-    for loc_id, state, completed_at, due_at, assignee, description, priority, role in rows:
+    for loc_id, state, completed_at, due_at, assignee, description, priority, role, template_id in rows:
+        if hidden and template_id in hidden:
+            continue  # a checklist this role is not allowed to see
         if state == "pending_verification":
             add("verification", loc_id, "normal", "Supervisor", f"Verify: {description}", completed_at, "/checklists")
         else:
@@ -58,7 +60,7 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime) -> 
             who = names.get(assignee) or f"Unassigned ({role or 'steward'})"
             add("overdue_task", loc_id, urgency, who, description, due_at, "/checklists")
 
-    equipment = list(db.scalars(select(Equipment).where(Equipment.location_id.in_(locations), Equipment.active.is_(True))))
+    equipment = [eq for eq in db.scalars(select(Equipment).where(Equipment.location_id.in_(locations), Equipment.active.is_(True))) if viewer is None or may_record(viewer, eq)]  # a log limited to other job titles is left out
     sup_names = {eq.id: names.get(eq.supervisor_id, "Supervisor") for eq in equipment}
     for check in due_checks(db, equipment, now):
         if check["status"] == "overdue":

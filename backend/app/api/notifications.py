@@ -10,6 +10,7 @@ from ..models import Notification, User
 from ..pagination import paginate, row
 from .dashboard import CATEGORY_SECTION, _sections
 from ..services.summary import grouped, pending_items
+from ..services.visibility import hidden_templates
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -110,7 +111,7 @@ def pending_summary(location_id: int | None = None, user: User = Depends(require
     if location_id is not None:
         check_location(user, db, location_id)
         scope = {location_id}
-    items = pending_items(db, scope, timeutil.utc_now())
+    items = pending_items(db, scope, timeutil.utc_now(), hidden_templates(db, user), user)
     chosen = user.role.dashboard if user.role.tier != "manager" else None
     if chosen is not None:  # the list follows what this role's dashboard shows
         shown = set(_sections(permissions_of(user), chosen))
