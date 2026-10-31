@@ -48,6 +48,17 @@ def hidden_templates(db: Session, user: User) -> set[int]:
     return {t.id for t in db.scalars(select(ChecklistTemplate).where(ChecklistTemplate.visible_to.is_not(None))) if not allows(t.visible_to, user)}
 
 
+def may_record_everything(user: User) -> bool:
+    return user.role.tier == "manager" or any(p.permission == "equipment.manage" for p in user.role.permissions)
+
+
 def may_record(user: User, eq: Equipment) -> bool:
     """A log limited to certain job titles is recorded only by those; managers and whoever sets monitoring up can always reach it."""
-    return user.role.tier == "manager" or any(p.permission == "equipment.manage" for p in user.role.permissions) or allows(eq.visible_to, user)
+    return may_record_everything(user) or allows(eq.visible_to, user)
+
+
+def hidden_points(db: Session, user: User) -> set[int]:
+    """The monitoring points this person's job title is not allowed to record, so their counts and charts leave them out too."""
+    if may_record_everything(user):
+        return set()
+    return {e.id for e in db.scalars(select(Equipment).where(Equipment.visible_to.is_not(None))) if not allows(e.visible_to, user)}

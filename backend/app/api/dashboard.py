@@ -15,7 +15,7 @@ from ..services import metrics
 from ..services.checklists import OPEN, effective_status, overdue_after
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
-from ..services.visibility import hidden_templates
+from ..services.visibility import hidden_points, hidden_templates
 from ..services.monitoring import CLOSED_ACTIONS, due_checks, failure_count, failure_counts, may_record
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -37,8 +37,10 @@ def _sum_compliance(stats_list: list[dict]) -> dict:
     return {**metrics.compliance(counts), "counts": dict(counts)}
 
 
-def _equipment_attention(db: Session, scope: set[int] | None, location_id: int | None, now: datetime) -> int:
+def _equipment_attention(db: Session, scope: set[int] | None, location_id: int | None, now: datetime, hidden: set[int] | None = None) -> int:
     stmt = select(Equipment).where(Equipment.active.is_(True))
+    if hidden:
+        stmt = stmt.where(Equipment.id.not_in(hidden))
     if location_id is not None:
         stmt = stmt.where(Equipment.location_id == location_id)
     elif scope is not None:
@@ -55,6 +57,7 @@ DASHBOARD_DAYS = 93
 def _manager_view(db: Session, user: User, now: datetime, location_id: int | None, date_from, date_to,
                   employee_id: int | None, equipment_id: int | None, task_status: str | None) -> dict:
     scope = scoped_locations(user, db)
+    no_templates, no_points = hidden_templates(db, user), hidden_points(db, user)  # what this person's job title does not see is left out of every number and chart
     today_wins = metrics.windows_by(db, now, scope, location_id, lambda t: (t, t))
     week_wins = metrics.windows_by(db, now, scope, location_id, metrics.week_of)
     first = today_wins[0].today if today_wins else timeutil.local_date(now, "UTC")
@@ -71,10 +74,12 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         on_duty_stmt = on_duty_stmt.where(AttendanceRecord.location_id == location_id)
     elif scope is not None:
         on_duty_stmt = on_duty_stmt.where(AttendanceRecord.location_id.in_(scope))
-    daily = _sum_compliance([metrics.checklist_stats(db, w, now, not_frequency="weekly") for w in today_wins])
-    weekly = _sum_compliance([metrics.checklist_stats(db, w, now, frequency="weekly") for w in week_wins])
+    daily = _sum_compliance([metrics.checklist_stats(db, w, now, not_frequency="weekly", hidden=no_templates) for w in today_wins])
+    weekly = _sum_compliance([metrics.checklist_stats(db, w, now, frequency="weekly", hidden=no_templates) for w in week_wins])
+    skipped_tasks = select(ChecklistTask.id).where(ChecklistTask.template_id.in_(no_templates or {0}))
     overdue_stmt = select(func.count()).select_from(ChecklistInstance).where(
-        ChecklistInstance.status.in_(OPEN + ("overdue",)), ChecklistInstance.due_at < overdue_after(db, now))
+        ChecklistInstance.status.in_(OPEN + ("overdue",)), ChecklistInstance.due_at < overdue_after(db, now),
+        ChecklistInstance.task_id.not_in(skipped_tasks))
     if location_id is not None:
         overdue_stmt = overdue_stmt.where(ChecklistInstance.location_id == location_id)
     elif scope is not None:
@@ -85,13 +90,13 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         return stmt.where(column.in_(scope)) if scope is not None else stmt
 
     awaiting_tasks = db.scalar(scoped(select(func.count()).select_from(ChecklistInstance).where(
-        ChecklistInstance.status == "pending_verification"), ChecklistInstance.location_id))
+        ChecklistInstance.status == "pending_verification", ChecklistInstance.task_id.not_in(skipped_tasks)), ChecklistInstance.location_id))
     awaiting_readings = db.scalar(scoped(select(func.count()).select_from(TemperatureReading).where(
         TemperatureReading.reviewed_at.is_(None), TemperatureReading.rejected_at.is_(None), TemperatureReading.retest_of_id.is_(None),
-        TemperatureReading.recorded_at >= now - timedelta(days=14)), TemperatureReading.location_id))
+        TemperatureReading.recorded_at >= now - timedelta(days=14), TemperatureReading.equipment_id.not_in(no_points or {0})), TemperatureReading.location_id))
     awaiting_breakage = db.scalar(scoped(select(func.count()).select_from(BreakageIncident).where(
         BreakageIncident.status.in_(("reported", "pending_approval"))), BreakageIncident.location_id))
-    temp_today = [metrics.monitoring_stats(db, w, now) for w in today_wins]
+    temp_today = [metrics.monitoring_stats(db, w, now, hidden=no_points) for w in today_wins]
     stock = metrics.stock_snapshot(db, scope, location_id)
     month_wins = metrics.windows_by(db, now, scope, location_id, lambda t: (t.replace(day=1), t))
     kpis = {
@@ -103,7 +108,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         "awaiting_approval": {"tasks": awaiting_tasks, "readings": awaiting_readings, "breakage": awaiting_breakage},
         "monitoring_checks": {"done": sum(t["done"] for t in temp_today), "due": sum(t["due"] for t in temp_today)},
         "failed_checks": sum(t["failed"] for t in temp_today),
-        "equipment_attention": _equipment_attention(db, scope, location_id, now),
+        "equipment_attention": _equipment_attention(db, scope, location_id, now, no_points),
         "inventory": stock["total"],
         "low_stock_items": len(stock["low"]),
         "breakage_today": len(metrics.breakage_in(db, today_wins)), "breakage_month": len(metrics.breakage_in(db, month_wins)),
@@ -112,7 +117,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
     trend: dict[date, Counter] = defaultdict(Counter)
     att_trend: dict[date, dict] = defaultdict(lambda: {k: 0 for k in metrics.ATTENDANCE_KEYS})
     for w in range_wins:
-        for day, counts in metrics.checklist_stats(db, w, now, employee_id=employee_id)["per_day"].items():
+        for day, counts in metrics.checklist_stats(db, w, now, employee_id=employee_id, hidden=no_templates)["per_day"].items():
             trend[day].update(counts)
         for day, vals in metrics.attendance_stats(db, w, now, employee_id)["per_day"].items():
             for key, v in vals.items():
@@ -127,7 +132,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
             entry["selected"] = c[task_status]
         task_trend.append(entry)
 
-    temp_range = [metrics.monitoring_stats(db, w, now, equipment_id) for w in range_wins]
+    temp_range = [metrics.monitoring_stats(db, w, now, equipment_id, no_points) for w in range_wins]
     movement: dict[date, dict] = defaultdict(lambda: {"in": 0, "out": 0})
     for move in metrics.movements(db, range_wins):
         if move.txn_type in ("receipt", "return", "receipt_void"):
@@ -140,7 +145,7 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         "role": user.role.name, "kpis": kpis,
         "charts": {
             "task_trend": task_trend,
-            "weekly_compliance": [{"location": w.loc.name, **_percent_block(metrics.checklist_stats(db, w, now, frequency="weekly"))}
+            "weekly_compliance": [{"location": w.loc.name, **_percent_block(metrics.checklist_stats(db, w, now, frequency="weekly", hidden=no_templates))}
                                   for w in week_wins],
             "monitoring_compliance": [{k: e[k] for k in ("equipment", "location", "due", "done", "failed")}
                                        | {"percent": metrics.pct(e["done"], e["due"])}

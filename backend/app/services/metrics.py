@@ -85,12 +85,14 @@ def compliance(counts: Counter) -> dict:
 
 
 def checklist_stats(db: Session, win: Win, now: datetime, employee_id: int | None = None,
-                    frequency: str | None = None, not_frequency: str | None = None) -> dict:
+                    frequency: str | None = None, not_frequency: str | None = None, hidden: set[int] | None = None) -> dict:
     stmt = (select(ChecklistInstance, ChecklistTask, ChecklistTemplate)
             .join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
             .join(ChecklistTemplate, ChecklistTemplate.id == ChecklistTask.template_id)
             .where(ChecklistInstance.location_id == win.loc.id, ChecklistInstance.local_date >= win.d_from,
                    ChecklistInstance.local_date <= win.d_to))
+    if hidden:  # checklists the viewer's job title does not see are left out of every count
+        stmt = stmt.where(ChecklistTemplate.id.not_in(hidden))
     if frequency:
         stmt = stmt.where(ChecklistTemplate.frequency == frequency)
     if not_frequency:
@@ -227,7 +229,7 @@ def attendance_stats(db: Session, win: Win, now: datetime, employee_id: int | No
     return {"rows": rows, "per_day": dict(per_day), **totals}
 
 
-def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | None = None) -> dict:
+def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | None = None, hidden: set[int] | None = None) -> dict:
     """Checks due so far versus recorded, per equipment, plus failed readings in the window.
 
     The schedules and the readings of every point come from two queries and are grouped by point and schedule.
@@ -236,6 +238,8 @@ def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | N
     stmt = select(Equipment).where(Equipment.location_id == win.loc.id, Equipment.active.is_(True))
     if equipment_id is not None:
         stmt = stmt.where(Equipment.id == equipment_id)
+    if hidden:  # points the viewer's job title does not record are left out
+        stmt = stmt.where(Equipment.id.not_in(hidden))
     points = list(db.scalars(stmt.order_by(Equipment.code)))
     shifts = shifts_by_id(db)
     last = min(win.d_to, win.today)
