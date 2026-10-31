@@ -40,7 +40,7 @@ TEMPLATES = [
         {"stage": "Morning temperature", **TEMP, **at(8), "min_value": -40, "max_value": -18, "source": "independent_probe"},
         {"stage": "Afternoon temperature", **TEMP, **at(16), "min_value": -40, "max_value": -18, "source": "independent_probe"}]},
     {"key": "defrosting", "name": "Defrosting log", "prefix": "DF", "type": "Defrosting", "checks": [
-        {"stage": "Time in", **TEMP, **at(9), **LOTS, **START, "min_value": 0, "max_value": 5, "source": "independent_probe"},
+        {"stage": "Time in", **TEMP, **at(9), **LOTS, **START, "min_value": 0, "max_value": 5, "source": "independent_probe", "max_open_minutes": 24 * 60},  # the time out is due after 24 hours
         {"stage": "Time out", **YES_NO, "parameter": "Fully defrosted", "timing": "checkpoint", **FINISH},
         {"stage": "Time out", **TEMP, "timing": "checkpoint", **FINISH, "min_value": 0, "max_value": 5, "source": "independent_probe"}]},
     {"key": "cooking", "name": "Cooking core temperature", "prefix": "CK", "type": "Cooking", "checks": [

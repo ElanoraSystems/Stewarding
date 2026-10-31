@@ -31,6 +31,7 @@ export interface Schedule {
   min_value: number | string | null
   max_value: number | string | null
   warn_min?: number | string | null
+  max_open_minutes?: number | null
   warn_max?: number | string | null
   time_of_day: string | null
   interval_minutes: number | null

@@ -177,3 +177,33 @@ def test_signature_and_image_answers_and_optional_questions(client, login, db, c
     both = send([{"schedule_id": notes["id"], "answer": "Again"}, {"schedule_id": sign["id"], "answer": name}, {"schedule_id": photo["id"], "answer": upload_png(client, m)}])
     assert both.status_code == 201 and len(both.json()) == 3
     assert client.post("/api/equipment/forms", json=form_body(fields=[{"title": "Only optional", "value_type": "text", "required": False}]), headers=m).status_code == 201
+
+
+def test_a_pending_time_in_counts_down_to_its_time_out_and_alerts_the_person_who_started_it(client, login, db, clock):
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.models import Notification, User
+    from app.services import alerts
+
+    m, steward = login(MGR), login(STEWARD)
+    point = make(client, m, db, "defrosting")
+    time_in = checks(point, "start")[0]
+    assert time_in["max_open_minutes"] == 24 * 60  # the defrosting template allows 24 hours
+    assert client.put(f"/api/equipment/schedules/{time_in['id']}", json={**{k: time_in[k] for k in ("stage", "parameter", "unit", "value_type", "timing", "min_value", "max_value", "phase", "trace_lots", "source")},
+                                                                       "time_of_day": time_in["time_of_day"], "max_open_minutes": 180}, headers=m).status_code == 200
+    started = start(client, steward, point).json()
+    clock.advance(minutes=50)
+    entry = client.get("/api/monitoring/pending", headers=m).json()[0]
+    assert (entry["minutes_open"], entry["limit_minutes"], entry["minutes_left"]) == (50, 180, 130)
+    assert alerts.pending_time_outs(db, clock.now) == 0
+    clock.advance(minutes=140)  # 3 h 10 m: past the 3 hour limit
+    assert alerts.pending_time_outs(db, clock.now) > 0
+    db.commit()
+    db.expire_all()
+    told = {db.get(User, n.user_id).email for n in db.scalars(select(Notification).where(Notification.kind == "time_out_missing"))}
+    assert STEWARD in told and "manager@example.test" in told
+    # the time out is recorded at its own real time, and the log shows how long the item was out
+    done = finish(client, steward, point, started[0]["id"]).json()
+    assert done[0]["open_minutes"] == 190
