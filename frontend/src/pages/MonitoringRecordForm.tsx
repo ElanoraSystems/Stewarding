@@ -30,6 +30,8 @@ export interface Schedule {
   timing: string
   min_value: number | string | null
   max_value: number | string | null
+  warn_min?: number | string | null
+  warn_max?: number | string | null
   time_of_day: string | null
   interval_minutes: number | null
   weekdays: number[]
@@ -78,7 +80,7 @@ function answerOf(s: Schedule | undefined, raw: string | undefined) {
   return s && ['text', 'choice', 'date', 'time'].includes(s.value_type) ? { answer: raw ?? '' } : { value: Number(raw) }
 }
 
-function verdict(value: string, schedule?: Schedule): 'pass' | 'fail' | null {
+function verdict(value: string, schedule?: Schedule): 'pass' | 'warn' | 'fail' | null {
   if (value === '' || !schedule) return null
   if (schedule.value_type === 'yes_no') return value === '1' ? 'pass' : 'fail'
   if (['text', 'date', 'time', 'signature', 'image'].includes(schedule.value_type)) return 'pass'
@@ -86,7 +88,10 @@ function verdict(value: string, schedule?: Schedule): 'pass' | 'fail' | null {
   const amount = Number(value)
   const low = num(schedule.min_value)
   const high = num(schedule.max_value)
-  return (low === null || amount >= low) && (high === null || amount <= high) ? 'pass' : 'fail'
+  if ((low !== null && amount < low) || (high !== null && amount > high)) return 'fail'
+  const warnLow = num(schedule.warn_min ?? null)
+  const warnHigh = num(schedule.warn_max ?? null)
+  return (warnHigh !== null && amount >= warnHigh) || (warnLow !== null && amount <= warnLow) ? 'warn' : 'pass'  // still a pass, but close to a limit
 }
 
 /** One schedule per group of checks that are due together. */
@@ -252,7 +257,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
                 <Input required={s.required} type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             )}
-            {results[i] && !['text', 'date', 'time', 'signature', 'image'].includes(s.value_type) && <Badge tone={results[i] === 'pass' ? 'ok' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
+            {results[i] && !['text', 'date', 'time', 'signature', 'image'].includes(s.value_type) && <Badge tone={results[i] === 'pass' ? 'ok' : results[i] === 'warn' ? 'warn' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : results[i] === 'warn' ? 'Approaching the limit' : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
           </div>
         ))}
         {needsReference && (

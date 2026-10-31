@@ -18,7 +18,7 @@ from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
 from ..services.traceability import usable
-from ..services.monitoring import (CLOSED_ACTIONS, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
+from ..services.monitoring import (CLOSED_ACTIONS, warns, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
@@ -26,7 +26,7 @@ from .uploads import is_valid_evidence
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 READING_FIELDS = ("id", "equipment_id", "schedule_id", "location_id", "recorded_at", "stage", "source", "parameter", "unit",
-                  "value_type", "value", "reference", "min_limit", "max_limit", "passed", "recorded_by", "comment", "evidence_path", "retest_of_id",
+                  "value_type", "value", "reference", "min_limit", "max_limit", "passed", "warning", "recorded_by", "comment", "evidence_path", "retest_of_id",
                   "reviewed_by", "reviewed_at", "start_reading_id", "rejected_by", "rejected_at", "reject_reason")
 ACTION_FIELDS = ("id", "reading_id", "action", "taken_by", "taken_at", "retest_due_at", "status", "resolved_at",
                  "escalated_at")
@@ -243,7 +243,7 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     reading = TemperatureReading(
         equipment_id=eq.id, schedule_id=sched.id, location_id=eq.location_id, recorded_at=now, stage=sched.stage,
         source=sched.source, parameter=sched.parameter, unit=sched.unit, value_type=sched.value_type, value=value,
-        answer=answer, reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed,
+        answer=answer, reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed, warning=warns(sched, value, passed),
         recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, retest_of_id=body.retest_of_id,
         start_reading_id=start.id if start else None)
     db.add(reading)
@@ -256,6 +256,11 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
         original_action.status = "retest_failed"
     if not passed:
         _open_failure(db, user, eq, reading, body.corrective_action, now)
+    elif reading.warning:
+        notify(db, recipients(db, eq.location_id, SUPERVISOR), "monitoring_warning",
+               f"Approaching the limit: {eq.name} ({reading.stage}) {describe(reading)}",
+               key=f"temp_warn:{reading.id}", body=f"Passed, but close to the limit ({reading.min_limit or '-'} to {reading.max_limit or '-'} {reading.unit or ''}).".replace("  ", " "),
+               priority="high", location_id=eq.location_id, link="/monitoring")
     return reading
 
 

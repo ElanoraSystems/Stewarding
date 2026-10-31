@@ -30,6 +30,7 @@ interface Reading {
   min_limit: number | null
   max_limit: number | null
   passed: boolean
+  warning?: boolean
   recorded_by: number
   recorded_by_name: string | null
   retest_of_id: number | null
@@ -133,7 +134,7 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
       )}
       <ul className="space-y-3 xl:hidden">
         {loading && !data ? <li className="h-24 animate-pulse rounded-xl bg-surface-muted" /> : data?.items.map((r) => (
-          <li key={r.id} className={`space-y-3 rounded-xl border border-border p-4 ${r.passed ? 'bg-surface' : 'border-danger/30 bg-danger-soft/40'}`}>
+          <li key={r.id} className={`space-y-3 rounded-xl border border-border p-4 ${!r.passed ? 'border-danger/30 bg-danger-soft/40' : r.warning ? 'border-warn/30 bg-warn-soft/40' : 'bg-surface'}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate font-semibold">{names.get(r.equipment_id)}</p>
@@ -141,7 +142,7 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
               </div>
               <span className="flex shrink-0 items-center gap-2">
                 {canReview && !r.reviewed_at && !r.rejected_at && r.recorded_by !== me?.id && <input type="checkbox" className="h-5 w-5" aria-label={`Select reading ${r.id}`} checked={selected.includes(r.id)} onChange={() => toggle(r.id)} />}
-                <Badge tone={r.passed ? 'ok' : 'critical'}>{r.passed ? 'Pass' : 'Fail'}</Badge>
+                <Badge tone={!r.passed ? 'critical' : r.warning ? 'warn' : 'ok'}>{!r.passed ? 'Fail' : r.warning ? 'Approaching limit' : 'Pass'}</Badge>
               </span>
             </div>
             <dl className="grid grid-cols-2 gap-3 text-sm">
@@ -164,7 +165,7 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
         </thead>
         <tbody>
           {loading && !data ? <SkeletonRows cols={10} /> : data?.items.map((r) => (
-            <tr key={r.id} className={r.passed ? undefined : 'bg-danger-soft/50'}>
+            <tr key={r.id} className={!r.passed ? 'bg-danger-soft/50' : r.warning ? 'bg-warn-soft/50' : undefined}>
               {canReview && (
                 <Td>{!r.reviewed_at && !r.rejected_at && r.recorded_by !== me?.id && <input type="checkbox" aria-label={`Select reading ${r.id}`} checked={selected.includes(r.id)} onChange={() => toggle(r.id)} />}</Td>
               )}
@@ -175,7 +176,7 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
               <Td>{referenceOf(r) ?? '-'}</Td>
               <Td>{r.value_type === 'yes_no' ? 'Must be Yes' : r.value_type === 'number' ? `${r.min_limit ?? '-'} to ${r.max_limit ?? '-'}` : '-'}</Td>
               <Td>
-                <Badge tone={r.passed ? 'ok' : 'critical'}>{r.passed ? 'Pass' : 'Fail'}</Badge>
+                <Badge tone={!r.passed ? 'critical' : r.warning ? 'warn' : 'ok'}>{!r.passed ? 'Fail' : r.warning ? 'Approaching limit' : 'Pass'}</Badge>
                 {r.corrective_action && <span className="ml-1"><StatusBadge status={r.corrective_action.status} /></span>}
               </Td>
               <Td>{r.recorded_by_name}</Td>

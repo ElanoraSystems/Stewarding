@@ -43,7 +43,8 @@ function limits(s: Schedule): string {
   if (s.value_type === 'yes_no') return 'Must be Yes'
   if (s.value_type === 'text') return `Written, up to ${s.max_length ?? 200} characters`
   if (s.value_type === 'choice') return `Choose: ${(s.options ?? []).join(', ')}${s.fail_options?.length ? ` (fails: ${s.fail_options.join(', ')})` : ''}`
-  return `${s.min_value ?? '-'} to ${s.max_value ?? '-'} ${s.unit ?? ''}`.trim()
+  const amber = [s.warn_max != null ? `amber from ${s.warn_max}` : '', s.warn_min != null ? `amber down to ${s.warn_min}` : ''].filter(Boolean).join(', ')
+  return `${s.min_value ?? '-'} to ${s.max_value ?? '-'} ${s.unit ?? ''}${amber ? ` (${amber})` : ''}`.trim()
 }
 
 export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
