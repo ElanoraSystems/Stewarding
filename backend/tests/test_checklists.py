@@ -1,8 +1,8 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
 
-from app.models import AuditLog, ChecklistInstance, Location, Notification
+from app.models import AuditLog, ChecklistInstance, ChecklistTask, Location, Notification
 from app.scheduler import run_cycle
 from app.services import starter
 
@@ -121,7 +121,14 @@ def test_a_task_cannot_be_done_before_the_lead_time_ahead_of_its_due_time(client
     h = login(STEWARD)
     assert client.put("/api/settings", json={"values": {"checklist.open_before_minutes": 30}}, headers=login(MGR)).status_code == 200
     task = find(client, h, "Clean drains")
-    due = db.get(ChecklistInstance, task["id"]).due_at
+    db.get(ChecklistTask, task["task_id"]).deadline_time = None
+    db.commit()
+    assert find(client, h, "Clean drains")["opens_at"] is None  # no deadline time: can be done any time that day
+    db.get(ChecklistTask, task["task_id"]).deadline_time = time(10, 0)
+    due = db.get(ChecklistInstance, task["id"]).due_at.replace(hour=6, minute=0)  # 10:00 in the location's time zone (UTC+4)
+    db.get(ChecklistInstance, task["id"]).due_at = due
+    db.commit()
+    task = find(client, h, "Clean drains")
     assert task["opens_at"] == (due - timedelta(minutes=30)).isoformat() + "Z"
     clock.now = due - timedelta(minutes=31)
     too_soon = client.post(f"/api/checklists/instances/{task['id']}/complete", json={}, headers=h)

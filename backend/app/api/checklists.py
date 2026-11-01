@@ -236,8 +236,9 @@ def _lead(db: Session) -> int:
     return get_setting(db, "checklist.open_before_minutes")
 
 
-def _opens_at(inst: ChecklistInstance, lead: int):
-    return inst.due_at - timedelta(minutes=lead) if lead and inst.due_at else None
+def _opens_at(inst: ChecklistInstance, task: ChecklistTask, lead: int):
+    """Only a task with a set deadline time waits to open; one due at the end of the day or the shift can be done any time before."""
+    return inst.due_at - timedelta(minutes=lead) if lead and inst.due_at and task.deadline_time else None
 
 
 def _serialize(inst: ChecklistInstance, task: ChecklistTask, template: ChecklistTemplate, now, lead: int = 0) -> dict:
@@ -249,7 +250,7 @@ def _serialize(inst: ChecklistInstance, task: ChecklistTask, template: Checklist
                 "requires_photo": task.requires_photo, "requires_reading": task.requires_reading,
                 "requires_verification": task.requires_verification, "category": template.category,
                 "frequency": template.frequency, "template_name": template.name,
-                "opens_at": (o.isoformat() + "Z") if (o := _opens_at(inst, lead)) else None})
+                "opens_at": (o.isoformat() + "Z") if (o := _opens_at(inst, task, lead)) else None})
     return out
 
 
@@ -332,7 +333,7 @@ def start(instance_id: int, user: User = Depends(require("checklist.complete")),
     inst, task, template = _load(db, user, instance_id)
     if inst.status not in ("not_started", "failed"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Task is {inst.status}")
-    if (o := _opens_at(inst, _lead(db))) and timeutil.utc_now() < o:
+    if (o := _opens_at(inst, task, _lead(db))) and timeutil.utc_now() < o:
         raise HTTPException(status.HTTP_409_CONFLICT, f"This task opens at {timeutil.to_local(o, db.get(Location, inst.location_id).timezone):%H:%M}")
     inst.status = "in_progress"
     db.commit()
@@ -345,7 +346,7 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
     inst, task, template = _load(db, user, instance_id)
     if inst.status in ("completed", "pending_verification", "verified", "waived"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Task is already {inst.status}")
-    if (o := _opens_at(inst, _lead(db))) and timeutil.utc_now() < o:
+    if (o := _opens_at(inst, task, _lead(db))) and timeutil.utc_now() < o:
         raise HTTPException(status.HTTP_409_CONFLICT, f"This task opens at {timeutil.to_local(o, db.get(Location, inst.location_id).timezone):%H:%M}")
     now = timeutil.utc_now()
     location = db.get(Location, inst.location_id)
