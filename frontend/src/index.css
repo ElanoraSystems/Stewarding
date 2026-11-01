@@ -134,6 +134,9 @@ textarea:focus-visible {
 .ci-breathe { animation: ci-breathe 1.8s ease-in-out infinite; }
 .ci-shake { animation: ci-shake 0.6s ease both; }
 .ci-press { transition: transform 0.15s ease; }
+.ci-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.3s ease; }
+.ci-collapse[data-open='true'] { grid-template-rows: 1fr; }
+.ci-chevron { transition: transform 0.3s ease; }
 .ci-press:active { transform: scale(0.96); }
 
 @media (prefers-reduced-motion: reduce) {
