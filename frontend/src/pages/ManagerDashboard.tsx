@@ -195,7 +195,7 @@ export function ManagerDashboard() {
           {show('checklists') && (
           <Card>
             <CardHeader><CardTitle>Weekly compliance by location</CardTitle></CardHeader>
-            <CardContent><BarList items={data.charts.weekly_compliance.map((w) => ({ label: w.location, value: w.percent, sub: ratio(w) }))} /></CardContent>
+            <CardContent><BarList items={data.charts.weekly_compliance.filter((w) => w.denominator > 0).map((w) => ({ label: w.location, value: w.percent, sub: ratio(w) }))} /></CardContent>
           </Card>)}
           {show('monitoring') && (
           <Card>

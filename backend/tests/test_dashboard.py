@@ -159,6 +159,10 @@ def test_dashboard_counts_what_is_waiting_for_approval(client, login, db, clock)
 
 def test_supervisor_totals_and_charts_leave_out_what_their_job_title_does_not_see(client, login, db, clock):
     m, sup = login(MGR), login(SUP)
+    role = next(r for r in client.get("/api/roles", headers=m).json() if r["name"] == "supervisor")
+    # someone who approves work always sees all of it, so this supervisor is made one who does not approve
+    kept = [p for p in role["permissions"] if p not in ("checklist.verify", "temp.review")]
+    assert client.put(f"/api/roles/{role['id']}", json={"permissions": kept}, headers=m).status_code == 200
     generate(client, login, db)
     clock.advance(hours=12)  # well past every deadline, so tasks are overdue and checks are due
     before, mgr_before = dash(client, sup), dash(client, m)
@@ -176,3 +180,17 @@ def test_supervisor_totals_and_charts_leave_out_what_their_job_title_does_not_se
     assert all(d["due"] == 0 for d in after["charts"]["task_trend"]) and after["charts"]["monitoring_compliance"] == []
     assert all(row["denominator"] == 0 for row in after["charts"]["weekly_compliance"])
     assert dash(client, m)["kpis"]["overdue_tasks"] == mgr_before["kpis"]["overdue_tasks"]  # a manager still sees everything
+
+
+def test_whoever_approves_the_work_sees_all_of_it_whatever_their_job_title(client, login, db, clock):
+    m, sup = login(MGR), login(SUP)  # a supervisor approves checklist tasks and monitoring readings
+    generate(client, login, db)
+    clock.advance(hours=12)
+    before = dash(client, sup)
+    for t in client.get("/api/checklists/templates", headers=m).json():
+        assert client.put(f"/api/checklists/templates/{t['id']}", json={"visible_to": ["Steward"]}, headers=m).status_code == 200
+    for e in client.get("/api/equipment", headers=m).json():
+        assert client.put(f"/api/equipment/{e['id']}", json={"visible_to": ["Steward"]}, headers=m).status_code == 200
+    after = dash(client, sup)
+    assert after["kpis"] == before["kpis"] and before["kpis"]["monitoring_checks"]["due"] > 0
+    assert client.get("/api/monitoring/equipment", headers=sup).json()

@@ -141,6 +141,8 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     query = select(Location).where(Location.active.is_(True))
     if allowed is not None:
         query = query.where(Location.id.in_(allowed))
+    home = {l.location_id for l in user.employee.locations} if user.employee else set()
+    places = sorted(db.scalars(query), key=lambda loc: (loc.id not in home, loc.name))  # where they work comes first: it is what the pages open on
     return {
         "by_location": bool(get_setting(db, "attendance.by_location")),
         "id": user.id,
@@ -155,6 +157,6 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         "permissions": sorted(perms),
         "locations": [{"id": loc.id, "code": loc.code, "name": loc.name, "timezone": loc.timezone,
                        "geofence": bool(loc.geofence_radius_m)}
-                      for loc in db.scalars(query.order_by(Location.name))],
+                      for loc in places],
         "modules": [{"key": k, "label": label} for k, label, perm in MODULES if perm in perms],
     }
