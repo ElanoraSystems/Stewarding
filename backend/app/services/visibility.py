@@ -1,6 +1,7 @@
 """Who sees a checklist or records a monitoring log: either can be limited to chosen job titles.
 
-Managers and the people who set checklists or monitoring up always reach everything. Nothing chosen means everyone."""
+Managers, the people who set checklists or monitoring up, and those who approve the work (checklist approvers and monitoring reviewers) always reach everything:
+they cannot approve what they cannot see. Nothing chosen means everyone."""
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -34,7 +35,7 @@ def allows(visible_to: list[str] | None, user: User) -> bool:
 
 
 def sees_everything(user: User) -> bool:
-    return user.role.tier == "manager" or any(p.permission == "checklist.configure" for p in user.role.permissions)
+    return user.role.tier == "manager" or any(p.permission in ("checklist.configure", "checklist.verify") for p in user.role.permissions)
 
 
 def may_see(user: User, template: ChecklistTemplate) -> bool:
@@ -49,7 +50,7 @@ def hidden_templates(db: Session, user: User) -> set[int]:
 
 
 def may_record_everything(user: User) -> bool:
-    return user.role.tier == "manager" or any(p.permission == "equipment.manage" for p in user.role.permissions)
+    return user.role.tier == "manager" or any(p.permission in ("equipment.manage", "temp.review") for p in user.role.permissions)
 
 
 def may_record(user: User, eq: Equipment) -> bool:
@@ -57,7 +58,7 @@ def may_record(user: User, eq: Equipment) -> bool:
     return may_record_everything(user) or allows(eq.visible_to, user)
 
 
-def hidden_points(db: Session, user: User) -> set[int]:
+def hidden_points(db: Session, user: User) -> set[int]:  # also keeps their readings out of the monitoring log
     """The monitoring points this person's job title is not allowed to record, so their counts and charts leave them out too."""
     if may_record_everything(user):
         return set()

@@ -108,3 +108,13 @@ def test_job_titles_match_whatever_the_capitals_and_the_dashboard_follows(client
     after = client.get("/api/dashboard", headers=steward).json()["monitoring_checks"]
     assert after["due"] + after["overdue"] < before["due"] + before["overdue"]  # the steward's own due checks no longer count this log
     assert eq["id"] in [e["id"] for e in client.get("/api/monitoring/equipment", headers=sup).json()]
+
+
+def test_the_log_leaves_out_readings_of_points_limited_to_other_job_titles(client, login, clock):
+    m, steward = login(MGR), login(STEWARD)
+    eq, sched = mk_stage(client, steward)
+    assert record(client, steward, eq, sched, 60.0).status_code == 201
+    assert client.get("/api/monitoring/readings", headers=steward).json()["total"] == 1
+    assert client.put(f"/api/equipment/{eq['id']}", json={"visible_to": ["Stewarding Supervisor"]}, headers=m).status_code == 200
+    assert client.get("/api/monitoring/readings", headers=steward).json()["total"] == 0
+    assert client.get("/api/monitoring/readings", headers=m).json()["total"] == 1  # a manager still sees it

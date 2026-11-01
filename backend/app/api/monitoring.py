@@ -18,6 +18,7 @@ from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
 from ..services.traceability import usable
+from ..services.visibility import hidden_points
 from ..services.monitoring import (CLOSED_ACTIONS, warns, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
@@ -341,6 +342,8 @@ def list_readings(equipment_id: int | None = None, location_id: int | None = Non
         stmt = stmt.where(TemperatureReading.location_id == location_id)
     elif allowed is not None:
         stmt = stmt.where(TemperatureReading.location_id.in_(allowed))
+    if (hidden := hidden_points(db, user)):
+        stmt = stmt.where(TemperatureReading.equipment_id.not_in(hidden))  # a log limited to other job titles stays out of this person's list
     if equipment_id is not None:
         stmt = stmt.where(TemperatureReading.equipment_id == equipment_id)
     if passed is not None:
