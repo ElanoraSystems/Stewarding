@@ -6,6 +6,8 @@ export interface FieldSpec {
   unit: string
   min: string
   max: string
+  warnMin: string  // an amber warning level: a number at or below this still passes
+  warnMax: string  // a number at or above this still passes
   options: string
   fail: string[]
   maxLength: string
@@ -25,7 +27,7 @@ export const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: 'choice', label: 'Dropdown (choose one)' },
 ]
 
-export const blankField = (): FieldSpec => ({ title: '', type: 'number', unit: '', min: '', max: '', options: '', fail: [], maxLength: '200', reference: false, traceLots: false, required: true })
+export const blankField = (): FieldSpec => ({ title: '', type: 'number', unit: '', min: '', max: '', warnMin: '', warnMax: '', options: '', fail: [], maxLength: '200', reference: false, traceLots: false, required: true })
 
 export const optionList = (text: string): string[] => [...new Set(text.split('\n').map((o) => o.trim().replace(/\s+/g, ' ')).filter(Boolean))]
 
@@ -35,6 +37,8 @@ export function fieldProblem(f: FieldSpec): string | null {
   if (f.type === 'number') {
     if (f.min === '' && f.max === '') return `${f.title}: a number needs a minimum or a maximum. For anything without limits use Short text.`
     if (f.min !== '' && f.max !== '' && Number(f.min) > Number(f.max)) return `${f.title}: the minimum is above the maximum.`
+    if (f.warnMax !== '' && ((f.max !== '' && Number(f.warnMax) > Number(f.max)) || (f.min !== '' && Number(f.warnMax) < Number(f.min)))) return `${f.title}: the warning level above must sit within the limits.`
+    if (f.warnMin !== '' && ((f.min !== '' && Number(f.warnMin) < Number(f.min)) || (f.max !== '' && Number(f.warnMin) > Number(f.max)))) return `${f.title}: the warning level below must sit within the limits.`
   }
   if (f.type === 'choice') {
     const options = optionList(f.options)
@@ -52,8 +56,22 @@ export function fieldPayload(f: FieldSpec) {
     unit: f.type === 'number' ? f.unit.trim() || null : null,
     min_value: f.type === 'number' && f.min !== '' ? Number(f.min) : null,
     max_value: f.type === 'number' && f.max !== '' ? Number(f.max) : null,
+    warn_min: f.type === 'number' && f.warnMin !== '' ? Number(f.warnMin) : null,
+    warn_max: f.type === 'number' && f.warnMax !== '' ? Number(f.warnMax) : null,
     options: f.type === 'choice' ? options : null,
     fail_options: f.type === 'choice' ? f.fail.filter((o) => options.includes(o)) : null,
     max_length: f.type === 'text' ? Number(f.maxLength) : null,
   }
 }
+
+/** Ready-made forms to start from in the form builder; the person still chooses where it is used and how many times a day. */
+export const FORM_PRESETS: { key: string; label: string; name: string; kind: string; time: string; fields: FieldSpec[] }[] = [
+  {
+    key: 'tpm', label: 'Frying oil (TPM)', name: 'Frying oil (TPM)', kind: 'Frying oil', time: '15:00',
+    fields: [
+      { ...blankField(), title: 'TPM reading', unit: '%', min: '0', max: '25', warnMax: '20' },
+      { ...blankField(), title: 'Oil temperature', unit: '°C', min: '160', max: '190' },
+      { ...blankField(), title: 'Oil look and smell', type: 'choice', options: 'Normal\nDark\nFoaming\nSmoking\nOff smell', fail: ['Foaming', 'Smoking', 'Off smell'], required: false },
+    ],
+  },
+]
