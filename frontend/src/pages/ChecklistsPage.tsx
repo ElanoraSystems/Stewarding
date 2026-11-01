@@ -15,6 +15,7 @@ import { useRun, useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { cn } from '@/lib/utils'
 import { ChecklistConfig } from '@/pages/ChecklistConfig'
+import { ChecklistGroups } from '@/pages/ChecklistGroups'
 import { ChecklistTaskCard, type Instance } from '@/pages/ChecklistTaskCard'
 import type { EmployeeRow } from '@/pages/EmployeeForm'
 
@@ -77,13 +78,14 @@ export function ChecklistsPage() {
     if (result) reload()
   }
 
+  // the tasks of a day as one section per checklist (Opening, Closing and so on) instead of one long mixed list
   const cards = (list: Instance[]) => (
-    <div className="grid gap-3 lg:grid-cols-2">
-      {list.map((i) => (
+    <ChecklistGroups items={list} timezone={timezone} openAll={status !== '' || frequency !== ''}
+      selection={selecting ? { selectable: new Set(selectable), selected, onSet: (ids, on) => setSelected((s) => (on ? [...new Set([...s, ...ids])] : s.filter((id) => !ids.includes(id)))) } : undefined}
+      renderTask={(i) => (
         <ChecklistTaskCard key={i.id} item={i} timezone={timezone} staff={staff.data?.items ?? []} onChanged={reload}
           selection={selecting && selectable.includes(i.id) ? { checked: selected.includes(i.id), onToggle: () => toggle(i.id) } : undefined} />
-      ))}
-    </div>
+      )} />
   )
 
   return (

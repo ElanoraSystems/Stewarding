@@ -35,6 +35,7 @@ export interface Instance {
   requires_verification: boolean
   category: string
   frequency: string
+  template_name?: string
   waive_reason: string | null
 }
 
