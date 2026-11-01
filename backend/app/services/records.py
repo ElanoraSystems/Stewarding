@@ -8,9 +8,9 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
+from ..models import (ApprovalRecord, ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
                       EquipmentSchedule, FoodItem, InventoryCategory, InventoryItem, Location, Lot, Receipt, ReceiptLine, StockTransaction,
-                      Supplier, TemperatureReading)
+                      Notification, Supplier, TemperatureReading)
 from . import metrics
 from .traceability import CONDITIONS, GROUPS
 from .receipt_search import apply_search
@@ -21,11 +21,11 @@ from .settings import get_setting
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
          "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements",
-         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register"}
+         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register", "approvals": "Approvals and Rejections"}
 STATUS_FILTERS = {"monitoring": ("passed", "failed", "awaiting"),
                   "checklists": ("pending", "completed", "pending_verification", "verified", "failed", "waived"),
                   "attendance": ("present", "late", "absent", "leave", "week_off"),
-                  "lots": ("active", "used_up", "discarded", "on_hold"), "receipts": ("posted", "void")}
+                  "lots": ("active", "used_up", "discarded", "on_hold"), "receipts": ("posted", "void"), "approvals": ("approved", "rejected")}
 MAX_DAYS = 731
 CHART_DAYS = 31
 MOVEMENTS = {"receipts": ("receipt",), "issues": ("issue",), "returns": ("return",), "transfers": ("transfer_in", "transfer_out"),
@@ -312,6 +312,48 @@ def _category_group(title: str, meta: list, columns: list, lines: list[dict], to
             "totals": [("Opening value", f"{totals['opening_value']:.3f}"), ("Purchases", f"{totals['purchases']:.3f}"), ("Closing value", f"{totals['closing_value']:.3f}"),
                        ("Cost consumed", f"{totals['cost_consumed']:.3f}"), ("Breakage and damage", f"{totals['breakage_damage']:.3f}"),
                        ("Count gain (+) or loss (-)", f"{totals['count_adjustments']:.3f}")]}
+
+
+def _approval_groups(db: Session, locations: list[Location], day_from: date, day_to: date, status: str | None) -> list[dict]:
+    """Every approval and rejection with who decided and the comment, a table per location, for checklist tasks, monitoring readings and alerts."""
+    names = _names(db)
+    by_location = {loc.id: loc for loc in locations}
+    groups = []
+    for loc in locations:
+        low, high = _bounds(day_from, day_to, loc.timezone)
+        stmt = select(ApprovalRecord).where(ApprovalRecord.created_at >= low, ApprovalRecord.created_at < high).order_by(ApprovalRecord.created_at, ApprovalRecord.id)
+        if status:
+            stmt = stmt.where(ApprovalRecord.decision == status)
+        rows = []
+        for rec in db.scalars(stmt):
+            if rec.subject_type == "checklist_task":
+                inst = db.get(ChecklistInstance, rec.subject_id)
+                if not inst or inst.location_id != loc.id:
+                    continue
+                task = db.get(ChecklistTask, inst.task_id)
+                kind, what = "Checklist task", f"{task.description} ({inst.local_date.strftime('%d %b %Y')})"
+            elif rec.subject_type == "reading":
+                reading = db.get(TemperatureReading, rec.subject_id)
+                if not reading or reading.location_id != loc.id:
+                    continue
+                kind, what = "Monitoring reading", f"{db.get(Equipment, reading.equipment_id).name}: {reading.stage}, {describe(reading)}"
+            elif rec.subject_type == "alert":
+                alert = db.get(Notification, rec.subject_id)
+                if not alert or alert.location_id != loc.id:
+                    continue
+                kind, what = "Alert", alert.title
+            else:
+                continue
+            rows.append({"when": _local(rec.created_at, loc.timezone), "kind": kind, "what": what,
+                         "decision": rec.decision.capitalize(), "by": names.get(rec.decided_by, ""), "comment": rec.reason or ""})
+        if rows or by_location:
+            groups.append({
+                "title": f"{loc.name} - Approvals and rejections", "meta": [("Location", loc.name)],
+                "columns": [("when", "Decided at"), ("kind", "Type"), ("what", "What"), ("decision", "Decision"), ("by", "By"), ("comment", "Comment")],
+                "rows": rows,
+                "totals": [("Decisions", len(rows)), ("Approved", sum(1 for r in rows if r["decision"] == "Approved")),
+                           ("Rejected", sum(1 for r in rows if r["decision"] == "Rejected"))]})
+    return groups
 
 
 def _checklist_groups(db: Session, locations: list[Location], day_from: date, day_to: date,
@@ -658,6 +700,8 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
         groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id, f.status, f.equipment_kind)
     elif kind == "lots":
         groups = _lot_groups(db, locations, f, day_from, day_to)
+    elif kind == "approvals":
+        groups = _approval_groups(db, locations, day_from, day_to, f.status)
     elif kind == "checklists":
         groups = _checklist_groups(db, locations, day_from, day_to, f.frequency, f.employee_id, f.status, f.template_id)
     elif kind == "checklist_chart":

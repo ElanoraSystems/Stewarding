@@ -16,6 +16,7 @@ from ..pagination import paginate, row
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services import checklists as engine
 from ..services.checklists import DONE, OPEN, effective_status, overdue_after
+from ..services.approvals import record_decision
 from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
@@ -389,6 +390,7 @@ def verify(instance_id: int, body: VerifyIn, user: User = Depends(require("check
     inst.verified_by, inst.verified_at = user.id, now
     if body.comment:
         inst.comment = f"{inst.comment}\nVerifier: {body.comment}" if inst.comment else f"Verifier: {body.comment}"
+    record_decision(db, user, "checklist_task", inst.id, body.approve, body.comment)
     audit(db, user, "checklist.verify" if body.approve else "checklist.reject", "checklist_instance", inst.id,
           {"status": "pending_verification"}, {"status": inst.status})
     if not body.approve and inst.completed_by:
@@ -402,8 +404,12 @@ class VerifyManyIn(BaseModel):
     instance_ids: list[int] = Field(min_length=1, max_length=200)
 
 
+class ApproveManyIn(VerifyManyIn):
+    comment: str | None = Field(default=None, max_length=1000)
+
+
 @router.post("/instances/verify-many")
-def verify_many(body: VerifyManyIn, user: User = Depends(require("checklist.verify")), db: Session = Depends(get_db)):
+def verify_many(body: ApproveManyIn, user: User = Depends(require("checklist.verify")), db: Session = Depends(get_db)):
     """Approves every chosen task that awaits verification; your own work and tasks in other states are skipped."""
     now, approved = timeutil.utc_now(), []
     for inst in db.scalars(select(ChecklistInstance).where(ChecklistInstance.id.in_(set(body.instance_ids)))):
@@ -411,6 +417,9 @@ def verify_many(body: VerifyManyIn, user: User = Depends(require("checklist.veri
         if inst.status != "pending_verification" or inst.completed_by == user.id:
             continue
         inst.status, inst.verified_by, inst.verified_at = "verified", user.id, now
+        if body.comment and body.comment.strip():
+            inst.comment = f"{inst.comment}\nVerifier: {body.comment.strip()}" if inst.comment else f"Verifier: {body.comment.strip()}"
+        record_decision(db, user, "checklist_task", inst.id, True, body.comment)
         approved.append(inst.id)
     audit(db, user, "checklist.verify_many", "checklist_instance", None, None, {"instance_ids": sorted(approved)})
     db.commit()

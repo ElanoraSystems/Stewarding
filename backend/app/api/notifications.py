@@ -1,6 +1,8 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy import case, func, select, update
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.orm import Session
 
 from .. import timeutil
@@ -9,6 +11,7 @@ from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import Notification, User
 from ..pagination import paginate, row
 from .dashboard import CATEGORY_SECTION, _sections
+from ..services.approvals import record_decision
 from ..services.summary import grouped, pending_items
 from ..services.visibility import hidden_templates
 
@@ -68,7 +71,18 @@ def read_all(user: User = Depends(require("notification.view")), db: Session = D
     return {"ok": True}
 
 
-class AckManyIn(BaseModel):
+class DecisionIn(BaseModel):
+    decision: Literal["approved", "rejected"] = "approved"
+    comment: str | None = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def _reason_to_reject(self):
+        if self.decision == "rejected" and len((self.comment or "").strip()) < 5:
+            raise ValueError("Say why you reject it (at least 5 characters)")
+        return self
+
+
+class AckManyIn(DecisionIn):
     ids: list[int] | None = Field(default=None, max_length=500)
 
 
@@ -76,13 +90,25 @@ class AckManyIn(BaseModel):
 def acknowledge_many(body: AckManyIn, user: User = Depends(require("notification.view")), db: Session = Depends(get_db)):
     """Acknowledges the chosen alerts of the signed-in user, or every open one when no ids are given."""
     now = timeutil.utc_now()
-    stmt = (update(Notification).where(Notification.user_id == user.id, Notification.requires_ack.is_(True), Notification.acknowledged_at.is_(None))
-            .values(acknowledged_at=now, read_at=func.coalesce(Notification.read_at, now)))
+    open_ones = select(Notification.id).where(Notification.user_id == user.id, Notification.requires_ack.is_(True), Notification.acknowledged_at.is_(None))
     if body.ids is not None:
-        stmt = stmt.where(Notification.id.in_(set(body.ids)))
-    count = db.execute(stmt).rowcount
+        open_ones = open_ones.where(Notification.id.in_(set(body.ids)))
+    ids = list(db.scalars(open_ones))
+    for nid in ids:
+        record_decision(db, user, "alert", nid, body.decision == "approved", body.comment)
+    if ids:
+        db.execute(update(Notification).where(Notification.id.in_(ids)).values(acknowledged_at=now, read_at=func.coalesce(Notification.read_at, now)))
     db.commit()
-    return {"acknowledged": count}
+    return {"acknowledged": len(ids)}
+
+
+@router.post("/clear")
+def clear(user: User = Depends(require("notification.view")), db: Session = Depends(get_db)):
+    """Removes this person's notifications from their list, except alerts still waiting for their decision."""
+    waiting = (Notification.requires_ack.is_(True)) & Notification.acknowledged_at.is_(None) & Notification.resolved_at.is_(None)
+    removed = db.execute(delete(Notification).where(Notification.user_id == user.id, ~waiting)).rowcount
+    db.commit()
+    return {"cleared": removed}
 
 
 @router.post("/{notification_id}/read")
@@ -94,9 +120,11 @@ def mark_read(notification_id: int, user: User = Depends(require("notification.v
 
 
 @router.post("/{notification_id}/acknowledge")
-def acknowledge(notification_id: int, user: User = Depends(require("notification.view")), db: Session = Depends(get_db)):
+def acknowledge(notification_id: int, body: DecisionIn | None = None, user: User = Depends(require("notification.view")), db: Session = Depends(get_db)):
     n = _mine(db, user, notification_id)
     now = timeutil.utc_now()
+    if n.requires_ack and n.acknowledged_at is None:
+        record_decision(db, user, "alert", n.id, (body.decision if body else "approved") == "approved", body.comment if body else None)
     n.acknowledged_at = n.acknowledged_at or now
     n.read_at = n.read_at or now
     db.commit()

@@ -51,13 +51,12 @@ interface Props {
 
 /**
  * The tasks of a day as separate checklists, each a section that opens and closes, with its own progress and what is late.
- * Only the checklist that needs doing first starts open, so Opening and Closing are never mixed on one long page.
+ * Every checklist starts closed, showing only its progress and what is late, so a long checklist never pushes the others off the screen.
  */
 export function ChecklistGroups({ items, timezone, openAll = false, renderTask, selection }: Props) {
   const groups = groupChecklists(items)
   const [choice, setChoice] = useState<Record<string, boolean>>({})
-  const firstWithWork = groups.find((g) => g.open.length > 0)?.name
-  const isOpen = (g: Group) => choice[g.name] ?? (openAll || g.name === firstWithWork)
+  const isOpen = (g: Group) => choice[g.name] ?? openAll
   const setAll = (value: boolean) => setChoice(Object.fromEntries(groups.map((g) => [g.name, value])))
 
   return (
@@ -73,7 +72,7 @@ export function ChecklistGroups({ items, timezone, openAll = false, renderTask, 
       )}
       {groups.map((g) => (
         <Section key={g.name} group={g} open={isOpen(g)} onToggle={() => setChoice((c) => ({ ...c, [g.name]: !isOpen(g) }))} timezone={timezone} selection={selection}>
-          <div className="grid gap-3 lg:grid-cols-2">{g.items.map((task) => renderTask(task))}</div>
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">{g.items.map((task) => <div key={task.id}>{renderTask(task)}</div>)}</div>
         </Section>
       ))}
     </div>

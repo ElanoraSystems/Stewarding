@@ -1,5 +1,8 @@
+import { Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { DecisionDialog, type Decision } from '@/components/DecisionDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/pagination'
@@ -61,17 +64,35 @@ function Notifications() {
   )
   const places = new Map(me?.locations.map((l) => [l.id, l.name]))
   const [selected, setSelected] = useState<number[]>([])
+  const [deciding, setDeciding] = useState<{ ids: number[]; initial: Decision } | null>(null)
+  const [clearing, setClearing] = useState(false)
   const open = (data?.items ?? []).filter((n) => n.requires_ack && !n.acknowledged_at)
   const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
 
-  async function acknowledgeMany(ids: number[]) {
-    const result = await api<{ acknowledged: number }>('/notifications/acknowledge-many', { body: { ids } }).catch(() => null)
+  async function decide(decision: Decision, note: string) {
+    if (!deciding) return false
+    const result = await api<{ acknowledged: number }>('/notifications/acknowledge-many', { body: { ids: deciding.ids, decision, comment: note || null } }).catch((err) => {
+      toast('error', err instanceof Error ? err.message : 'Could not save the decision')
+      return null
+    })
+    if (!result) return false
+    toast('ok', `${result.acknowledged} alert${result.acknowledged === 1 ? '' : 's'} ${decision}`)
+    setDeciding(null)
+    setSelected([])
+    reload()
+    notificationsChanged()
+    return true
+  }
+
+  async function clearAll() {
+    const result = await api<{ cleared: number }>('/notifications/clear', { method: 'POST' }).catch(() => null)
+    setClearing(false)
     if (result) {
-      toast('ok', `${result.acknowledged} alert${result.acknowledged === 1 ? '' : 's'} approved`)
-      setSelected([])
+      toast('ok', result.cleared ? `${result.cleared} notification${result.cleared === 1 ? '' : 's'} cleared` : 'Nothing to clear')
+      setPage(1)
       reload()
       notificationsChanged()
-    } else toast('error', 'Could not approve the alerts')
+    } else toast('error', 'Could not clear the notifications')
   }
 
   async function act(path: string, success?: string) {
@@ -86,13 +107,16 @@ function Notifications() {
       <PushToggle />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={unread} onChange={(e) => { setUnread(e.target.checked); setPage(1) }} /> Unread only</label>
-        <Button variant="outline" size="sm" onClick={() => act('read-all', 'All marked as read')}>Mark all as read ({data?.unread ?? 0})</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => act('read-all', 'All marked as read')}>Mark all as read ({data?.unread ?? 0})</Button>
+          <Button variant="outline" size="sm" disabled={(data?.total ?? 0) === 0} onClick={() => setClearing(true)}><Trash2 className="h-4 w-4" /> Clear notifications</Button>
+        </div>
       </div>
       {open.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
           <span>{open.length} alert{open.length === 1 ? '' : 's'} on this page need your approval</span>
           <Button size="sm" variant="outline" onClick={() => setSelected(open.map((n) => n.id))}>Select all</Button>
-          <Button size="sm" disabled={selected.length === 0} onClick={() => acknowledgeMany(selected)}>Approve selected ({selected.length})</Button>
+          <Button size="sm" disabled={selected.length === 0} onClick={() => setDeciding({ ids: selected, initial: 'approved' })}>Approve or reject selected ({selected.length})</Button>
         </div>
       )}
       {loading && !data ? <Skeleton className="h-32 w-full" /> : data?.items.length === 0 ? <EmptyState title="No notifications" /> : (
@@ -115,13 +139,18 @@ function Notifications() {
               <div className="mt-2 flex flex-wrap gap-2">
                 {n.link && <Button asChild size="sm" variant="outline"><Link to={n.link}>Open</Link></Button>}
                 {!n.read_at && <Button size="sm" variant="ghost" onClick={() => act(`${n.id}/read`)}>Mark read</Button>}
-                {n.requires_ack && !n.acknowledged_at && <Button size="sm" onClick={() => act(`${n.id}/acknowledge`, 'Approved')}>Approve</Button>}
+                {n.requires_ack && !n.acknowledged_at && <>
+                  <Button size="sm" onClick={() => setDeciding({ ids: [n.id], initial: 'approved' })}>Approve</Button>
+                  <Button size="sm" variant="outline" className="text-danger" onClick={() => setDeciding({ ids: [n.id], initial: 'rejected' })}>Reject</Button>
+                </>}
               </div>
             </li>
           ))}
         </ul>
       )}
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
+      <DecisionDialog open={deciding !== null} initial={deciding?.initial} title={`Approve or reject ${deciding?.ids.length ?? 0} alert${deciding?.ids.length === 1 ? '' : 's'}`} onClose={() => setDeciding(null)} onDecide={decide} />
+      <ConfirmDialog open={clearing} title="Clear notifications" message="This removes your notifications from the list. Alerts still waiting for your approval stay until you decide on them." confirmLabel="Clear" onConfirm={clearAll} onCancel={() => setClearing(false)} />
     </div>
   )
 }

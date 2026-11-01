@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ScanButton } from '@/components/ScanButton'
 import { WorkLocationSelect } from '@/components/WorkLocationSelect'
+import { DecisionDialog } from '@/components/DecisionDialog'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -29,6 +30,7 @@ export function ChecklistsPage() {
   const [locationId, setLocationId] = useState<number | null>(arrived?.locationId ?? null)
   const [day, setDay] = useState(todayIso())
   const [view, setView] = useState<'day' | 'week'>('day')
+  const [approvingAll, setApprovingAll] = useState(false)
   const [status, setStatus] = useState('')
   const [frequency, setFrequency] = useState('')
   const [configuring, setConfiguring] = useState(false)
@@ -72,10 +74,11 @@ export function ChecklistsPage() {
     reload()
   }
 
-  async function approveAll() {
+  async function approveAll(note: string) {
     const ids = approvable.map((i) => i.id)
-    const result = await run(() => api('/checklists/instances/verify-many', { body: { instance_ids: ids } }), `${ids.length} task${ids.length === 1 ? '' : 's'} approved`)
+    const result = await run(() => api('/checklists/instances/verify-many', { body: { instance_ids: ids, comment: note || null } }), `${ids.length} task${ids.length === 1 ? '' : 's'} approved`)
     if (result) reload()
+    return Boolean(result)
   }
 
   // the tasks of a day as one section per checklist (Opening, Closing and so on) instead of one long mixed list
@@ -161,7 +164,7 @@ export function ChecklistsPage() {
           {approvable.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
               <span>{approvable.length} task{approvable.length === 1 ? '' : 's'} awaiting your approval</span>
-              <Button size="sm" onClick={approveAll}>Approve all ({approvable.length})</Button>
+              <Button size="sm" onClick={() => setApprovingAll(true)}>Approve all ({approvable.length})</Button>
             </div>
           )}
           {loading && !data ? <Skeleton className="h-32 w-full" /> : items.length === 0 ? (
@@ -192,6 +195,12 @@ export function ChecklistsPage() {
       >
         <Field label="Reason"><Input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></Field>
       </Modal>
+      <DecisionDialog open={approvingAll} approveOnly title={`Approve ${approvable.length} task${approvable.length === 1 ? '' : 's'}`} onClose={() => setApprovingAll(false)}
+        onDecide={async (_, note) => {
+          const ok = await approveAll(note)
+          if (ok) setApprovingAll(false)
+          return ok
+        }} />
     </div>
   )
 }
