@@ -20,6 +20,7 @@ export interface DueCard {
   stages: string[]
   status: Due['status']
   closed: boolean
+  again?: boolean  // a time in: each item is its own entry, so it can be started again after one is done
 }
 
 const TONE = { done: 'ok', due: 'warn', overdue: 'critical', upcoming: 'neutral' } as const
@@ -75,15 +76,15 @@ export function DueBoard({ cards, kindOf, timezone, canRecord, onStart }: Props)
                     {p.cards.filter((c) => !onlyOpen || c.status !== 'done').map((c) => {
                       const finished = c.status === 'done'
                       return (
-                        <button key={`${c.first.schedule_id}-${c.first.slot_at}`} type="button" disabled={!canRecord || c.closed || finished}
-                          aria-label={`${p.name}, ${c.stages.map(label).join(' and ')} at ${fmtTime(c.first.slot_at, timezone)}, ${finished ? 'recorded' : c.closed ? 'not open yet' : label(c.status)}`}
+                        <button key={`${c.first.schedule_id}-${c.first.slot_at}`} type="button" disabled={!canRecord || c.closed || (finished && !c.again)}
+                          aria-label={`${p.name}, ${c.stages.map(label).join(' and ')} at ${fmtTime(c.first.slot_at, timezone)}, ${finished ? (c.again ? 'recorded, press to start another' : 'recorded') : c.closed ? 'not open yet' : label(c.status)}`}
                           onClick={() => onStart(c.first.equipment_id, c.first.schedule_id)}
                           className={cn('flex items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-sm',
                             finished ? 'border-ok/30 bg-ok-soft/50 text-ink-muted' : c.status === 'overdue' ? 'border-danger/40 bg-danger-soft/40' : c.status === 'due' ? 'border-warn/40 bg-warn-soft/40' : 'border-border',
-                            canRecord && !c.closed && !finished && 'hover:bg-surface-muted')}>
+                            canRecord && !c.closed && (!finished || c.again) && 'hover:bg-surface-muted')}>
                           <span className="font-semibold tabular-nums">{fmtTime(c.first.slot_at, timezone)}</span>
                           <span className="text-xs text-ink-muted">{c.stages.map(label).join(' and ')}</span>
-                          {finished ? <Check className="h-4 w-4 text-ok" aria-hidden /> : <Badge tone={TONE[c.status]}>{c.closed ? `Opens ${fmtTime(c.first.opens_at, timezone)}` : label(c.status)}</Badge>}
+                          {finished ? <span className="flex items-center gap-1 text-xs font-medium text-ok"><Check className="h-4 w-4" aria-hidden />{c.again && 'Start another'}</span> : <Badge tone={TONE[c.status]}>{c.closed ? `Opens ${fmtTime(c.first.opens_at, timezone)}` : label(c.status)}</Badge>}
                         </button>
                       )
                     })}

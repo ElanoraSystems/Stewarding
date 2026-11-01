@@ -85,7 +85,8 @@ export function MonitoringPage() {
       const seen = latest.get(d.schedule_id)
       if (!seen || d.slot_at > seen.slot_at) latest.set(d.schedule_id, d)
     }
-    return new Set([...latest.values()].filter((d) => d.status === 'done').map((d) => d.schedule_id))
+    const starts = new Set(items.flatMap((e) => e.schedules.filter((s) => s.phase === 'start').map((s) => s.id)))  // a time in is never "already recorded": each item is its own entry
+    return new Set([...latest.values()].filter((d) => d.status === 'done' && !starts.has(d.schedule_id)).map((d) => d.schedule_id))
   })()
 
   // a scheduled check stays closed until its grace period before the due time begins
@@ -97,13 +98,13 @@ export function MonitoringPage() {
 
   // checks of one point due at the same time are shown, and recorded, as one card
   const cards = (() => {
-    const out = new Map<string, { first: Due; stages: string[]; status: Due['status']; closed: boolean }>()
+    const out = new Map<string, { first: Due; stages: string[]; status: Due['status']; closed: boolean; again?: boolean }>()
     for (const d of due.data ?? []) {
       const sched = items.find((e) => e.id === d.equipment_id)?.schedules.find((s) => s.id === d.schedule_id)
       const group = sched ? cycleOf(sched, items.find((e) => e.id === d.equipment_id)!.schedules).map((s) => s.id).sort().join() : String(d.schedule_id)
       const key = `${d.equipment_id}|${d.slot_at}|${group}`
       const card = out.get(key)
-      if (!card) out.set(key, { first: d, stages: [d.stage], status: d.status, closed: closedSchedules.has(d.schedule_id) })
+      if (!card) out.set(key, { first: d, stages: [d.stage], status: d.status, closed: closedSchedules.has(d.schedule_id), again: sched?.phase === 'start' })
       else {
         card.stages.push(d.stage)
         if (RANK[d.status] > RANK[card.status]) card.status = d.status
