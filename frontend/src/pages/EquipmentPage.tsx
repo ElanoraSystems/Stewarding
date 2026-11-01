@@ -1,24 +1,21 @@
-import { Plus, Wrench } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
-import { StatusBadge } from '@/components/ui/status-badge'
-import { EmptyState, Table, Td, Th } from '@/components/ui/table'
+import { EmptyState } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { cn } from '@/lib/utils'
 import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { CheckFormModal } from '@/pages/CheckFormModal'
 import { JobTitlesModal } from '@/pages/JobTitlesModal'
+import { MonitoringPointRow } from '@/pages/MonitoringPointRow'
 import { FormBuilderModal } from '@/pages/FormBuilderModal'
 import { TimesEditor } from '@/pages/TimesEditor'
 import type { EquipmentItem, Schedule } from '@/pages/MonitoringRecordForm'
@@ -31,24 +28,6 @@ interface Template {
   checks: { stage: string; parameter: string; unit: string | null; value_type: string; min_value: number | null; max_value: number | null; timing: string; phase: string | null }[]
 }
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-function when(s: Schedule): string {
-  if (s.phase === 'finish') return 'When the time in entry is closed'
-  const days = s.weekdays.length ? s.weekdays.map((d) => DAYS[d]).join(', ') : 'Every day'
-  const month = s.day_of_month ? `day ${s.day_of_month} of the month` : days
-  const timing = s.timing === 'interval' ? `every ${s.interval_minutes} min` : s.timing === 'startup' ? 'at startup' : 'at a set time'
-  return `${month}, ${timing}${s.time_of_day ? ` from ${s.time_of_day.slice(0, 5)}` : ''}`
-}
-
-function limits(s: Schedule): string {
-  if (s.value_type === 'yes_no') return 'Must be Yes'
-  if (s.value_type === 'text') return `Written, up to ${s.max_length ?? 200} characters`
-  if (s.value_type === 'choice') return `Choose: ${(s.options ?? []).join(', ')}${s.fail_options?.length ? ` (fails: ${s.fail_options.join(', ')})` : ''}`
-  const amber = [s.warn_max != null ? `amber from ${s.warn_max}` : '', s.warn_min != null ? `amber down to ${s.warn_min}` : ''].filter(Boolean).join(', ')
-  return `${s.min_value ?? '-'} to ${s.max_value ?? '-'} ${s.unit ?? ''}${amber ? ` (${amber})` : ''}`.trim()
-}
-
 export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const { me } = useAuth()
   const run = useRun()
@@ -59,6 +38,9 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const [limiting, setLimiting] = useState<EquipmentItem | null>(null)
   const [editing, setEditing] = useState<{ equipmentId: number; schedule: Schedule | null } | null>(null)
   const [adding, setAdding] = useState(false)
+  const [find, setFind] = useState('')
+  const [showInactive, setShowInactive] = useState(false)
+  const [openIds, setOpenIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState<{ kind: 'point' | 'check'; id: number; name: string } | null>(null)
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null)
   const [presetOpen, setPresetOpen] = useState(false)
@@ -67,6 +49,10 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const [presetTimes, setPresetTimes] = useState<string[]>([])
   const templates = useApi<Template[]>(canManage ? '/equipment/templates' : null)
   const chosen = templates.data?.find((t) => t.key === preset)
+  const needle = find.trim().toLowerCase()
+  const shown = (data ?? []).filter((e) => (showInactive || e.active) && (!needle || [e.name, e.code, ...e.schedules.map((s) => s.stage)].some((t) => t.toLowerCase().includes(needle))))
+  const kinds = new Map<string, EquipmentItem[]>()
+  for (const e of shown) kinds.set(e.kind, [...(kinds.get(e.kind) ?? []), e])
 
   async function setStatus(eq: EquipmentItem, status: string) {
     if (await run(() => api(`/equipment/${eq.id}`, { method: 'PUT', body: { status } }), 'Status updated')) reload()
@@ -120,58 +106,33 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {data?.length === 0 && <EmptyState title="No monitoring points at this location" />}
-      {data?.map((eq) => (
-        <Card key={eq.id} className={cn(eq.needs_attention && 'border-warn/60', !eq.active && 'opacity-70')}>
-          <CardHeader>
-            <CardTitle className="flex flex-wrap items-center gap-2">
-              <Wrench className="h-4 w-4 text-brand" aria-hidden /> {eq.name}
-              <span className="text-sm font-normal text-ink-muted">{eq.code} - {label(eq.kind)}</span>
-              <StatusBadge status={eq.status} />
-              {!eq.active && <StatusBadge status="inactive" />}
-              {eq.visible_to && eq.visible_to.length > 0 && <Badge>Only: {eq.visible_to.join(', ')}</Badge>}
-              {eq.needs_attention && <Badge tone="warn">Needs attention ({eq.recent_failures} recent failures)</Badge>}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5 p-6 pt-3">
-            {eq.maintenance_notes && <p className="text-sm text-ink-muted">{eq.maintenance_notes}</p>}
-            {canManage && (
-              <div className="flex flex-wrap gap-2">
-                <Select aria-label={`Status of ${eq.name}`} className="w-auto" value={eq.status} onChange={(e) => setStatus(eq, e.target.value)}>
-                  <option value="operational">Operational</option>
-                  <option value="attention">Needs attention</option>
-                  <option value="out_of_service">Out of service</option>
-                </Select>
-                <Button size="sm" variant="outline" onClick={() => setRenaming({ id: eq.id, name: eq.name })}>Rename</Button>
-                <Button size="sm" variant="outline" onClick={() => setLimiting(eq)}>Who records it</Button>
-                <Button size="sm" variant="outline" className="whitespace-nowrap" onClick={() => setPointActive(eq)}>{eq.active ? 'Make inactive' : 'Make active'}</Button>
-                <Button size="sm" variant="outline" onClick={() => setDeleting({ kind: 'point', id: eq.id, name: eq.name })}>Delete</Button>
-              </div>
-            )}
-            <Table>
-              <thead><tr><Th>Check</Th><Th>Measures</Th><Th>When</Th><Th>Limits</Th>{canManage && <Th />}</tr></thead>
-              <tbody>
-                {eq.schedules.map((s) => (
-                  <tr key={s.id} className={s.active ? undefined : 'opacity-60'}>
-                    <Td>{s.stage}{!s.active && <Badge className="ml-2">Inactive</Badge>}{s.require_reference && <Badge className="ml-2">{s.reference_label ?? 'Reference'}</Badge>}{s.trace_lots && <Badge className="ml-2">Food lots</Badge>}{s.phase && <Badge className="ml-2">{s.phase === 'start' ? (s.max_open_minutes ? `Time in, out within ${s.max_open_minutes / 60} h` : 'Time in') : 'Time out'}</Badge>}</Td>
-                    <Td>{({ yes_no: 'Yes or no', text: 'Short text', choice: 'Dropdown' } as Record<string, string>)[s.value_type] ?? s.parameter}</Td>
-                    <Td>{when(s)}</Td>
-                    <Td>{limits(s)}</Td>
-                    {canManage && (
-                      <Td>
-                        <div className="flex flex-wrap gap-2">
-                          <Button size="sm" variant="outline" onClick={() => setEditing({ equipmentId: eq.id, schedule: s })}>Edit</Button>
-                          <Button size="sm" variant="outline" className="whitespace-nowrap" onClick={() => setCheckActive(s)}>{s.active ? 'Make inactive' : 'Make active'}</Button>
-                          <Button size="sm" variant="outline" onClick={() => setDeleting({ kind: 'check', id: s.id, name: s.stage })}>Delete</Button>
-                        </div>
-                      </Td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-            {canManage && <Button size="sm" variant="outline" onClick={() => setEditing({ equipmentId: eq.id, schedule: null })}>Add check</Button>}
-          </CardContent>
-        </Card>
+      {data && data.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-52 flex-1 sm:max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" aria-hidden />
+            <Input aria-label="Find a monitoring point" placeholder="Find a point or a check" className="pl-9" value={find} onChange={(e) => setFind(e.target.value)} />
+          </div>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Show inactive ({data.filter((e) => !e.active).length})</label>
+          <span className="text-sm text-ink-muted">{data.filter((e) => e.active).length} active of {data.length}</span>
+          <span className="ml-auto flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setOpenIds(new Set(shown.map((e) => e.id)))}>Open all</Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpenIds(new Set())}>Close all</Button>
+          </span>
+        </div>
+      )}
+      {data && data.length > 0 && shown.length === 0 && <EmptyState title="No monitoring point matches" />}
+      {[...kinds].map(([kind, points]) => (
+        <section key={kind} aria-label={label(kind)} className="space-y-2">
+          <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">{label(kind)} <span className="font-normal">({points.length})</span></h3>
+          {points.map((eq) => (
+            <MonitoringPointRow key={eq.id} point={eq} canManage={canManage} open={openIds.has(eq.id) || find.trim() !== ''}
+              onToggle={() => setOpenIds((ids) => { const next = new Set(ids); if (!next.delete(eq.id)) next.add(eq.id); return next })}
+              onStatus={(status) => setStatus(eq, status)} onRename={() => setRenaming({ id: eq.id, name: eq.name })} onWho={() => setLimiting(eq)}
+              onPointActive={() => setPointActive(eq)} onDeletePoint={() => setDeleting({ kind: 'point', id: eq.id, name: eq.name })}
+              onEditCheck={(schedule) => setEditing({ equipmentId: eq.id, schedule })} onCheckActive={setCheckActive}
+              onDeleteCheck={(s) => setDeleting({ kind: 'check', id: s.id, name: s.stage })} />
+          ))}
+        </section>
       ))}
 
       <ConfirmDialog open={deleting !== null} title={deleting?.kind === 'point' ? 'Delete monitoring point' : 'Delete check'}

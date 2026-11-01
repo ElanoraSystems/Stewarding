@@ -1,5 +1,5 @@
 import { Check, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
@@ -21,16 +21,14 @@ interface Props {
 }
 
 /** Approve or reject with a comment: optional when approving, at least five characters when rejecting. Both go to the approvals report. */
-export function DecisionDialog({ open, title, subject, initial = 'approved', approveOnly = false, onClose, onDecide }: Props) {
+export function DecisionDialog(props: Props) {
+  return props.open ? <Dialog {...props} /> : null  // mounted only while open, so every opening starts fresh
+}
+
+function Dialog({ open, title, subject, initial = 'approved', approveOnly = false, onClose, onDecide }: Props) {
   const [decision, setDecision] = useState<Decision>(initial)
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    if (open) {
-      setDecision(initial)
-      setComment('')
-    }
-  }, [open, initial])
   const rejecting = decision === 'rejected'
   const tooShort = rejecting && comment.trim().length < 5
 
