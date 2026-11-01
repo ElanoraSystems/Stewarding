@@ -144,3 +144,10 @@ def test_the_record_shows_written_answers(client, login, db, clock):
     doc = client.get("/api/reports/records/monitoring?date_from=2026-03-02&date_to=2026-03-02", headers=login(MGR)).json()
     rows = {r["check"]: r for g in doc["groups"] for r in g["rows"]}
     assert rows["Product"]["value"] == "Chicken thigh" and rows["Method"]["value"] == "Grill" and rows["Core temperature"]["value"] == "82 °C"
+
+
+def test_a_form_field_can_carry_an_amber_warning_level(client, login, db):
+    fields = [{"title": "TPM reading", "value_type": "number", "unit": "%", "min_value": 0, "max_value": 25, "warn_max": 20}]
+    point = build(client, login(MGR), db, fields=fields, frequency={"mode": "daily", "times": ["15:00:00", "21:00:00"]}).json()["points"][0]
+    assert len(point["schedules"]) == 2  # the same field at each of the two times the person chose
+    assert {float(c["warn_max"]) for c in point["schedules"]} == {20.0}

@@ -1,5 +1,5 @@
 import { LogIn, LogOut } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LocationSelect } from '@/components/LocationSelect'
 import { FaceCapture, type FaceEvidence, type FaceResult } from '@/components/FaceCapture'
 import { Badge } from '@/components/ui/badge'
@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/table'
 import { api, ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import type { Step } from '@/lib/face'
+import { loadFaceModels, type Step } from '@/lib/face'
 import { fmtTime } from '@/lib/format'
 import { currentPosition } from '@/lib/geo'
 import { useToast } from '@/lib/toast'
@@ -70,6 +70,8 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [faceFor, setFaceFor] = useState<'in' | 'out' | null>(null)
+  const mustCheckFace = !!data?.face_required && !!data.face_enrolled
+  useEffect(() => { if (mustCheckFace) loadFaceModels().catch(() => {}) }, [mustCheckFace])  // ready by the time the button is pressed
   const [challenge, setChallenge] = useState<Challenge | null>(null)
   const [trouble, setTrouble] = useState<Trouble>(null)
   const [welcome, setWelcome] = useState<{ time: string; place: string | null; late: number } | null>(null)

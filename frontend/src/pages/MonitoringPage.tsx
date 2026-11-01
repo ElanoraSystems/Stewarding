@@ -9,24 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { EmptyState } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth'
-import { fmtTime, label } from '@/lib/format'
+import { fmtTime } from '@/lib/format'
 import { cycleOf } from '@/lib/monitoring'
 import { qs, useApi } from '@/lib/useApi'
 import { useTick } from '@/lib/useTick'
 import { CorrectiveActionsPanel } from '@/pages/CorrectiveActionsPanel'
+import { DueBoard, type Due } from '@/pages/DueBoard'
 import { MonitoringLog } from '@/pages/MonitoringLog'
 import { MonitoringRecordForm, type EquipmentItem, type Prefill } from '@/pages/MonitoringRecordForm'
-
-interface Due {
-  equipment_id: number
-  equipment: string
-  schedule_id: number
-  stage: string
-  slot_at: string
-  opens_at: string
-  open: boolean
-  status: 'done' | 'due' | 'overdue' | 'upcoming'
-}
 
 const hm = (minutes: number) => `${Math.floor(Math.abs(minutes) / 60)} h ${String(Math.abs(minutes) % 60).padStart(2, '0')} min`
 /** Minutes the entry has been open and, when it has a limit, minutes left, counted from the start time so the clock keeps running while the page is open. */
@@ -59,7 +49,6 @@ interface Pending {
 }
 
 const RANK = { overdue: 3, due: 2, upcoming: 1, done: 0 } as const
-const TONE = { done: 'ok', due: 'warn', overdue: 'critical', upcoming: 'neutral' } as const
 
 export function MonitoringPage() {
   const now = useTick(true)
@@ -96,7 +85,8 @@ export function MonitoringPage() {
       const seen = latest.get(d.schedule_id)
       if (!seen || d.slot_at > seen.slot_at) latest.set(d.schedule_id, d)
     }
-    return new Set([...latest.values()].filter((d) => d.status === 'done').map((d) => d.schedule_id))
+    const starts = new Set(items.flatMap((e) => e.schedules.filter((s) => s.phase === 'start').map((s) => s.id)))  // a time in is never "already recorded": each item is its own entry
+    return new Set([...latest.values()].filter((d) => d.status === 'done' && !starts.has(d.schedule_id)).map((d) => d.schedule_id))
   })()
 
   // a scheduled check stays closed until its grace period before the due time begins
@@ -108,13 +98,13 @@ export function MonitoringPage() {
 
   // checks of one point due at the same time are shown, and recorded, as one card
   const cards = (() => {
-    const out = new Map<string, { first: Due; stages: string[]; status: Due['status']; closed: boolean }>()
+    const out = new Map<string, { first: Due; stages: string[]; status: Due['status']; closed: boolean; again?: boolean }>()
     for (const d of due.data ?? []) {
       const sched = items.find((e) => e.id === d.equipment_id)?.schedules.find((s) => s.id === d.schedule_id)
       const group = sched ? cycleOf(sched, items.find((e) => e.id === d.equipment_id)!.schedules).map((s) => s.id).sort().join() : String(d.schedule_id)
       const key = `${d.equipment_id}|${d.slot_at}|${group}`
       const card = out.get(key)
-      if (!card) out.set(key, { first: d, stages: [d.stage], status: d.status, closed: closedSchedules.has(d.schedule_id) })
+      if (!card) out.set(key, { first: d, stages: [d.stage], status: d.status, closed: closedSchedules.has(d.schedule_id), again: sched?.phase === 'start' })
       else {
         card.stages.push(d.stage)
         if (RANK[d.status] > RANK[card.status]) card.status = d.status
@@ -123,7 +113,6 @@ export function MonitoringPage() {
     return [...out.entries()]
   })()
   const todo = cards.filter(([, card]) => card.status !== 'done')
-  const finished = cards.filter(([, card]) => card.status === 'done')
 
   // arriving from a scanned code opens the first check that is due at that point
   useEffect(() => {
@@ -164,34 +153,9 @@ export function MonitoringPage() {
       <Card>
         <CardHeader><CardTitle>Checks due today</CardTitle></CardHeader>
         <CardContent>
-          {cards.length === 0 ? <EmptyState title="No scheduled checks here" /> : todo.length === 0 ? (
-            <EmptyState title="All of today's checks are recorded" />
-          ) : (
-            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {todo.map(([key, { first: d, stages, status, closed }]) => (
-                <li key={key}>
-                  <button type="button" disabled={!canRecord || closed}
-                    onClick={() => startRecording({ equipmentId: d.equipment_id, scheduleId: d.schedule_id })}
-                    className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-surface-muted">
-                    <span><span className="block font-medium">{d.equipment}</span><span className="text-ink-muted">{stages.map(label).join(' and ')} at {fmtTime(d.slot_at, timezone)}</span></span>
-                    <Badge tone={TONE[status]}>{closed ? `Opens ${fmtTime(d.opens_at, timezone)}` : label(status)}</Badge>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {finished.length > 0 && (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-sm font-medium text-ink-muted">Recorded today ({finished.length})</summary>
-              <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {finished.map(([key, { first: d, stages }]) => (
-                  <li key={key} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                    <span><span className="block font-medium">{d.equipment}</span><span className="text-ink-muted">{stages.map(label).join(' and ')} at {fmtTime(d.slot_at, timezone)}</span></span>
-                    <Badge tone="ok">Done</Badge>
-                  </li>
-                ))}
-              </ul>
-            </details>
+          {cards.length === 0 ? <EmptyState title="No scheduled checks here" /> : (
+            <DueBoard cards={cards} kindOf={new Map(items.map((e) => [e.id, e.kind]))} timezone={timezone} canRecord={canRecord}
+              onStart={(equipmentId, scheduleId) => startRecording({ equipmentId, scheduleId })} />
           )}
         </CardContent>
       </Card>

@@ -98,6 +98,8 @@ export function FaceCapture({ onCapture, steps, round = false, onBlocked }: Face
     async function run() {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('camera-unavailable')
+        const modelsReady = loadFaceModels()  // loads while the camera starts and the permission prompt is answered
+        modelsReady.catch(() => {})
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false })
         if (stopped || !video.current) {
           stream.getTracks().forEach((t) => t.stop())
@@ -106,7 +108,7 @@ export function FaceCapture({ onCapture, steps, round = false, onBlocked }: Face
         video.current.srcObject = stream
         await video.current.play()
         show('starting', 'Loading the face model')
-        const faceapi = await loadFaceModels()
+        const faceapi = await modelsReady
         const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })
         show('looking', 'Look at the camera')
 
