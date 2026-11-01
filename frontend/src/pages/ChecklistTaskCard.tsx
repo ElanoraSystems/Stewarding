@@ -1,9 +1,7 @@
 import { CheckCircle2, Clock, UserPlus } from 'lucide-react'
 import { useState } from 'react'
-import { Badge } from '@/components/ui/badge'
 import { useTick } from '@/lib/useTick'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
@@ -12,6 +10,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { api, uploadFile } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtTime } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { useRun } from '@/lib/toast'
 import type { EmployeeRow } from '@/pages/EmployeeForm'
 
@@ -89,29 +88,19 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
   const clock = useTick(!!item.opens_at)
   const notYet = !!item.opens_at && new Date(item.opens_at).getTime() > clock
   return (
-    <Card className={status === 'overdue' || status === 'failed' ? 'border-danger/50' : undefined}>
-      <div className="space-y-3 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="flex items-start gap-3">
-            {selection && <input type="checkbox" className="mt-1" aria-label={`Select ${item.description}`} checked={selection.checked} onChange={selection.onToggle} />}
-            <div>
-            <p className="font-medium">{item.description}</p>
-            <p className="flex items-center gap-1 text-xs text-ink-muted">
-              <Clock className="h-3 w-3" aria-hidden /> Due {fmtTime(item.due_at, timezone)}
-              {item.requires_verification && ' - needs verification'}
-            </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            {(item.priority === 'high' || item.priority === 'critical') && <Badge tone="warn">{item.priority}</Badge>}
-            <StatusBadge status={status} />
-          </div>
+    <div className={cn('border-l-4 px-4 py-3', status === 'overdue' || status === 'failed' ? 'border-l-danger bg-danger/5' : 'border-l-transparent')}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {selection && <input type="checkbox" aria-label={`Select ${item.description}`} checked={selection.checked} onChange={selection.onToggle} />}
+        <div className="min-w-0 flex-1 basis-64">
+          <p className="font-medium leading-snug">{item.description}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-ink-muted">
+            <span className="flex items-center gap-1"><Clock className="h-3 w-3" aria-hidden /> Due {fmtTime(item.due_at, timezone)}</span>
+            {item.requires_verification && <span>Needs approval</span>}
+            {(item.priority === 'high' || item.priority === 'critical') && <span className="font-medium text-warn">{item.priority} priority</span>}
+          </p>
         </div>
-        {item.instructions && <p className="text-sm text-ink-muted">{item.instructions}</p>}
-        {item.comment && <p className="whitespace-pre-line rounded bg-surface-muted p-2 text-sm">{item.comment}</p>}
-        {item.waive_reason && <p className="text-sm text-ink-muted">Waived: {item.waive_reason}</p>}
-
-        <div className="flex flex-wrap gap-2">
+        <StatusBadge status={status} />
+        <div className="flex flex-wrap items-center gap-2">
           {open && can('checklist.complete') && (
             notYet
               ? <Button size="sm" disabled><Clock className="h-4 w-4" /> Opens at {fmtTime(item.opens_at!, timezone)}</Button>
@@ -124,13 +113,16 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
             </>
           )}
           {!FINISHED.includes(status) && can('checklist.verify') && (
-            <Button size="sm" variant="outline" onClick={() => setDialog('waive')}>Waive</Button>
+            <Button size="sm" variant="ghost" onClick={() => setDialog('waive')}>Waive</Button>
           )}
           {open && can('task.assign') && (
-            <Button size="sm" variant="outline" onClick={() => setDialog('assign')}><UserPlus className="h-4 w-4" /> Assign</Button>
+            <Button size="sm" variant="ghost" onClick={() => setDialog('assign')}><UserPlus className="h-4 w-4" /> Assign</Button>
           )}
         </div>
       </div>
+      {item.instructions && <p className="mt-1 text-sm text-ink-muted">{item.instructions}</p>}
+      {item.comment && <p className="mt-2 whitespace-pre-line rounded bg-surface-muted p-2 text-sm">{item.comment}</p>}
+      {item.waive_reason && <p className="mt-1 text-sm text-ink-muted">Waived: {item.waive_reason}</p>}
 
       <Modal open={dialog === 'complete'} title={item.description} onClose={() => setDialog(null)}>
         <div className="space-y-3">
@@ -177,6 +169,6 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
           </div>
         </div>
       </Modal>
-    </Card>
+    </div>
   )
 }

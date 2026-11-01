@@ -12,12 +12,12 @@ const render_ = (items: Instance[], props = {}) => render(<ChecklistGroups items
 describe('ChecklistGroups', () => {
   const items = [task(1, 'Closing', 'not_started', 22), task(2, 'Opening', 'completed', 6), task(3, 'Opening', 'not_started', 7), task(4, 'Opening', 'overdue', 6), task(5, 'Closing', 'not_started', 23)]
 
-  it('shows one section per checklist, the one to do first on top and open, the others closed, each with its own progress', () => {
+  it('shows one section per checklist, the one to do first on top, all closed, each with its own progress', () => {
     render_(items)
     const sections = screen.getAllByRole('region')
     expect(sections.map((s) => s.getAttribute('aria-label'))).toEqual(['Opening', 'Closing'])
     const [opening, closing] = sections.map((s) => within(s).getAllByRole('button')[0])
-    expect(opening.getAttribute('aria-expanded')).toBe('true')
+    expect(opening.getAttribute('aria-expanded')).toBe('false')
     expect(closing.getAttribute('aria-expanded')).toBe('false')
     expect(within(sections[0]).getByText('1 of 3 done')).toBeTruthy()
     expect(within(sections[0]).getByText('1 overdue')).toBeTruthy()
