@@ -150,11 +150,19 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     })
   }
 
+  /** The check that is due now: the latest one that has opened, so nobody can record the afternoon reading in the morning or the other way round. */
+  function currentCheck(list: Schedule[]): Schedule | undefined {
+    const open = availableCycles(list)
+    if (open.length > 1 && open.some((c) => !c.time_of_day)) return undefined  // checks with no time of day cannot be told apart by the clock, so the person chooses
+    return [...open].sort((a, b) => (a.time_of_day ?? '').localeCompare(b.time_of_day ?? '') || a.id - b.id).at(-1)
+  }
+
+  const nameOf = (s: Schedule) => `${cycleOf(s, schedules).map((c) => label(c.stage)).join(' and ')}${s.time_of_day ? ` at ${s.time_of_day.slice(0, 5)}` : ''}`
+
   function pickPoint(id: string) {
     const list = equipment.find((e) => String(e.id) === id)?.schedules.filter((s) => s.active) ?? []
-    const only = availableCycles(list)
     setEquipmentId(id)
-    setScheduleId(only.length === 1 ? String(only[0].id) : '')
+    setScheduleId(currentCheck(list) ? String(currentCheck(list)!.id) : '')
     setValues({})
   }
 
@@ -207,15 +215,22 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
             {equipment.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </Select>
         </Field>
-        {cycles.length > 1 && (
+        {cycles.length > 1 && cycles.some((c) => !c.time_of_day) && !prefill?.retestOf && (
           <Field label="Check">
-            <Select required value={scheduleId} disabled={!!prefill?.retestOf} onChange={(e) => { setScheduleId(e.target.value); setValues({}) }}>
+            <Select required value={scheduleId} onChange={(e) => { setScheduleId(e.target.value); setValues({}) }}>
               <option value="">Select check</option>
-              {cycles.map((s) => (
-                <option key={s.id} value={s.id} disabled={cycleOf(s, schedules).every((c) => doneSchedules?.has(c.id))}>{cycleOf(s, schedules).map((c) => label(c.stage)).join(' and ')}{s.time_of_day ? ` at ${s.time_of_day.slice(0, 5)}` : ''}{cycleOf(s, schedules).every((c) => doneSchedules?.has(c.id)) ? ' (recorded)' : ''}</option>
-              ))}
+              {cycles.map((c) => <option key={c.id} value={c.id}>{nameOf(c)}</option>)}
             </Select>
           </Field>
+        )}
+        {schedule && !prefill?.retestOf && !prefill?.startReadingId && !(cycles.length > 1 && cycles.some((c) => !c.time_of_day)) && (
+          <div>
+            <p className="mb-1 text-sm font-medium">Check</p>
+            <p className="flex min-h-10 items-center rounded-md border border-border bg-surface-muted px-3 text-sm font-semibold">{nameOf(schedule)}</p>
+            {cycles.filter((c) => c.id !== schedule.id).length > 0 && (
+              <p className="mt-1 text-xs text-ink-muted">Also waiting: {cycles.filter((c) => c.id !== schedule.id).map(nameOf).join(', ')}. Record those from the list on the Monitoring page, so each goes in at the right time.</p>
+            )}
+          </div>
         )}
       </div>
       {selected && !prefill?.retestOf && cycles.length === 0 && <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">Nothing is open for this point right now. Checks open shortly before they are due.</p>}
