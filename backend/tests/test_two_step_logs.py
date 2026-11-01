@@ -207,3 +207,11 @@ def test_a_pending_time_in_counts_down_to_its_time_out_and_alerts_the_person_who
     # the time out is recorded at its own real time, and the log shows how long the item was out
     done = finish(client, steward, point, started[0]["id"]).json()
     assert done[0]["open_minutes"] == 190
+
+
+def test_every_item_defrosted_is_its_own_time_in_however_many_there_are_in_a_day(client, login, db, clock):
+    m = login(MGR)
+    point = make(client, m, db, "defrosting")
+    first, second = start(client, m, point), start(client, m, point)
+    assert first.status_code == 201 and second.status_code == 201  # the second item is not "already recorded for this time"
+    assert len(client.get("/api/monitoring/pending", headers=m).json()) == 2
