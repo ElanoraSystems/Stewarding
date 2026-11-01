@@ -231,7 +231,17 @@ def generate_now(body: GenerateIn, user: User = Depends(require("checklist.confi
     return {"created": created}
 
 
-def _serialize(inst: ChecklistInstance, task: ChecklistTask, template: ChecklistTemplate, now) -> dict:
+def _lead(db: Session) -> int:
+    """Minutes before its due time that a task opens for doing; 0 means a task can be done any time on its day."""
+    return get_setting(db, "checklist.open_before_minutes")
+
+
+def _opens_at(inst: ChecklistInstance, task: ChecklistTask, lead: int):
+    """Only a task with a set deadline time waits to open; one due at the end of the day or the shift can be done any time before."""
+    return inst.due_at - timedelta(minutes=lead) if lead and inst.due_at and task.deadline_time else None
+
+
+def _serialize(inst: ChecklistInstance, task: ChecklistTask, template: ChecklistTemplate, now, lead: int = 0) -> dict:
     out = row(inst, "id", "task_id", "location_id", "local_date", "shift_key", "status", "due_at",
               "assigned_employee_id", "completed_at", "completed_by", "evidence_path", "reading", "comment",
               "verified_by", "verified_at", "waive_reason")
@@ -239,7 +249,8 @@ def _serialize(inst: ChecklistInstance, task: ChecklistTask, template: Checklist
     out.update({"description": task.description, "instructions": task.instructions, "priority": task.priority,
                 "requires_photo": task.requires_photo, "requires_reading": task.requires_reading,
                 "requires_verification": task.requires_verification, "category": template.category,
-                "frequency": template.frequency, "template_name": template.name})
+                "frequency": template.frequency, "template_name": template.name,
+                "opens_at": (o.isoformat() + "Z") if (o := _opens_at(inst, task, lead)) else None})
     return out
 
 
@@ -292,8 +303,8 @@ def list_instances(location_id: int | None = None, day: date | None = None, date
         stmt = stmt.where(ChecklistInstance.assigned_employee_id == user.employee.id)
     stmt = stmt.order_by(ChecklistInstance.local_date.desc(), ChecklistInstance.due_at, ChecklistInstance.id)
     total, rows = paginate(db, stmt, page, size)
-    late_now = overdue_after(db, now)
-    return {"total": total, "items": [_serialize(i, t, tpl, late_now) for i, t, tpl in rows]}
+    late_now, lead = overdue_after(db, now), _lead(db)
+    return {"total": total, "items": [_serialize(i, t, tpl, late_now, lead) for i, t, tpl in rows]}
 
 
 def _load(db: Session, user: User, instance_id: int):
@@ -314,7 +325,7 @@ def _load(db: Session, user: User, instance_id: int):
 @router.get("/instances/{instance_id}")
 def get_instance(instance_id: int, user: User = Depends(require("checklist.view")), db: Session = Depends(get_db)):
     inst, task, template = _load(db, user, instance_id)
-    return _serialize(inst, task, template, overdue_after(db))
+    return _serialize(inst, task, template, overdue_after(db), _lead(db))
 
 
 @router.post("/instances/{instance_id}/start")
@@ -322,9 +333,11 @@ def start(instance_id: int, user: User = Depends(require("checklist.complete")),
     inst, task, template = _load(db, user, instance_id)
     if inst.status not in ("not_started", "failed"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Task is {inst.status}")
+    if (o := _opens_at(inst, task, _lead(db))) and timeutil.utc_now() < o:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"This task opens at {timeutil.to_local(o, db.get(Location, inst.location_id).timezone):%H:%M}")
     inst.status = "in_progress"
     db.commit()
-    return _serialize(inst, task, template, overdue_after(db))
+    return _serialize(inst, task, template, overdue_after(db), _lead(db))
 
 
 @router.post("/instances/{instance_id}/complete")
@@ -333,6 +346,8 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
     inst, task, template = _load(db, user, instance_id)
     if inst.status in ("completed", "pending_verification", "verified", "waived"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Task is already {inst.status}")
+    if (o := _opens_at(inst, task, _lead(db))) and timeutil.utc_now() < o:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"This task opens at {timeutil.to_local(o, db.get(Location, inst.location_id).timezone):%H:%M}")
     now = timeutil.utc_now()
     location = db.get(Location, inst.location_id)
     require_scan(db, user, "location", location.id, "scan.checklists_required", location.name)
@@ -356,7 +371,7 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
                f"Verify: {task.description}", key=f"verify:{inst.id}", location_id=inst.location_id,
                link="/checklists", priority="high")
     db.commit()
-    return _serialize(inst, task, template, overdue_after(db, now))
+    return _serialize(inst, task, template, overdue_after(db, now), _lead(db))
 
 
 @router.post("/instances/{instance_id}/verify")
@@ -380,7 +395,7 @@ def verify(instance_id: int, body: VerifyIn, user: User = Depends(require("check
         notify(db, [inst.completed_by], "task_rejected", f"Redo: {task.description}",
                key=f"reject:{inst.id}:{now.isoformat()}", location_id=inst.location_id, priority="high")
     db.commit()
-    return _serialize(inst, task, template, overdue_after(db, now))
+    return _serialize(inst, task, template, overdue_after(db, now), _lead(db))
 
 
 class VerifyManyIn(BaseModel):
@@ -465,7 +480,7 @@ def waive(instance_id: int, body: WaiveIn, user: User = Depends(require("checkli
     audit(db, user, "checklist.waive", "checklist_instance", inst.id, {"status": before},
           {"status": "waived", "reason": body.reason})
     db.commit()
-    return _serialize(inst, task, template, overdue_after(db))
+    return _serialize(inst, task, template, overdue_after(db), _lead(db))
 
 
 @router.post("/instances/{instance_id}/assign")
@@ -487,7 +502,7 @@ def assign(instance_id: int, body: AssignIn, user: User = Depends(require("task.
         notify(db, [emp.user_id], "task_assigned", f"New task: {task.description}",
                key=f"assign:{inst.id}:{emp.id}", location_id=inst.location_id, due_at=inst.due_at)
     db.commit()
-    return _serialize(inst, task, template, overdue_after(db))
+    return _serialize(inst, task, template, overdue_after(db), _lead(db))
 
 
 DELETE_GRACE_DAYS = 3  # a checklist made in error is noticed within days; older untouched tasks are missed work and stay on record

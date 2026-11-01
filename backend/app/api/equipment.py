@@ -17,7 +17,7 @@ from ..pagination import row
 from ..services.settings import get_setting
 from ..services.visibility import clean_titles
 from ..services.monitoring import failure_count
-from ..services.monitoring_templates import BY_KEY, TEMPLATES
+from ..services.monitoring_templates import BY_KEY, TEMPLATES, default_times, with_times
 from .. import timeutil
 
 router = APIRouter(prefix="/api/equipment", tags=["monitoring points"])
@@ -317,6 +317,14 @@ class FromTemplateIn(BaseModel):
     location_id: int
     name: str | None = Field(default=None, min_length=2, max_length=120)
     supervisor_id: int | None = None
+    times: list[time] | None = Field(default=None, min_length=1, max_length=6)
+
+    @field_validator("times")
+    @classmethod
+    def _different(cls, v):
+        if v and len(set(v)) != len(v):
+            raise ValueError("Give each time once")
+        return v
 
 
 def _next_code(db: Session, prefix: str, location_code: str) -> str:
@@ -331,7 +339,7 @@ def list_templates(user: User = Depends(require("equipment.manage"))):
     return [{"key": t["key"], "name": t["name"], "type": t["type"], "checks": [
         {"stage": c["stage"], "parameter": c["parameter"], "unit": c["unit"], "value_type": c["value_type"],
          "min_value": c.get("min_value"), "max_value": c.get("max_value"), "timing": c["timing"], "phase": c.get("phase")}
-        for c in t["checks"]]}
+        for c in t["checks"]], "times": [x.strftime("%H:%M") for x in default_times(t) or []] or None}
         for t in TEMPLATES]
 
 
@@ -348,7 +356,12 @@ def create_from_template(body: FromTemplateIn, user: User = Depends(require("equ
                    kind=preset["type"], location_id=location.id, supervisor_id=body.supervisor_id)
     db.add(eq)
     db.flush()
-    for check in preset["checks"]:
+    checks = preset["checks"]
+    if body.times:
+        if default_times(preset) is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This template has no times a day to choose")
+        checks = with_times(preset, body.times)
+    for check in checks:
         weekdays = check.get("weekdays")
         db.add(EquipmentSchedule(equipment_id=eq.id, **{**check, "weekdays": weekdays}))
     audit(db, user, "equipment.create", "equipment", eq.id, None, {"template": body.template, "code": eq.code})

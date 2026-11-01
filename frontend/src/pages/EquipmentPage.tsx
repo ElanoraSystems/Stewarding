@@ -20,12 +20,14 @@ import { qs, useApi } from '@/lib/useApi'
 import { CheckFormModal } from '@/pages/CheckFormModal'
 import { JobTitlesModal } from '@/pages/JobTitlesModal'
 import { FormBuilderModal } from '@/pages/FormBuilderModal'
+import { TimesEditor } from '@/pages/TimesEditor'
 import type { EquipmentItem, Schedule } from '@/pages/MonitoringRecordForm'
 
 interface Template {
   key: string
   name: string
   type: string
+  times: string[] | null
   checks: { stage: string; parameter: string; unit: string | null; value_type: string; min_value: number | null; max_value: number | null; timing: string; phase: string | null }[]
 }
 
@@ -62,6 +64,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const [presetOpen, setPresetOpen] = useState(false)
   const [preset, setPreset] = useState('')
   const [presetName, setPresetName] = useState('')
+  const [presetTimes, setPresetTimes] = useState<string[]>([])
   const templates = useApi<Template[]>(canManage ? '/equipment/templates' : null)
   const chosen = templates.data?.find((t) => t.key === preset)
 
@@ -96,7 +99,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
 
   async function addFromTemplate(event: FormEvent) {
     event.preventDefault()
-    const ok = await run(() => api('/equipment/from-template', { body: { template: preset, location_id: locationId, name: presetName || null } }), 'Monitoring point added')
+    const ok = await run(() => api('/equipment/from-template', { body: { template: preset, location_id: locationId, name: presetName || null, times: chosen?.times ? presetTimes.map((t) => t.slice(0, 5)) : undefined } }), 'Monitoring point added')
     if (ok) {
       setPresetOpen(false)
       setPreset('')
@@ -183,11 +186,11 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
       <Modal open={presetOpen} title="Add from template" description="A ready-made monitoring point with its checks and limits." onClose={() => setPresetOpen(false)}
         footer={<>
           <Button type="button" variant="outline" onClick={() => setPresetOpen(false)}>Cancel</Button>
-          <Button type="submit" form="template-form" disabled={!preset || !locationId}>Add monitoring point</Button>
+          <Button type="submit" form="template-form" disabled={!preset || !locationId || (!!chosen?.times && (presetTimes.some((t) => !t) || new Set(presetTimes).size !== presetTimes.length))}>Add monitoring point</Button>
         </>}>
         <form id="template-form" onSubmit={addFromTemplate} className="space-y-5">
           <Field label="Template">
-            <Select required value={preset} onChange={(e) => setPreset(e.target.value)}>
+            <Select required value={preset} onChange={(e) => { setPreset(e.target.value); setPresetTimes(templates.data?.find((t) => t.key === e.target.value)?.times ?? []) }}>
               <option value="">Select</option>
               {templates.data?.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
             </Select>
@@ -199,6 +202,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
               ))}
             </ul>
           )}
+          {chosen?.times && <Field label="Times a day (one check at each, all in this monitoring point)"><TimesEditor times={presetTimes} onChange={setPresetTimes} /></Field>}
           <Field label="Name (optional)"><Input value={presetName} maxLength={120} onChange={(e) => setPresetName(e.target.value)} /></Field>
         </form>
       </Modal>

@@ -468,7 +468,7 @@ def test_a_lot_timeline_follows_it_through_thaw_defrost_cooling_and_reheating(cl
 
     clock.advance(hours=1)
     defrost = make(client, m, db, "defrosting")
-    assert finish(client, steward, defrost, record_in(defrost, 3)[0]["id"]).status_code == 201
+    assert finish(client, steward, defrost, record_in(defrost, -20)[0]["id"]).status_code == 201
     clock.advance(hours=1)
     cooling = make(client, m, db, "cooling")
     assert finish(client, steward, cooling, record_in(cooling, 80)[0]["id"]).status_code == 201

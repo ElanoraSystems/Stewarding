@@ -164,8 +164,9 @@ def due_checks(db: Session, equipment: list[Equipment], now: datetime) -> list[d
 
 
 def already_recorded(db: Session, eq: Equipment, sched: EquipmentSchedule, now: datetime) -> bool:
-    """Whether the check's current scheduled time already has a reading; on-demand and time-out checks never do."""
-    if sched.timing == "manual" or sched.phase == "finish":
+    """Whether the check's current scheduled time already has a reading; on-demand checks and both halves of a time in / time out log never do:
+    every item defrosted or cooled is its own entry, however many there are in a day."""
+    if sched.timing == "manual" or sched.phase in ("start", "finish"):
         return False
     grace = get_setting(db, "temp.due_grace_minutes")
     location = db.get(Location, eq.location_id)

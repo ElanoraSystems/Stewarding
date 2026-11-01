@@ -53,6 +53,13 @@ def clock(monkeypatch):
     return c
 
 
+@pytest.fixture(autouse=True)
+def tasks_open_any_time_that_day(monkeypatch):
+    """Most tests complete tasks at whatever time the clock shows; the early-recording limit has its own test."""
+    from app.services import settings
+    monkeypatch.setitem(settings.DEFAULTS, "checklist.open_before_minutes", 0)
+
+
 @pytest.fixture
 def db():
     with SessionLocal() as session:
