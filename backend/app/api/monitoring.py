@@ -18,6 +18,7 @@ from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
 from ..services.traceability import usable
+from ..services.approvals import record_decision
 from ..services.monitoring import (CLOSED_ACTIONS, warns, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
@@ -46,8 +47,13 @@ class ReadingIn(BaseModel):
     start_reading_id: int | None = None
 
 
+class CommentIn(BaseModel):
+    comment: str | None = Field(default=None, max_length=300)
+
+
 class ReviewManyIn(BaseModel):
     reading_ids: list[int] = Field(min_length=1, max_length=200)
+    comment: str | None = Field(default=None, max_length=300)  # why it is approved, kept for the approvals report
 
 
 class BatchItem(BaseModel):
@@ -365,6 +371,7 @@ def review_readings(body: ReviewManyIn, user: User = Depends(require("temp.revie
         if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id:
             continue
         reading.reviewed_by, reading.reviewed_at = user.id, now
+        record_decision(db, user, "reading", reading.id, True, body.comment)
         reviewed.append(reading.id)
     audit(db, user, "monitoring.review_many", "temperature_reading", None, None, {"reading_ids": sorted(reviewed)})
     db.commit()
@@ -372,7 +379,7 @@ def review_readings(body: ReviewManyIn, user: User = Depends(require("temp.revie
 
 
 @router.post("/readings/{reading_id}/review")
-def review_reading(reading_id: int, user: User = Depends(require("temp.review")), db: Session = Depends(get_db)):
+def review_reading(reading_id: int, body: CommentIn | None = None, user: User = Depends(require("temp.review")), db: Session = Depends(get_db)):
     reading = db.get(TemperatureReading, reading_id)
     if not reading:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reading not found")
@@ -382,6 +389,7 @@ def review_reading(reading_id: int, user: User = Depends(require("temp.review"))
     if reading.reviewed_at or reading.rejected_at:
         raise HTTPException(status.HTTP_409_CONFLICT, "Reading was already reviewed")
     reading.reviewed_by, reading.reviewed_at = user.id, timeutil.utc_now()
+    record_decision(db, user, "reading", reading.id, True, body.comment if body else None)
     audit(db, user, "monitoring.review", "temperature_reading", reading.id)
     db.commit()
     return _serialize_reading(db, reading, _names(db, {reading.recorded_by}))
@@ -425,6 +433,7 @@ def reject_readings(body: RejectManyIn, user: User = Depends(require("temp.revie
         if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id or _has_open_time_out(db, reading):
             continue
         reading.rejected_by, reading.rejected_at, reading.reject_reason = user.id, now, body.reason.strip()
+        record_decision(db, user, "reading", reading.id, False, body.reason)
         _undo_effects(db, reading, now)
         rejected.append(reading)
         notify(db, [reading.recorded_by], "monitoring_rejected", f"Record again: {reading.stage}",
