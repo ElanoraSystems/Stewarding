@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { blankField, fieldPayload, fieldProblem, FIELD_TYPES, optionList, type FieldSpec } from '@/lib/formFields'
+import { blankField, fieldPayload, fieldProblem, FIELD_TYPES, FORM_PRESETS, optionList, type FieldSpec } from '@/lib/formFields'
 import { useRun } from '@/lib/toast'
 import { useLookup } from '@/lib/useLookups'
 import { FieldEditor } from '@/pages/FieldEditor'
@@ -113,6 +113,21 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
 
       {step === 0 && (
         <div className="space-y-5">
+          <Field label="Start from a ready-made form (optional)">
+            <Select value="" onChange={(e) => {
+              const preset = FORM_PRESETS.find((p) => p.key === e.target.value)
+              if (!preset) return
+              setName(preset.name)
+              setKind(preset.kind)
+              setFields(preset.fields.map((f) => ({ ...f })))
+              setMode('daily')
+              setTimes([preset.time])
+            }}>
+              <option value="">Blank form</option>
+              {FORM_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+            </Select>
+            <p className="mt-1 text-xs text-ink-muted">It fills in the fields and limits. You choose where it is used and how many times a day on the last step.</p>
+          </Field>
           <Field label="Form name">
             <Input autoFocus maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>

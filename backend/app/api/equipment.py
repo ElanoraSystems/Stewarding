@@ -376,6 +376,8 @@ class FieldIn(BaseModel):
     unit: str | None = Field(default=None, max_length=20)
     min_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
     max_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
+    warn_min: Decimal | None = Field(default=None, ge=-100000, le=100000)
+    warn_max: Decimal | None = Field(default=None, ge=-100000, le=100000)
     options: list[str] | None = None
     fail_options: list[str] | None = None
     max_length: int | None = Field(default=None, ge=1, le=500)
@@ -441,7 +443,7 @@ def _schedules_for(form: FormIn) -> list[dict]:
             check = ScheduleIn(stage=title, parameter=title, unit=f.unit, value_type=f.value_type, require_reference=f.require_reference, trace_lots=f.trace_lots,
                                source="machine_display", weekdays=freq.weekdays if freq.mode == "weekly" else None,
                                day_of_month=freq.day_of_month if freq.mode == "monthly" else None, min_value=f.min_value,
-                               max_value=f.max_value, options=f.options, fail_options=f.fail_options, max_length=f.max_length, required=f.required, **slot)
+                               max_value=f.max_value, warn_min=f.warn_min, warn_max=f.warn_max, options=f.options, fail_options=f.fail_options, max_length=f.max_length, required=f.required, **slot)
             out.append(_schedule_values(check))
     return out
 

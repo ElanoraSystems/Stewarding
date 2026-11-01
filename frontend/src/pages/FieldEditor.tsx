@@ -22,6 +22,8 @@ export function FieldRestrictions({ value, onChange }: RestrictionsProps) {
           <Field label="Unit"><Input maxLength={20} value={value.unit} onChange={(e) => set({ unit: e.target.value })} /></Field>
           <Field label="Minimum"><Input type="number" step="any" value={value.min} onChange={(e) => set({ min: e.target.value })} /></Field>
           <Field label="Maximum"><Input type="number" step="any" value={value.max} onChange={(e) => set({ max: e.target.value })} /></Field>
+          <Field label="Amber warning from (optional)"><Input type="number" step="any" placeholder="Passes, but is flagged" value={value.warnMax} onChange={(e) => set({ warnMax: e.target.value })} /></Field>
+          <Field label="Amber warning down to (optional)"><Input type="number" step="any" placeholder="Passes, but is flagged" value={value.warnMin} onChange={(e) => set({ warnMin: e.target.value })} /></Field>
         </div>
       )}
       {value.type === 'text' && (
