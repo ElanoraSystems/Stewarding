@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { AuthImage } from '@/components/AuthImage'
+import { DecisionDialog, type Decision } from '@/components/DecisionDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Modal } from '@/components/ui/modal'
 import { Pagination } from '@/components/ui/pagination'
 import { Select } from '@/components/ui/select'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -64,8 +63,7 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<number[]>([])
-  const [rejecting, setRejecting] = useState<number[] | null>(null)
-  const [reason, setReason] = useState('')
+  const [deciding, setDeciding] = useState<{ ids: number[]; initial: Decision } | null>(null)
   const timezone = me?.locations.find((l) => l.id === locationId)?.timezone
   const names = new Map(equipment.map((e) => [e.id, e.name]))
 
@@ -76,24 +74,19 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
   const pending = (data?.items ?? []).filter((r) => !r.reviewed_at && !r.rejected_at && r.recorded_by !== me?.id)
   const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
 
-  async function approveSelected() {
-    if (await run(() => api('/monitoring/readings/review', { body: { reading_ids: selected } }), 'Approved')) {
+  async function decide(decision: Decision, note: string) {
+    if (!deciding) return false
+    const ids = deciding.ids
+    const many = `${ids.length} reading${ids.length === 1 ? '' : 's'}`
+    const ok = decision === 'approved'
+      ? await run(() => api('/monitoring/readings/review', { body: { reading_ids: ids, comment: note || null } }), `${many} approved`)
+      : await run(() => api('/monitoring/readings/reject', { body: { reading_ids: ids, reason: note } }), `${many} rejected`)
+    if (ok) {
+      setDeciding(null)
       setSelected([])
       reload()
     }
-  }
-
-  async function reject() {
-    if (rejecting && await run(() => api('/monitoring/readings/reject', { body: { reading_ids: rejecting, reason: reason.trim() } }), `${rejecting.length} reading${rejecting.length === 1 ? '' : 's'} rejected`)) {
-      setRejecting(null)
-      setReason('')
-      setSelected([])
-      reload()
-    }
-  }
-
-  async function review(id: number) {
-    if (await run(() => api(`/monitoring/readings/${id}/review`, { method: 'POST' }), 'Check reviewed')) reload()
+    return Boolean(ok)
   }
 
   const approvalOf = (r: Reading) => (
@@ -101,8 +94,8 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
       : r.rejected_at ? <span><Badge tone="critical">Rejected by {r.rejected_by_name}</Badge><span className="mt-1 block text-xs text-ink-muted">{r.reject_reason}</span></span>
       : canReview && r.recorded_by !== me?.id ? (
         <span className="flex gap-1">
-          <Button size="sm" variant="outline" onClick={() => review(r.id)}>Approve</Button>
-          <Button size="sm" variant="ghost" className="text-danger" onClick={() => setRejecting([r.id])}>Reject</Button>
+          <Button size="sm" variant="outline" onClick={() => setDeciding({ ids: [r.id], initial: 'approved' })}>Approve</Button>
+          <Button size="sm" variant="ghost" className="text-danger" onClick={() => setDeciding({ ids: [r.id], initial: 'rejected' })}>Reject</Button>
         </span>
       ) : <Badge title={r.recorded_by === me?.id ? 'You recorded this, so someone else approves it' : 'Waiting for a supervisor or manager'}>Awaiting approval</Badge>
   )
@@ -131,8 +124,8 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
           <span>{pending.length} on this page awaiting approval</span>
           <Button size="sm" variant="outline" onClick={() => setSelected(pending.map((r) => r.id))}>Select all</Button>
-          <Button size="sm" disabled={selected.length === 0} onClick={approveSelected}>Approve selected ({selected.length})</Button>
-          <Button size="sm" variant="outline" disabled={selected.length === 0} onClick={() => setRejecting(selected)}>Reject selected</Button>
+          <Button size="sm" disabled={selected.length === 0} onClick={() => setDeciding({ ids: selected, initial: 'approved' })}>Approve selected ({selected.length})</Button>
+          <Button size="sm" variant="outline" disabled={selected.length === 0} onClick={() => setDeciding({ ids: selected, initial: 'rejected' })}>Reject selected</Button>
         </div>
       )}
       <ul className="space-y-3 xl:hidden">
@@ -188,8 +181,8 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
                   : r.rejected_at ? <span><Badge tone="critical">Rejected by {r.rejected_by_name}</Badge><span className="mt-1 block text-xs text-ink-muted">{r.reject_reason}</span></span>
                   : canReview && r.recorded_by !== me?.id ? (
                     <span className="flex gap-1">
-                      <Button size="sm" variant="outline" onClick={() => review(r.id)}>Approve</Button>
-                      <Button size="sm" variant="ghost" className="text-danger" onClick={() => setRejecting([r.id])}>Reject</Button>
+                      <Button size="sm" variant="outline" onClick={() => setDeciding({ ids: [r.id], initial: 'approved' })}>Approve</Button>
+                      <Button size="sm" variant="ghost" className="text-danger" onClick={() => setDeciding({ ids: [r.id], initial: 'rejected' })}>Reject</Button>
                     </span>
                   ) : <Badge title={r.recorded_by === me?.id ? 'You recorded this, so someone else approves it' : 'Waiting for a supervisor or manager'}>Awaiting approval</Badge>}
               </Td>
@@ -199,19 +192,8 @@ export function MonitoringLog({ locationId, equipment, refreshKey }: LogProps) {
       </Table>
       </div>
       {data?.items.length === 0 && <EmptyState title="No checks recorded for this selection" />}
-      <Modal
-        open={rejecting !== null}
-        size="md"
-        title={`Reject ${rejecting?.length ?? 0} reading${rejecting?.length === 1 ? '' : 's'}`}
-        description="The person who recorded it is told to record the check again, and the check shows as due until they do."
-        onClose={() => setRejecting(null)}
-        footer={<>
-          <Button variant="outline" onClick={() => setRejecting(null)}>Cancel</Button>
-          <Button variant="danger" disabled={reason.trim().length < 5} onClick={reject}>Reject</Button>
-        </>}
-      >
-        <Field label="Reason"><Input value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} /></Field>
-      </Modal>
+      <DecisionDialog open={deciding !== null} initial={deciding?.initial} title={`Approve or reject ${deciding?.ids.length ?? 0} reading${deciding?.ids.length === 1 ? '' : 's'}`}
+        subject="A rejected reading is recorded again by the person who took it, and the check shows as due until they do." onClose={() => setDeciding(null)} onDecide={decide} />
       {data && <Pagination page={page} size={SIZE} total={data.total} onPage={setPage} />}
     </div>
   )

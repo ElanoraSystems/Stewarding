@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/auth'
 import { fmtTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useRun } from '@/lib/toast'
+import { DecisionDialog, type Decision } from '@/components/DecisionDialog'
 import type { EmployeeRow } from '@/pages/EmployeeForm'
 
 export interface Instance {
@@ -38,7 +39,7 @@ export interface Instance {
   waive_reason: string | null
 }
 
-type Dialog = 'complete' | 'reject' | 'waive' | 'assign' | null
+type Dialog = 'complete' | 'waive' | 'assign' | null
 const FINISHED = ['completed', 'verified', 'waived']
 
 interface TaskCardProps {
@@ -54,6 +55,7 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
   const run = useRun()
   const can = (permission: string) => me?.permissions.includes(permission) ?? false
   const [dialog, setDialog] = useState<Dialog>(null)
+  const [decide, setDecide] = useState<Decision | null>(null)
   const [comment, setComment] = useState('')
   const [reading, setReading] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -108,8 +110,8 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
           )}
           {status === 'pending_verification' && can('checklist.verify') && item.completed_by !== me?.id && (
             <>
-              <Button size="sm" onClick={() => act('verify', { approve: true }, 'Task verified')}>Approve</Button>
-              <Button size="sm" variant="danger" onClick={() => setDialog('reject')}>Reject</Button>
+              <Button size="sm" onClick={() => setDecide('approved')}>Approve</Button>
+              <Button size="sm" variant="outline" className="text-danger" onClick={() => setDecide('rejected')}>Reject</Button>
             </>
           )}
           {!FINISHED.includes(status) && can('checklist.verify') && (
@@ -140,15 +142,25 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
         </div>
       </Modal>
 
-      <Modal open={dialog === 'reject' || dialog === 'waive'} title={dialog === 'reject' ? 'Reject work' : 'Waive task'} onClose={() => setDialog(null)}>
+      <DecisionDialog open={decide !== null} initial={decide ?? 'approved'} title="Approve or reject" subject={item.description} onClose={() => setDecide(null)}
+        onDecide={async (decision, note) => {
+          const ok = await run(() => api(`${base}/verify`, { body: { approve: decision === 'approved', comment: note || null } }), decision === 'approved' ? 'Task approved' : 'Task rejected')
+          if (ok) {
+            setDecide(null)
+            onChanged()
+          }
+          return ok
+        }} />
+
+      <Modal open={dialog === 'waive'} title="Waive task" onClose={() => setDialog(null)}>
         <div className="space-y-3">
-          <Field label={dialog === 'reject' ? 'What needs redoing?' : 'Reason for waiving'}>
+          <Field label="Reason for waiving">
             <Input value={comment} onChange={(e) => setComment(e.target.value)} />
           </Field>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
             <Button variant="danger" disabled={comment.trim().length < 5}
-              onClick={() => dialog === 'reject' ? act('verify', { approve: false, comment }, 'Task rejected') : act('waive', { reason: comment }, 'Task waived')}>
+              onClick={() => act('waive', { reason: comment }, 'Task waived')}>
               Confirm
             </Button>
           </div>

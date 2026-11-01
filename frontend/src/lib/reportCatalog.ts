@@ -14,6 +14,8 @@ export const REPORTS: ReportDef[] = [
     statuses: [['present', 'Present'], ['late', 'Late'], ['absent', 'Absent'], ['leave', 'On leave'], ['week_off', 'Week off']] },
   { key: 'attendance_sheet', title: 'Employee attendance sheet', section: 'People', filters: ['employee'] },
   { key: 'checklist_chart', title: 'Checklist completion chart', section: 'Checklists', filters: ['checklist', 'frequency'] },
+  { key: 'approvals', title: 'Approvals and rejections', section: 'Checklists', filters: ['status'],
+    statuses: [['approved', 'Approved'], ['rejected', 'Rejected']] },
   { key: 'checklists', title: 'Checklist record', section: 'Checklists', filters: ['checklist', 'frequency', 'employee', 'status'],
     statuses: [['pending', 'Not done'], ['completed', 'Done'], ['pending_verification', 'Awaiting approval'], ['verified', 'Approved'], ['failed', 'Rejected'], ['waived', 'Waived']] },
   { key: 'monitoring', title: 'Monitoring record', section: 'Food safety', filters: ['monitoringType', 'monitoringPoint', 'status'],
