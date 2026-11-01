@@ -42,6 +42,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'reminder.lead_minutes', section: 'approvals', kind: 'number', label: 'Reminder before a deadline', unit: 'minutes' },
   { key: 'escalation.supervisor_after_minutes', section: 'approvals', kind: 'number', label: 'Escalate to supervisor after', unit: 'minutes overdue' },
   { key: 'checklist.grace_minutes', section: 'approvals', kind: 'number', label: 'Grace period before a task counts as overdue', unit: 'minutes' },
+  { key: 'checklist.open_before_minutes', section: 'approvals', kind: 'number', label: 'A task can be done from this long before it is due (0 for any time that day)', unit: 'minutes' },
   { key: 'checklist.alert_priority', section: 'approvals', kind: 'number', label: 'Overdue alerts: 0 every task, 1 high and critical only, 2 critical only', unit: '0 to 2' },
   { key: 'escalation.manager_after_minutes', section: 'approvals', kind: 'number', label: 'Escalate to manager after', unit: 'minutes overdue' },
 

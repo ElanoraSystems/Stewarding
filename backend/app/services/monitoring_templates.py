@@ -70,3 +70,19 @@ TEMPLATES = [
         {"stage": "Ice water test", **YES_NO, **at(8), "weekdays": "0"}]},
 ]
 BY_KEY = {t["key"]: t for t in TEMPLATES}
+
+
+def default_times(preset: dict) -> list[time] | None:
+    """The times a template is checked at, or none when it is not a plain timed log (time in / time out, on demand, every N minutes) whose times can be changed."""
+    checks = preset["checks"]
+    if any(c.get("phase") or c.get("timing") != "checkpoint" or not c.get("time_of_day") for c in checks):
+        return None
+    return sorted({c["time_of_day"] for c in checks})
+
+
+def with_times(preset: dict, times: list[time]) -> list[dict]:
+    """The template's checks repeated at the chosen times: its first set of checks is the pattern, so a chiller asked for three times gets three temperature checks."""
+    first = min(c["time_of_day"] for c in preset["checks"])
+    pattern = [c for c in preset["checks"] if c["time_of_day"] == first]
+    single = len(pattern) == 1 and len(default_times(preset) or []) > 1  # "Morning temperature" and "Afternoon temperature" become "Temperature" at each time
+    return [{**c, "time_of_day": t, **({"stage": c["parameter"]} if single else {})} for t in sorted(times) for c in pattern]

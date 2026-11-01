@@ -1,6 +1,7 @@
 import { CheckCircle2, Clock, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { useTick } from '@/lib/useTick'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
@@ -22,6 +23,7 @@ export interface Instance {
   status: string
   effective_status: string
   due_at: string | null
+  opens_at?: string | null
   assigned_employee_id: number | null
   completed_by: number | null
   comment: string | null
@@ -83,6 +85,8 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
     }
   }
 
+  const clock = useTick(!!item.opens_at)
+  const notYet = !!item.opens_at && new Date(item.opens_at).getTime() > clock
   return (
     <Card className={status === 'overdue' || status === 'failed' ? 'border-danger/50' : undefined}>
       <div className="space-y-3 p-4">
@@ -108,7 +112,9 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
 
         <div className="flex flex-wrap gap-2">
           {open && can('checklist.complete') && (
-            <Button size="sm" onClick={() => setDialog('complete')}><CheckCircle2 className="h-4 w-4" /> Complete</Button>
+            notYet
+              ? <Button size="sm" disabled><Clock className="h-4 w-4" /> Opens at {fmtTime(item.opens_at!, timezone)}</Button>
+              : <Button size="sm" onClick={() => setDialog('complete')}><CheckCircle2 className="h-4 w-4" /> Complete</Button>
           )}
           {status === 'pending_verification' && can('checklist.verify') && item.completed_by !== me?.id && (
             <>
