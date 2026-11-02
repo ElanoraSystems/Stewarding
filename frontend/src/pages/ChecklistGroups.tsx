@@ -21,9 +21,11 @@ interface Group {
 }
 
 /** One group per checklist: its tasks (open ones first, by time), how far along it is, and what is late. */
-function groupChecklists(items: Instance[]): Group[] {
+function groupChecklists(items: Instance[], places?: Map<number, string>): Group[] {
   const byName = new Map<string, Instance[]>()
-  for (const i of items) byName.set(i.template_name ?? 'Checklist', [...(byName.get(i.template_name ?? 'Checklist') ?? []), i])
+  const several = places !== undefined && new Set(items.map((i) => i.location_id)).size > 1  // the same checklist at two places is two groups
+  const nameOf = (i: Instance) => `${i.template_name ?? 'Checklist'}${several ? ` - ${places!.get(i.location_id) ?? ''}` : ''}`
+  for (const i of items) byName.set(nameOf(i), [...(byName.get(nameOf(i)) ?? []), i])
   const groups = [...byName].map(([name, list]) => {
     const open = list.filter((i) => !DONE.includes(i.effective_status)).sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))
     const finished = list.filter((i) => DONE.includes(i.effective_status)).sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))
@@ -41,6 +43,8 @@ function groupChecklists(items: Instance[]): Group[] {
 
 interface Props {
   items: Instance[]
+  /** Location names, so checklists of the same name at different places stay apart. */
+  places?: Map<number, string>
   timezone?: string
   /** Whether every checklist starts open, as when a filter is set and the person is looking for something. */
   openAll?: boolean
@@ -53,8 +57,8 @@ interface Props {
  * The tasks of a day as separate checklists, each a section that opens and closes, with its own progress and what is late.
  * Every checklist starts closed, showing only its progress and what is late, so a long checklist never pushes the others off the screen.
  */
-export function ChecklistGroups({ items, timezone, openAll = false, renderTask, selection }: Props) {
-  const groups = groupChecklists(items)
+export function ChecklistGroups({ items, places, timezone, openAll = false, renderTask, selection }: Props) {
+  const groups = groupChecklists(items, places)
   const [choice, setChoice] = useState<Record<string, boolean>>({})
   const isOpen = (g: Group) => choice[g.name] ?? openAll
   const setAll = (value: boolean) => setChoice(Object.fromEntries(groups.map((g) => [g.name, value])))
