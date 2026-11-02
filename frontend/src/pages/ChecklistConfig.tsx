@@ -1,10 +1,10 @@
-import { Pencil, Plus, Power, Trash2 } from 'lucide-react'
+import { ChevronDown, Pencil, Plus, Power, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { LocationSelect } from '@/components/LocationSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ActionMenu } from '@/components/ui/action-menu'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
@@ -53,6 +53,8 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
   const [editing, setEditing] = useState<{ templateId: number; frequency: string; task: ConfigTask | null } | null>(null)
   const [removingTask, setRemovingTask] = useState<ConfigTask | null>(null)
   const [removingTemplate, setRemovingTemplate] = useState<Template | null>(null)
+  const [openIds, setOpenIds] = useState<Set<number>>(new Set())  // every checklist starts closed, so a long one does not push the others off the screen
+  const toggle = (id: number) => setOpenIds((ids) => { const next = new Set(ids); if (!next.delete(id)) next.add(id); return next })
 
   async function saveTemplate(event: FormEvent) {
     event.preventDefault()
@@ -107,26 +109,44 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
       </div>
 
       {data?.length === 0 && <EmptyState title="No checklists at this location" />}
-      {data?.map((t) => (
-        <Card key={t.id} className={t.active ? undefined : 'bg-surface-muted/60'}>
-          <CardHeader className="flex-col gap-3 p-6 pb-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1.5">
-              <CardTitle className="flex flex-wrap items-center gap-2 text-lg">{t.name}</CardTitle>
-              <div className="flex flex-wrap gap-1.5">
-                <Badge>{label(t.frequency)}</Badge>
-                <Badge>{t.category}</Badge>
-                {!t.active && <Badge tone="warn">Inactive</Badge>}
-                {t.visible_to && t.visible_to.length > 0 && <Badge>Only: {t.visible_to.join(', ')}</Badge>}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => setTemplate({ id: t.id, name: t.name, category: t.category, frequency: t.frequency })}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
-              <Button size="sm" variant="outline" onClick={() => setLimiting(t)}>Who sees it</Button>
-              <Button size="sm" variant="outline" onClick={() => setTemplateActive(t)}><Power className="h-3.5 w-3.5" /> {t.active ? 'Make inactive' : 'Make active'}</Button>
-              <Button size="sm" variant="outline" className={DANGER} onClick={() => setRemovingTemplate(t)}><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 p-6 pt-3">
+      {data && data.length > 1 && (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <p className="text-ink-muted">{data.length} checklists</p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setOpenIds(new Set(data.map((t) => t.id)))}>Open all</Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpenIds(new Set())}>Close all</Button>
+          </div>
+        </div>
+      )}
+      {data?.map((t) => {
+        const open = openIds.has(t.id)
+        const inactive = t.tasks.filter((k) => !k.active).length
+        return (
+        <section key={t.id} aria-label={t.name} className={`overflow-hidden rounded-2xl border border-border ${t.active ? 'bg-surface' : 'bg-surface-muted/60'}`}>
+          <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+            <button type="button" aria-expanded={open} onClick={() => toggle(t.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+              <span className="min-w-0">
+                <span className="block text-lg font-semibold">{t.name}</span>
+                <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <Badge>{label(t.frequency)}</Badge>
+                  <Badge>{t.category}</Badge>
+                  {!t.active && <Badge tone="warn">Inactive</Badge>}
+                  {t.visible_to && t.visible_to.length > 0 && <Badge>Only: {t.visible_to.join(', ')}</Badge>}
+                  <span className="text-sm text-ink-muted">{t.tasks.length} task{t.tasks.length === 1 ? '' : 's'}{inactive ? `, ${inactive} inactive` : ''}</span>
+                </span>
+              </span>
+              <ChevronDown aria-hidden className={`ci-chevron ml-auto h-5 w-5 shrink-0 text-ink-muted ${open ? 'rotate-180' : ''}`} />
+            </button>
+            <ActionMenu label={`More for ${t.name}`} text="More" actions={[
+              { label: 'Edit', onClick: () => setTemplate({ id: t.id, name: t.name, category: t.category, frequency: t.frequency }) },
+              { label: 'Who sees it', onClick: () => setLimiting(t) },
+              { label: t.active ? 'Make inactive' : 'Make active', onClick: () => setTemplateActive(t) },
+              { label: 'Delete', onClick: () => setRemovingTemplate(t), tone: 'danger' },
+            ]} />
+          </div>
+          <div className="ci-collapse" data-open={open} aria-hidden={!open} {...(open ? {} : { inert: true })}>
+            <div className="overflow-hidden">
+              <div className="space-y-4 border-t border-border p-5">
             {t.tasks.length === 0 ? <p className="text-sm text-ink-muted">No tasks yet.</p> : (
               <ul className="divide-y divide-border rounded-xl border border-border">
                 {t.tasks.map((task) => (
@@ -149,9 +169,12 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
               </ul>
             )}
             <Button size="sm" variant="outline" onClick={() => setEditing({ templateId: t.id, frequency: t.frequency, task: null })}><Plus className="h-3.5 w-3.5" /> Add task</Button>
-          </CardContent>
-        </Card>
-      ))}
+              </div>
+            </div>
+          </div>
+        </section>
+        )
+      })}
 
       {limiting && <JobTitlesModal point={{ id: limiting.id, name: limiting.name, visible_to: limiting.visible_to ?? null }} path={`/checklists/templates/${limiting.id}`} title={`Who sees ${limiting.name}`}
         description="Tick the job titles that see and work on this checklist. Leave all unticked and everyone sees it. Managers and people who set up checklists always see it."
