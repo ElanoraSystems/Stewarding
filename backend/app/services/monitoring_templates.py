@@ -106,6 +106,17 @@ def with_times(preset: dict, times: list[time]) -> list[dict]:
     return [{**c, "time_of_day": t, **({"stage": c["parameter"]} if single else {})} for t in sorted(times) for c in pattern] + fixed
 
 
+def when_needed(preset: dict) -> list[dict]:
+    """The template's timed checks with no set time: recorded whenever the work is done (a delivery, an item defrosted), never due or overdue.
+    The checks appear once, as with a single time; the time out of a two-step log is kept as it is."""
+    groups = _groups(preset)
+    same = _same_check_each_time(groups)
+    pattern = groups[min(groups)] if same else [c for g in groups.values() for c in g]
+    single = same and len(pattern) == 1 and len(groups) > 1 and not pattern[0].get("phase")
+    fixed = [c for c in preset["checks"] if not _timed(c)]
+    return [{**c, "timing": "manual", "time_of_day": None, **({"stage": c["parameter"]} if single else {})} for c in pattern] + fixed
+
+
 def starts_up(preset: dict) -> bool:
     """A template whose checks are made each time the machine starts, such as a dishwasher's wash and final rinse. It can be given set times a day instead."""
     return default_times(preset) is None and any(c.get("timing") == "startup" for c in preset["checks"])

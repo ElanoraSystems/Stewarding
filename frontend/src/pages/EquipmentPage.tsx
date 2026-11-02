@@ -49,10 +49,11 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const [preset, setPreset] = useState('')
   const [presetName, setPresetName] = useState('')
   const [presetTimes, setPresetTimes] = useState<string[]>([])
+  const [onDemand, setOnDemand] = useState(false)
   const [atTimes, setAtTimes] = useState(false)
   const templates = useApi<Template[]>(canManage ? '/equipment/templates' : null)
   const chosen = templates.data?.find((t) => t.key === preset)
-  const timed = !!chosen?.times || (!!chosen?.startup && atTimes)
+  const timed = (!!chosen?.times && !onDemand) || (!!chosen?.startup && atTimes)
   const needle = find.trim().toLowerCase()
   const shown = (data ?? []).filter((e) => (showInactive || e.active) && (!needle || [e.name, e.code, ...e.schedules.map((s) => s.stage)].some((t) => t.toLowerCase().includes(needle))))
   const kinds = new Map<string, EquipmentItem[]>()
@@ -89,11 +90,12 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
 
   async function addFromTemplate(event: FormEvent) {
     event.preventDefault()
-    const ok = await run(() => api('/equipment/from-template', { body: { template: preset, location_id: locationId, name: presetName || null, times: timed ? presetTimes.map((t) => t.slice(0, 5)) : undefined } }), 'Monitoring point added')
+    const ok = await run(() => api('/equipment/from-template', { body: { template: preset, location_id: locationId, name: presetName || null, times: timed ? presetTimes.map((t) => t.slice(0, 5)) : undefined, on_demand: onDemand || undefined } }), 'Monitoring point added')
     if (ok) {
       setPresetOpen(false)
       setPreset('')
       setPresetName('')
+      setOnDemand(false)
       setAtTimes(false)
       reload()
     }
@@ -156,7 +158,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
         </>}>
         <form id="template-form" onSubmit={addFromTemplate} className="space-y-5">
           <Field label="Template">
-            <Select required value={preset} onChange={(e) => { setPreset(e.target.value); setAtTimes(false); setPresetTimes(templates.data?.find((t) => t.key === e.target.value)?.times ?? []) }}>
+            <Select required value={preset} onChange={(e) => { setPreset(e.target.value); setAtTimes(false); setOnDemand(false); setPresetTimes(templates.data?.find((t) => t.key === e.target.value)?.times ?? []) }}>
               <option value="">Select</option>
               {templates.data?.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
             </Select>
@@ -167,6 +169,15 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
                 <li key={i}>{c.stage}: {c.value_type === 'yes_no' ? 'yes or no' : `${c.parameter} ${c.min_value ?? '-'} to ${c.max_value ?? '-'} ${c.unit ?? ''}`}</li>
               ))}
             </ul>
+          )}
+          {chosen?.times && (
+            <div role="radiogroup" aria-label="When it is recorded" className="grid grid-cols-2 gap-2">
+              {([[false, 'At set times'], [true, 'When needed']] as const).map(([value, text]) => (
+                <button key={text} type="button" role="radio" aria-checked={onDemand === value} onClick={() => setOnDemand(value)}
+                  className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${onDemand === value ? 'border-brand bg-brand/10 text-brand-deep' : 'border-border text-ink-muted hover:bg-surface-muted'}`}>{text}</button>
+              ))}
+              {onDemand && <p className="col-span-2 text-sm text-ink-muted">No set time: it is recorded whenever the work is done, and is never shown as due or overdue.</p>}
+            </div>
           )}
           {chosen?.startup && (
             <label className="flex items-start gap-2 text-sm">

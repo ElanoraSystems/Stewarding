@@ -238,6 +238,17 @@ def test_a_template_of_different_checks_at_different_times_keeps_them_together_a
     assert sorted(c["time_of_day"] for c in unchanged["schedules"]) == ["10:00:00", "10:30:00"]  # the times it already has keep the template as it is
 
 
+def test_a_two_step_log_with_no_set_time_is_started_when_an_item_goes_in(client, login, db, clock):
+    m = login(MGR)
+    point = client.post("/api/equipment/from-template", json={"template": "defrosting", "location_id": loc_id(db, "MK"), "on_demand": True}, headers=m).json()
+    started = start(client, m, point)
+    assert started.status_code == 201
+    pending = client.get("/api/monitoring/pending", headers=m).json()
+    assert [p["start_reading_id"] for p in pending] == [started.json()[0]["id"]]
+    assert finish(client, m, point, started.json()[0]["id"]).status_code == 201
+
+
+
 def test_each_item_can_have_its_own_time_before_its_time_out_is_due(client, login, db, clock):
     from app.models import Notification
     from sqlalchemy import select
