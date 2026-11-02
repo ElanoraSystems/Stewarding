@@ -25,6 +25,8 @@ interface Template {
   name: string
   type: string
   times: string[] | null
+  /** Its checks are made each time the machine starts (a dishwasher); they can be set to times a day instead. */
+  startup: boolean
   checks: { stage: string; parameter: string; unit: string | null; value_type: string; min_value: number | null; max_value: number | null; timing: string; phase: string | null }[]
 }
 
@@ -47,8 +49,10 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const [preset, setPreset] = useState('')
   const [presetName, setPresetName] = useState('')
   const [presetTimes, setPresetTimes] = useState<string[]>([])
+  const [atTimes, setAtTimes] = useState(false)
   const templates = useApi<Template[]>(canManage ? '/equipment/templates' : null)
   const chosen = templates.data?.find((t) => t.key === preset)
+  const timed = !!chosen?.times || (!!chosen?.startup && atTimes)
   const needle = find.trim().toLowerCase()
   const shown = (data ?? []).filter((e) => (showInactive || e.active) && (!needle || [e.name, e.code, ...e.schedules.map((s) => s.stage)].some((t) => t.toLowerCase().includes(needle))))
   const kinds = new Map<string, EquipmentItem[]>()
@@ -85,11 +89,12 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
 
   async function addFromTemplate(event: FormEvent) {
     event.preventDefault()
-    const ok = await run(() => api('/equipment/from-template', { body: { template: preset, location_id: locationId, name: presetName || null, times: chosen?.times ? presetTimes.map((t) => t.slice(0, 5)) : undefined } }), 'Monitoring point added')
+    const ok = await run(() => api('/equipment/from-template', { body: { template: preset, location_id: locationId, name: presetName || null, times: timed ? presetTimes.map((t) => t.slice(0, 5)) : undefined } }), 'Monitoring point added')
     if (ok) {
       setPresetOpen(false)
       setPreset('')
       setPresetName('')
+      setAtTimes(false)
       reload()
     }
   }
@@ -147,11 +152,11 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
       <Modal open={presetOpen} title="Add from template" description="A ready-made monitoring point with its checks and limits." onClose={() => setPresetOpen(false)}
         footer={<>
           <Button type="button" variant="outline" onClick={() => setPresetOpen(false)}>Cancel</Button>
-          <Button type="submit" form="template-form" disabled={!preset || !locationId || (!!chosen?.times && (presetTimes.some((t) => !t) || new Set(presetTimes).size !== presetTimes.length))}>Add monitoring point</Button>
+          <Button type="submit" form="template-form" disabled={!preset || !locationId || (timed && (presetTimes.some((t) => !t) || new Set(presetTimes).size !== presetTimes.length))}>Add monitoring point</Button>
         </>}>
         <form id="template-form" onSubmit={addFromTemplate} className="space-y-5">
           <Field label="Template">
-            <Select required value={preset} onChange={(e) => { setPreset(e.target.value); setPresetTimes(templates.data?.find((t) => t.key === e.target.value)?.times ?? []) }}>
+            <Select required value={preset} onChange={(e) => { setPreset(e.target.value); setAtTimes(false); setPresetTimes(templates.data?.find((t) => t.key === e.target.value)?.times ?? []) }}>
               <option value="">Select</option>
               {templates.data?.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
             </Select>
@@ -163,7 +168,13 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
               ))}
             </ul>
           )}
-          {chosen?.times && <Field label={chosen.checks.some((c) => c.phase) ? 'Times a day items go in (the time out follows each)' : 'Times a day (one check at each, all in this monitoring point)'}><TimesEditor times={presetTimes} onChange={setPresetTimes} /></Field>}
+          {chosen?.startup && (
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={atTimes} onChange={(e) => { setAtTimes(e.target.checked); setPresetTimes(e.target.checked ? ['07:00'] : []) }} />
+              <span>Check at set times a day, with all its checks on one form <span className="block text-ink-muted">Leave it off to check each time the machine starts.</span></span>
+            </label>
+          )}
+          {timed && <Field label={chosen.checks.some((c) => c.phase) ? 'Times a day items go in (the time out follows each)' : chosen.startup ? 'Times a day (all the checks together at each)' : 'Times a day (one check at each, all in this monitoring point)'}><TimesEditor times={presetTimes} onChange={setPresetTimes} /></Field>}
           <Field label="Name (optional)"><Input value={presetName} maxLength={120} onChange={(e) => setPresetName(e.target.value)} /></Field>
         </form>
       </Modal>

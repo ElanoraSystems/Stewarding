@@ -104,3 +104,15 @@ def with_times(preset: dict, times: list[time]) -> list[dict]:
     single = same and len(pattern) == 1 and len(groups) > 1 and not pattern[0].get("phase")  # "Morning temperature" and "Afternoon temperature" become "Temperature" at each time
     fixed = [c for c in preset["checks"] if not _timed(c)]
     return [{**c, "time_of_day": t, **({"stage": c["parameter"]} if single else {})} for t in sorted(times) for c in pattern] + fixed
+
+
+def starts_up(preset: dict) -> bool:
+    """A template whose checks are made each time the machine starts, such as a dishwasher's wash and final rinse. It can be given set times a day instead."""
+    return default_times(preset) is None and any(c.get("timing") == "startup" for c in preset["checks"])
+
+
+def at_set_times(preset: dict, times: list[time]) -> list[dict]:
+    """A startup template as set checks: every check of the machine, together, at each chosen time, so one form records them all."""
+    startup = [c for c in preset["checks"] if c.get("timing") == "startup"]
+    rest = [c for c in preset["checks"] if c.get("timing") != "startup"]
+    return [{**c, "timing": "checkpoint", "time_of_day": t} for t in sorted(times) for c in startup] + rest
