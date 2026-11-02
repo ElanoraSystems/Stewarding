@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -117,6 +117,9 @@ class Organization(Base):
     logo: Mapped[str | None] = mapped_column(String(60))
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kuwait")  # shown on reports and used for new locations
     currency: Mapped[str | None] = mapped_column(String(8))  # shown with amounts; none until set
+    latitude: Mapped[float | None] = mapped_column(Float)  # centre of the area check-in and check-out are limited to, for every location
+    longitude: Mapped[float | None] = mapped_column(Float)
+    geofence_radius_m: Mapped[int | None] = mapped_column(Integer)  # empty means no restriction
 
 
 class ScanEvent(Base):

@@ -6,8 +6,8 @@ import { MyShiftCard } from '@/pages/MyShiftCard'
 const mocks = vi.hoisted(() => ({ rostered: [] as unknown[] }))
 vi.mock('@/lib/auth', () => ({
   useAuth: () => ({ me: { permissions: [], locations: [
-    { id: 1, name: 'Main Kitchen', timezone: 'Asia/Kuwait', geofence: false },
-    { id: 2, name: 'Banquet Hall', timezone: 'Asia/Kuwait', geofence: false },
+    { id: 1, name: 'Main Kitchen', timezone: 'Asia/Kuwait' },
+    { id: 2, name: 'Banquet Hall', timezone: 'Asia/Kuwait' },
   ] } }),
 }))
 vi.mock('@/lib/toast', () => ({ useRun: () => async () => true, useToast: () => () => undefined }))

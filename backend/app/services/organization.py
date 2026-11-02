@@ -14,7 +14,16 @@ FIELDS = ("name", "legal_name", "address", "phone", "email", "website", "registr
 def get_organization(db: Session) -> dict:
     org = db.get(Organization, 1)
     return {**{f: (getattr(org, f) if org else None) or "" for f in FIELDS}, "logo": org.logo if org else None,
-            "timezone": (org.timezone if org else None) or DEFAULT_TIMEZONE, "currency": (org.currency if org else None) or ""}
+            "timezone": (org.timezone if org else None) or DEFAULT_TIMEZONE, "currency": (org.currency if org else None) or "",
+            "latitude": org.latitude if org else None, "longitude": org.longitude if org else None, "geofence_radius_m": org.geofence_radius_m if org else None}
+
+
+def checkin_area(db: Session) -> tuple[float, float, int] | None:
+    """The one area every check-in and check-out must be inside (latitude, longitude, radius in metres), or none when it is not limited."""
+    org = db.get(Organization, 1)
+    if not org or not org.geofence_radius_m or org.latitude is None or org.longitude is None:
+        return None
+    return org.latitude, org.longitude, org.geofence_radius_m
 
 
 def stamp(moment: datetime, tz_name: str) -> str:

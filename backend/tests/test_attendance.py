@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from sqlalchemy import select
 
 from app import timeutil
-from app.models import AttendanceCorrection, AttendanceRecord, AuditLog, Location
+from app.models import AttendanceCorrection, AttendanceRecord, AuditLog, Location, Organization
 
 MGR = "manager@example.test"
 STEWARD = "steward.mk@example.test"
@@ -59,9 +59,10 @@ def test_dst_shift_start_uses_local_offset(client, login, db, clock):
     assert body["late_minutes"] == 0
 
 
-def fence(db, lat=29.3759, lon=47.9774, radius=100, code="MK"):
-    loc = db.get(Location, loc_id(db, code))
-    loc.latitude, loc.longitude, loc.geofence_radius_m = lat, lon, radius
+def fence(db, lat=29.3759, lon=47.9774, radius=100):
+    org = db.get(Organization, 1) or Organization(id=1)
+    org.latitude, org.longitude, org.geofence_radius_m = lat, lon, radius
+    db.add(org)
     db.commit()
 
 
@@ -94,8 +95,19 @@ def test_choosing_a_location_is_still_required_when_attendance_is_by_location(cl
     assert client.post("/api/attendance/check-in", json={}, headers=login(STEWARD)).status_code == 422
 
 
-def test_a_location_without_a_geofence_needs_no_position(client, login, db, clock):
+def test_without_a_check_in_area_no_position_is_needed(client, login, db, clock):
     assert check_in(client, login(STEWARD), db).status_code == 201
+
+
+def test_one_area_limits_every_location(client, login, db, clock):
+    fence(db)
+    for code, email in (("MK", STEWARD), ("BQ", "steward.bq@example.test")):
+        h = login(email)
+        assert check_in(client, h, db, code).status_code == 400                                          # no position sent
+        assert check_in(client, h, db, code, latitude=29.3859, longitude=47.9774).status_code == 403     # 1.1 km away, whichever location
+        assert check_in(client, h, db, code, latitude=29.3760, longitude=47.9775).status_code == 201
+        assert client.get("/api/auth/me", headers=h).json()["geofence"] is True
+        assert client.get("/api/attendance/me/status", headers=h).json()["geofence"] is True
 
 
 def generate_tasks(client, login, db):

@@ -1,12 +1,14 @@
-import { Trash2, Upload } from 'lucide-react'
+import { MapPin, Trash2, Upload } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { TimezoneInput } from '@/components/TimezoneInput'
+import { SignedNumberInput } from '@/components/ui/signed-number-input'
+import { currentPosition } from '@/lib/geo'
 import { api, uploadLogo } from '@/lib/api'
-import { useRun } from '@/lib/toast'
+import { useRun, useToast } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 
 interface Organization {
@@ -20,10 +22,22 @@ interface Organization {
   report_footer: string
   timezone: string
   currency: string
+  latitude: number | null
+  longitude: number | null
+  geofence_radius_m: number | null
   logo: string | null
 }
 
-const FIELDS: [keyof Omit<Organization, 'logo'>, string][] = [
+/** The check-in area is edited as text in three fields, saved with the rest of the organization. */
+interface Area {
+  latitude: string
+  longitude: string
+  radius: string
+}
+
+type TextKey = Exclude<keyof Organization, 'logo' | 'latitude' | 'longitude' | 'geofence_radius_m'>
+
+const FIELDS: [TextKey, string][] = [
   ['name', 'Organization name'],
   ['legal_name', 'Legal name'],
   ['address', 'Address'],
@@ -38,18 +52,36 @@ const FIELDS: [keyof Omit<Organization, 'logo'>, string][] = [
 
 export function SettingsOrganization() {
   const run = useRun()
+  const toast = useToast()
   const { data, reload } = useApi<Organization>('/organization')
   const [draft, setDraft] = useState<Partial<Organization>>({})
+  const [area, setArea] = useState<Partial<Area>>({})
   const [version, setVersion] = useState(0)
 
   if (!data) return null
-  const value = (key: keyof Omit<Organization, 'logo'>) => draft[key] ?? data[key]
+  const value = (key: TextKey) => draft[key] ?? data[key]
+  const areaValue = (key: keyof Area) => area[key] ?? (key === 'radius' ? data.geofence_radius_m : data[key])?.toString() ?? ''
+  const mapsLink = areaValue('latitude') && areaValue('longitude') ? `https://www.google.com/maps?q=${areaValue('latitude')},${areaValue('longitude')}` : null
+
+  async function useHere() {
+    try {
+      const here = await currentPosition()
+      setArea((a) => ({ ...a, latitude: here.latitude.toFixed(6), longitude: here.longitude.toFixed(6), radius: areaValue('radius') || '100' }))
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Could not read your position')
+    }
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    const body = Object.fromEntries(FIELDS.map(([key]) => [key, value(key) || null]))
+    const number = (v: string) => (v.trim() === '' ? null : Number(v))
+    const body = {
+      ...Object.fromEntries(FIELDS.map(([key]) => [key, value(key) || null])),
+      latitude: number(areaValue('latitude')), longitude: number(areaValue('longitude')), geofence_radius_m: number(areaValue('radius')),
+    }
     if (await run(() => api('/organization', { method: 'PUT', body }), 'Organization saved')) {
       setDraft({})
+      setArea({})
       reload()
       window.dispatchEvent(new Event('organization-changed'))
     }
@@ -90,7 +122,25 @@ export function SettingsOrganization() {
             ))}
           </CardContent>
         </Card>
-        <Button type="submit" disabled={Object.keys(draft).length === 0}>Save organization</Button>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><MapPin aria-hidden className="h-4 w-4 text-brand" /> Check-in area</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-ink-muted">People can check in and out only within this circle, at any of your locations. Leave it empty to allow check-in from anywhere.</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Latitude"><SignedNumberInput value={areaValue('latitude')} onChange={(v) => setArea((a) => ({ ...a, latitude: v }))} /></Field>
+              <Field label="Longitude"><SignedNumberInput value={areaValue('longitude')} onChange={(v) => setArea((a) => ({ ...a, longitude: v }))} /></Field>
+              <Field label="Radius (metres, 20 to 5000)"><Input inputMode="numeric" value={areaValue('radius')} onChange={(e) => setArea((a) => ({ ...a, radius: e.target.value.replace(/\D/g, '') }))} /></Field>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={useHere}>Use my current position</Button>
+              {mapsLink && <Button asChild size="sm" variant="ghost"><a href={mapsLink} target="_blank" rel="noreferrer">Check on a map</a></Button>}
+              <Button type="button" size="sm" variant="ghost" onClick={() => setArea({ latitude: '', longitude: '', radius: '' })}>Remove restriction</Button>
+            </div>
+          </CardContent>
+        </Card>
+        <Button type="submit" disabled={Object.keys(draft).length === 0 && Object.keys(area).length === 0}>Save organization</Button>
       </form>
 
       <Card className="h-fit">

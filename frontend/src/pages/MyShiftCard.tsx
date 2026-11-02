@@ -25,7 +25,7 @@ interface ShiftStatus {
   employee: string
   employee_code: string
   record: { check_in_at: string; late_minutes: number } | null
-  location?: { id: number; name: string; timezone: string; geofence: boolean }
+  location?: { id: number; name: string; timezone: string }
   shift?: string
   incomplete_task_count: number
   face_required: boolean
@@ -64,8 +64,8 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const locked = new Set(working.map((r) => r.location_id)).size === 1 && !elsewhere
   const { me } = useAuth()
   const byLocation = me?.by_location !== false
-  // without a chosen location the server finds the one the position fits, so send the position when any of mine has a boundary
-  const fencedFor = (id: number | null) => (byLocation ? me?.locations.find((l) => l.id === id)?.geofence : me?.locations.some((l) => l.geofence))
+  // one area for the whole organization: the position is sent whenever it is set, whichever location is chosen
+  const fencedFor = (_id: number | null) => Boolean(me?.geofence)
   const placeFor = (id: number | null) => (byLocation ? { location_id: id } : {})
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [reason, setReason] = useState('')
@@ -130,7 +130,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
         const done = await api<Done>('/attendance/check-in', { body: { ...placeFor(locationId), ...faceBody, ...(fenced ? await currentPosition() : {}) } })
         setTimeout(() => { setFaceFor(null); checkedIn(done) }, 900)
       } else {
-        const where = data?.location?.geofence ? await currentPosition() : {}
+        const where = me?.geofence ? await currentPosition() : {}
         await api('/attendance/check-out', { body: { ...faceBody, ...where } })
         setTimeout(() => { setFaceFor(null); checkedOut() }, 900)
       }
@@ -173,7 +173,7 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   async function checkOut(withReason?: string) {
     setBusy(true)
     try {
-      const where = data?.location?.geofence ? await currentPosition() : {}
+      const where = me?.geofence ? await currentPosition() : {}
       await api('/attendance/check-out', { body: { exception_reason: withReason ?? null, ...(proof.current ?? {}), ...where } })
       checkedOut()
     } catch (err) {

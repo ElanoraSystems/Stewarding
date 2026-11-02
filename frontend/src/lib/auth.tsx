@@ -12,7 +12,9 @@ export interface Me {
   employee: { id: number; name: string; code: string } | null
   permissions: string[]
   by_location: boolean
-  locations: { id: number; code: string; name: string; timezone: string; geofence: boolean }[]
+  /** Whether check-in and check-out are limited to the organization's area. */
+  geofence: boolean
+  locations: { id: number; code: string; name: string; timezone: string }[]
   modules: { key: string; label: string }[]
 }
 
