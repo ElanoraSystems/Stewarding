@@ -12,6 +12,7 @@ const roles = [
 ]
 const catalog = { tiers: ['supervisor', 'steward'], dashboard: [{ key: 'checklists', label: 'Checklists and tasks' }, { key: 'monitoring', label: 'Monitoring and food safety' }], groups: [{ group: 'General', permissions: [{ key: 'a', label: 'See a' }, { key: 'b', label: 'See b' }, { key: 'c', label: 'See c' }] }] }
 
+vi.mock('@/pages/settings/NotificationRoutes', () => ({ NotificationRoutes: () => null }))
 vi.mock('@/lib/useApi', () => ({ useApi: (path: string) => ({ data: path === '/roles' ? roles : catalog, reload: mocks.reload }) }))
 vi.mock('@/lib/api', () => ({ api: mocks.api }))
 vi.mock('@/lib/toast', () => ({ useRun: () => async (action: () => Promise<unknown>) => (await action(), true) }))

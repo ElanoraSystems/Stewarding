@@ -111,7 +111,7 @@ def refresh(db: Session, now: datetime) -> dict[str, int]:
             if wrong:
                 forget_from(db, location.id, month)
                 healed += 1
-                notify(db, recipients(db, None, MANAGER), "snapshot_mismatch",
+                notify(db, recipients(db, None, MANAGER, category="stock"), "snapshot_mismatch",
                        f"Stock snapshot for {location.name} {month} did not match the ledger",
                        key=f"snapshot:{location.id}:{month}:{now.date().isoformat()}", priority="high", location_id=location.id,
                        body=f"{len(wrong)} item(s) differed. The snapshot was dropped and is rebuilt from the ledger.")

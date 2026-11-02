@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useRun } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
+import { NotificationRoutes } from '@/pages/settings/NotificationRoutes'
 
 interface RoleRow {
   id: number
@@ -105,6 +106,8 @@ export function SettingsRoles() {
           />
         ))}
       </CardGrid>
+
+      <NotificationRoutes />
 
       <Modal
         size="xl"

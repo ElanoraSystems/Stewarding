@@ -284,7 +284,7 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     if not passed:
         _open_failure(db, user, eq, reading, body.corrective_action, now)
     elif reading.warning:
-        notify(db, recipients(db, eq.location_id, SUPERVISOR), "monitoring_warning",
+        notify(db, recipients(db, eq.location_id, SUPERVISOR, category="monitoring"), "monitoring_warning",
                f"Approaching the limit: {eq.name} ({reading.stage}) {describe(reading)}",
                key=f"temp_warn:{reading.id}", body=f"Passed, but close to the limit ({reading.min_limit or '-'} to {reading.max_limit or '-'} {reading.unit or ''}).".replace("  ", " "),
                priority="high", location_id=eq.location_id, link="/monitoring")
@@ -337,12 +337,12 @@ def _open_failure(db: Session, user: User, eq: Equipment, reading: TemperatureRe
         retest_due_at=now + timedelta(minutes=get_setting(db, "temp.retest_minutes")) if has_text else None))
     answered = {"yes_no": "Answered No", "choice": f"Answered {reading.answer}"}
     limits = answered[reading.value_type] if reading.value_type in answered else f"Limits {reading.min_limit or '-'} to {reading.max_limit or '-'} {reading.unit or ''}".strip()
-    notify(db, recipients(db, eq.location_id, SUPERVISOR, MANAGER), "monitoring_failed",
+    notify(db, recipients(db, eq.location_id, SUPERVISOR, MANAGER, category="monitoring"), "monitoring_failed",
            f"Failed check: {eq.name} ({reading.stage}) {describe(reading)}",
            key=f"temp_fail:{reading.id}", body=f"{limits}. Corrective action and retest required.",
            priority="critical", location_id=eq.location_id, link="/monitoring", requires_ack=True)
     if failure_count(db, eq.id, now) >= get_setting(db, "temp.repeat_failure_count"):
-        notify(db, recipients(db, eq.location_id, MANAGER, SUPERVISOR), "equipment_maintenance",
+        notify(db, recipients(db, eq.location_id, MANAGER, SUPERVISOR, category="monitoring"), "equipment_maintenance",
                f"Repeated failures: {eq.name} needs review",
                key=f"maint:{eq.id}:{now.date().isoformat()}", priority="high", location_id=eq.location_id,
                link="/settings/monitoring", requires_ack=True)

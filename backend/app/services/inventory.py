@@ -118,13 +118,13 @@ def post_txn(db: Session, user: User, item: InventoryItem, location_id: int, txn
     minimum = level.min_level if level else item.min_level
     if delta < 0 and balance.qty < 0:
         place = db.get(Location, location_id).name
-        notify(db, recipients(db, location_id, SUPERVISOR, MANAGER), "negative_stock",
+        notify(db, recipients(db, location_id, SUPERVISOR, MANAGER, category="stock"), "negative_stock",
                f"Stock below zero: {item.name} is {balance.qty} at {place}",
                key=f"negative:{item.id}:{location_id}:{timeutil.utc_now().date().isoformat()}", priority="high",
                location_id=location_id, link="/inventory", requires_ack=True,
                body="More was written off than the books show. Check the count and the receipts.")
     if delta < 0 and balance.qty < minimum:
-        notify(db, recipients(db, location_id, SUPERVISOR, MANAGER), "low_stock",
+        notify(db, recipients(db, location_id, SUPERVISOR, MANAGER, category="stock"), "low_stock",
                f"Low stock: {item.name} ({balance.qty} left, minimum {minimum})",
                key=f"low:{item.id}:{location_id}:{timeutil.utc_now().date().isoformat()}", priority="high",
                location_id=location_id, link="/inventory")

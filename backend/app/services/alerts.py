@@ -47,7 +47,7 @@ def missing_checkins(db: Session, location: Location, now: datetime) -> int:
         if emp.id in away or db.scalar(select(AttendanceRecord.id).where(AttendanceRecord.employee_id == emp.id,
                                                                          AttendanceRecord.local_date == day)):
             continue
-        targets = recipients(db, location.id, SUPERVISOR, MANAGER) + ([emp.user_id] if emp.user_id else [])
+        targets = recipients(db, location.id, SUPERVISOR, MANAGER, category="attendance") + ([emp.user_id] if emp.user_id else [])
         created += notify(db, targets, "no_checkin", f"{emp.full_name} has not checked in ({shift.name} started {_hm(start, tz)})",
                           key=f"nocheckin:{emp.id}:{day}:{shift.id}", priority="high", location_id=location.id,
                           link="/attendance")
@@ -61,7 +61,7 @@ def missed_checkouts(db: Session, now: datetime) -> int:
         if not summary.checkout_overdue(db, rec, now):
             continue  # a night shift is not over until the morning
         emp = db.get(Employee, rec.employee_id)
-        targets = recipients(db, rec.location_id, SUPERVISOR, MANAGER) + ([emp.user_id] if emp.user_id else [])
+        targets = recipients(db, rec.location_id, SUPERVISOR, MANAGER, category="attendance") + ([emp.user_id] if emp.user_id else [])
         created += notify(db, targets, "missed_checkout", f"{emp.full_name} has not checked out", key=f"missedout:{rec.id}",
                           priority="high", location_id=rec.location_id, link="/attendance")
     return created
@@ -97,7 +97,7 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
         def only_audience(user_ids: list[int]) -> list[int]:
             return [u for u in user_ids if title_of_user.get(u) in {norm_title(t) for t in audience}] if audience else user_ids
 
-        crew = only_audience(recipients(db, location.id, STEWARD, SUPERVISOR))
+        crew = only_audience(recipients(db, location.id, STEWARD, SUPERVISOR, category="checklists"))
         if due - lead <= now < due:
             created += notify(db, crew, "task_due_soon", f"{count} task(s) due at {label} - {location.name}",
                               key=f"approach:{location.id}:{stamp}{suffix}", location_id=location.id, due_at=due, link="/checklists")
@@ -107,12 +107,12 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
                               key=f"overdue:{location.id}:{stamp}{suffix}", priority="high", location_id=location.id,
                               due_at=due, link="/checklists")
             if late >= to_supervisor:
-                created += notify(db, only_audience(recipients(db, location.id, SUPERVISOR)), "task_escalated",
+                created += notify(db, only_audience(recipients(db, location.id, SUPERVISOR, category="checklists")), "task_escalated",
                                   f"Escalation: {count} task(s) still open since {label} - {location.name}",
                                   key=f"esc_sup:{location.id}:{stamp}{suffix}", priority="high", location_id=location.id,
                                   due_at=due, link="/checklists")
             if late >= to_manager:
-                created += notify(db, recipients(db, None, MANAGER), "task_escalated",
+                created += notify(db, recipients(db, None, MANAGER, category="checklists"), "task_escalated",
                                   f"Escalation to manager: {count} task(s) open since {label} - {location.name}",
                                   key=f"esc_mgr:{location.id}:{stamp}{suffix}", priority="critical", location_id=location.id,
                                   due_at=due, link="/checklists", requires_ack=True)
@@ -124,7 +124,7 @@ def checklist_alerts(db: Session, location: Location, now: datetime) -> int:
                                       key=f"taskover:{inst.id}", priority="high", location_id=location.id, due_at=due,
                                       link="/checklists")
             if task.escalation_minutes is not None and now >= due + timedelta(minutes=task.escalation_minutes):
-                created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "task_escalated",
+                created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER, category="checklists"), "task_escalated",
                                   f"Escalation: {task.description}", key=f"esc_task:{inst.id}", priority="high",
                                   location_id=location.id, due_at=due, link="/checklists")
     return created
@@ -144,14 +144,14 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
         slot = check["slot_at"][:16].replace("-", "").replace(":", "").replace("T", "")
         title = f"{check['equipment']} - {check['stage']} check"
         if check["status"] == "due":
-            crew = recipients(db, location.id, STEWARD, SUPERVISOR)
+            crew = recipients(db, location.id, STEWARD, SUPERVISOR, category="monitoring")
             allowed = roles_of.get(check["equipment_id"])
             if allowed:  # a log limited to certain job titles reminds only those
                 crew = [uid for uid in crew if names.get(uid) in {norm_title(t) for t in allowed}]
             created += notify(db, crew, "monitoring_due", f"Check due: {title}",
                               key=f"checkdue:{check['schedule_id']}:{slot}", location_id=location.id, link="/monitoring")
         elif check["status"] == "overdue":
-            created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "monitoring_overdue",
+            created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER, category="monitoring"), "monitoring_overdue",
                               f"Check overdue: {title}", key=f"checkover:{check['schedule_id']}:{slot}",
                               priority="high", location_id=location.id, link="/monitoring", requires_ack=True)
     return created
@@ -167,12 +167,12 @@ def corrective_alerts(db: Session, now: datetime) -> int:
                Equipment.active.is_(True), Location.active.is_(True))).all()  # a point or place that is turned off sends nothing
     for action, reading in rows:
         if action.status == "retest_due" and action.retest_due_at and action.retest_due_at < now:
-            created += notify(db, recipients(db, reading.location_id, SUPERVISOR) + [action.taken_by], "retest_due",
+            created += notify(db, recipients(db, reading.location_id, SUPERVISOR, category="monitoring") + [action.taken_by], "retest_due",
                               f"Retest overdue for {reading.stage}: {describe(reading)}", key=f"retest:{action.id}",
                               priority="critical", location_id=reading.location_id, link="/monitoring", requires_ack=True)
         if now - reading.recorded_at >= escalate_after and action.escalated_at is None:
             action.escalated_at = now
-            created += notify(db, recipients(db, None, MANAGER), "monitoring_escalated",
+            created += notify(db, recipients(db, None, MANAGER, category="monitoring"), "monitoring_escalated",
                               f"Unresolved failed check ({describe(reading)}, {reading.stage})",
                               key=f"check_esc:{action.id}", priority="critical", location_id=reading.location_id,
                               link="/monitoring", requires_ack=True)
@@ -186,7 +186,7 @@ def pending_time_outs(db: Session, now: datetime) -> int:
     for entry in pending_entries(db, list(db.scalars(live)), now):
         if entry["limit_minutes"] and entry["minutes_open"] >= entry["limit_minutes"]:
             hours, minutes = divmod(entry["minutes_open"], 60)
-            who = recipients(db, entry["location_id"], SUPERVISOR, MANAGER)
+            who = recipients(db, entry["location_id"], SUPERVISOR, MANAGER, category="monitoring")
             if entry["started_by"] and entry["started_by"] not in who:
                 who = [*who, entry["started_by"]]  # the person who started it is told too
             created += notify(db, who, "time_out_missing",
@@ -199,7 +199,7 @@ def pending_time_outs(db: Session, now: datetime) -> int:
 def low_stock(db: Session, now: datetime) -> int:
     created = 0
     for balance, item, minimum in shortage_rows(db):
-        created += notify(db, recipients(db, balance.location_id, SUPERVISOR, MANAGER), "low_stock",
+        created += notify(db, recipients(db, balance.location_id, SUPERVISOR, MANAGER, category="stock"), "low_stock",
                           f"Low stock: {item.name} ({balance.qty} left, minimum {minimum})",
                           key=f"low:{item.id}:{balance.location_id}:{now.date().isoformat()}", priority="high",
                           location_id=balance.location_id, link="/inventory")
@@ -220,7 +220,7 @@ def daily_summary(db: Session, location: Location, now: datetime) -> int:
     shown = [f"{'!! ' if i['urgency'] == 'critical' else '! ' if i['urgency'] == 'high' else ''}{i['description']} ({i['responsible']})" for i in items[:4]]
     more = len(items) - len(shown)
     body = "\n".join(shown + ([f"and {more} more"] if more > 0 else []))
-    return notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "daily_summary",
+    return notify(db, recipients(db, location.id, SUPERVISOR, MANAGER, category="summary"), "daily_summary",
                   f"{location.name} - pending: {', '.join(parts)}", body=body,
                   key=f"summary:{location.id}:{day}", location_id=location.id, link="/tasks")
 
@@ -289,7 +289,7 @@ def round_reminders(db: Session, now: datetime) -> int:
             today = timeutil.local_date(now, place.timezone)  # the deadline is a date at each place
             if today < round_.deadline:
                 continue
-            created += notify(db, recipients(db, rc.location_id, SUPERVISOR, MANAGER), "round_overdue",
+            created += notify(db, recipients(db, rc.location_id, SUPERVISOR, MANAGER, category="stock"), "round_overdue",
                               f"Stock count not finished at {place.name} (round '{round_.name}', due {round_.deadline:%d %b})",
                               key=f"roundlate:{round_.id}:{rc.location_id}:{today}", priority="high", location_id=rc.location_id,
                               link="/stock-movements?tab=rounds")
