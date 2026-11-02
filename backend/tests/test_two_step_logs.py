@@ -236,3 +236,15 @@ def test_a_template_of_different_checks_at_different_times_keeps_them_together_a
         ("Labels, batch and expiry checked", "08:00:00"), ("Labels, batch and expiry checked", "14:00:00")]
     unchanged = client.post("/api/equipment/from-template", json={"template": "goods_receiving", "location_id": loc_id(db, "MK"), "times": ["10:00"]}, headers=m).json()
     assert sorted(c["time_of_day"] for c in unchanged["schedules"]) == ["10:00:00", "10:30:00"]  # the times it already has keep the template as it is
+
+
+def test_a_time_in_can_name_the_food_in_words_when_it_was_not_received_as_a_lot(client, login, db, clock):
+    m = login(MGR)
+    point = make(client, m, db, "defrosting")
+    time_in = checks(point, "start")
+    none = client.post("/api/monitoring/readings/batch", headers=m, json={"equipment_id": point["id"], "readings": [{"schedule_id": c["id"], "value": -20} for c in time_in]})
+    assert none.status_code == 400 and "or type what it is" in none.json()["detail"]
+    typed = client.post("/api/monitoring/readings/batch", headers=m, json={"equipment_id": point["id"], "readings": [{"schedule_id": c["id"], "value": -20, "reference": "Chicken thighs, 2 trays"} for c in time_in]})
+    assert typed.status_code == 201 and typed.json()[0]["reference"] == "Chicken thighs, 2 trays"
+    assert [p["item"] for p in client.get("/api/monitoring/pending", headers=m).json()] == ["Chicken thighs, 2 trays"]
+    assert finish(client, m, point, typed.json()[0]["id"]).status_code == 201  # the time out follows it as usual
