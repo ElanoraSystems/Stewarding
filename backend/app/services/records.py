@@ -106,9 +106,9 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                 continue
             actions = {a.reading_id: a for a in db.scalars(select(CorrectiveAction).where(
                 CorrectiveAction.reading_id.in_([r.id for r in readings])))}
-            lead = db.scalar(select(func.min(EquipmentSchedule.id)).where(EquipmentSchedule.equipment_id == eq.id, EquipmentSchedule.phase == "start"))
+            lead = set(db.scalars(select(EquipmentSchedule.id).where(EquipmentSchedule.equipment_id == eq.id, EquipmentSchedule.phase == "start")))  # the time-in checks
             time_out = dict(db.execute(select(TemperatureReading.start_reading_id, func.min(TemperatureReading.recorded_at)).where(
-                TemperatureReading.start_reading_id.in_([r.id for r in readings if r.schedule_id == lead]))
+                TemperatureReading.start_reading_id.in_([r.id for r in readings if r.schedule_id in lead]))
                 .group_by(TemperatureReading.start_reading_id)).all()) if lead else {}
             rows = []
             for r in readings:
@@ -116,7 +116,7 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                 taken = f"{a.action} ({names.get(a.taken_by, '')}, {a.status.replace('_', ' ')})" if a and a.action else (
                     a.status.replace("_", " ") if a else "")
                 when = _local(r.recorded_at, loc.timezone)
-                out = (_local(time_out[r.id], loc.timezone) if r.id in time_out else "Pending") if r.schedule_id == lead else ""
+                out = (_local(time_out[r.id], loc.timezone) if r.id in time_out else "Pending") if r.schedule_id in lead else ""
                 rows.append({
                     "date": when[:11], "time": when[12:], "time_out": out, "check": r.stage[:1].upper() + r.stage[1:].replace("_", " "), "measure": r.parameter,
                     "value": describe(r), "limits": _limits(r),
@@ -136,7 +136,7 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                 "columns": columns, "rows": rows,
                 "totals": [("Checks recorded", len(readings)), ("Passed", len(readings) - failed), ("Failed", failed),
                            ("Awaiting approval", sum(1 for r in readings if not r.reviewed_at and not r.rejected_at))]
-                + ([("Waiting for time out", sum(1 for r in readings if r.schedule_id == lead and r.id not in time_out))] if lead else [])})
+                + ([("Waiting for time out", sum(1 for r in readings if r.schedule_id in lead and r.id not in time_out))] if lead else [])})
     return groups
 
 

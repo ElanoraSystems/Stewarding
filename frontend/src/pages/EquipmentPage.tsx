@@ -163,7 +163,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
               ))}
             </ul>
           )}
-          {chosen?.times && <Field label="Times a day (one check at each, all in this monitoring point)"><TimesEditor times={presetTimes} onChange={setPresetTimes} /></Field>}
+          {chosen?.times && <Field label={chosen.checks.some((c) => c.phase) ? 'Times a day items go in (the time out follows each)' : 'Times a day (one check at each, all in this monitoring point)'}><TimesEditor times={presetTimes} onChange={setPresetTimes} /></Field>}
           <Field label="Name (optional)"><Input value={presetName} maxLength={120} onChange={(e) => setPresetName(e.target.value)} /></Field>
         </form>
       </Modal>

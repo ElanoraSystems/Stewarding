@@ -360,7 +360,8 @@ def create_from_template(body: FromTemplateIn, user: User = Depends(require("equ
     if body.times:
         if default_times(preset) is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "This template has no times a day to choose")
-        checks = with_times(preset, body.times)
+        if sorted(body.times) != default_times(preset):  # the times it already has: keep the template as it is
+            checks = with_times(preset, body.times)
     for check in checks:
         weekdays = check.get("weekdays")
         db.add(EquipmentSchedule(equipment_id=eq.id, **{**check, "weekdays": weekdays}))

@@ -108,13 +108,13 @@ def test_templates_create_ready_made_monitoring_points(client, login, db):
 def test_a_template_can_be_checked_at_the_times_chosen(client, login, db):
     m = login(MGR)
     listed = {t["key"]: t["times"] for t in client.get("/api/equipment/templates", headers=m).json()}
-    assert listed["chiller"] == ["08:00", "16:00"] and listed["defrosting"] is None
+    assert listed["chiller"] == ["08:00", "16:00"] and listed["defrosting"] == ["09:00"] and listed["dishwasher"] is None and listed["hot_holding"] is None
     made = client.post("/api/equipment/from-template", json={"template": "chiller", "location_id": loc_id(db, "MK"), "times": ["06:00", "12:00", "20:00"]}, headers=m)
     assert made.status_code == 201
     assert [(s["stage"], s["time_of_day"]) for s in made.json()["schedules"]] == [("Temperature", "06:00:00"), ("Temperature", "12:00:00"), ("Temperature", "20:00:00")]
     reheat = client.post("/api/equipment/from-template", json={"template": "reheating", "location_id": loc_id(db, "MK"), "times": ["11:00", "17:00"]}, headers=m).json()
     assert [(s["stage"], s["time_of_day"]) for s in reheat["schedules"]] == [("Core temperature after reheating", "11:00:00"), ("Core temperature after reheating", "17:00:00")]
-    assert client.post("/api/equipment/from-template", json={"template": "defrosting", "location_id": loc_id(db, "MK"), "times": ["09:00"]}, headers=m).status_code == 400
+    assert client.post("/api/equipment/from-template", json={"template": "dishwasher", "location_id": loc_id(db, "MK"), "times": ["09:00"]}, headers=m).status_code == 400  # it runs at startup, with no clock time
     assert client.post("/api/equipment/from-template", json={"template": "chiller", "location_id": loc_id(db, "MK"), "times": ["09:00", "09:00"]}, headers=m).status_code == 422
 
 
