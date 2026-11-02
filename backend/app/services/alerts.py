@@ -153,7 +153,7 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
         elif check["status"] == "overdue":
             created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "monitoring_overdue",
                               f"Check overdue: {title}", key=f"checkover:{check['schedule_id']}:{slot}",
-                              priority="high", location_id=location.id, link="/monitoring", requires_ack=True)
+                              priority="high", location_id=location.id, link="/monitoring")  # a notice only: it closes itself when the check is recorded, so nothing to approve
     return created
 
 
