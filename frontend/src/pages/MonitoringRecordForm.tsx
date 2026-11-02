@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
+import { SignedNumberInput } from '@/components/ui/signed-number-input'
 import { Input } from '@/components/ui/input'
 import { LotPicker, type LotChoice } from '@/components/LotPicker'
 import { SignaturePad } from '@/components/SignaturePad'
@@ -87,6 +88,7 @@ function verdict(value: string, schedule?: Schedule): 'pass' | 'warn' | 'fail' |
   if (['text', 'date', 'time', 'signature', 'image'].includes(schedule.value_type)) return 'pass'
   if (schedule.value_type === 'choice') return schedule.fail_options?.includes(value) ? 'fail' : 'pass'
   const amount = Number(value)
+  if (Number.isNaN(amount)) return null  // a lone minus sign or a point is not a number yet
   const low = num(schedule.min_value)
   const high = num(schedule.max_value)
   if ((low !== null && amount < low) || (high !== null && amount > high)) return 'fail'
@@ -101,7 +103,7 @@ function firstOfEachCycle(schedules: Schedule[]): Schedule[] {
 }
 
 const limitsText = (s: { min_value?: string | number | null; max_value?: string | number | null }) =>
-  s.min_value != null && s.max_value != null ? ` ${s.min_value}-${s.max_value}` : s.max_value != null ? ` max ${s.max_value}` : s.min_value != null ? ` min ${s.min_value}` : ''
+  s.min_value != null && s.max_value != null ? ` ${Number(s.min_value)} to ${Number(s.max_value)}` : s.max_value != null ? ` max ${s.max_value}` : s.min_value != null ? ` min ${s.min_value}` : ''
 
 export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest, doneSchedules, closedSchedules }: RecordFormProps) {
   const run = useRun()
@@ -133,7 +135,8 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const cycles = availableCycles(schedules)
   const results = cycle.map((s) => verdict(values[s.id] ?? '', s))
   const anyFail = results.includes('fail')
-  const complete = cycle.length > 0 && cycle.every((s) => !s.required || (values[s.id] ?? '') !== '')
+  const filled = (s: Schedule) => (values[s.id] ?? '') !== '' && (s.value_type !== 'number' || !Number.isNaN(Number(values[s.id])))  // a lone minus sign is not an answer
+  const complete = cycle.length > 0 && cycle.every((s) => !s.required || filled(s))
   const title = (s: Schedule) => `${fullCycle.length > 1 && label(s.stage) !== s.parameter ? `${label(s.stage)}: ${s.parameter}` : s.parameter}${s.required ? '' : ' (optional)'}`
   const setBlob = (s: Schedule, blob: Blob | null) => {
     setBlobs((b) => ({ ...b, ...(blob ? { [s.id]: blob } : {}) }))
@@ -270,7 +273,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
               </Field>
             ) : (
               <Field label={`${fullCycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}${limitsText(s)}`}>
-                <Input required={s.required} type="number" step="any" inputMode="decimal" className="w-36" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
+                <SignedNumberInput required={s.required} className="w-44" aria-label={s.parameter} value={values[s.id] ?? ''} onChange={(value) => setValues((v) => ({ ...v, [s.id]: value }))} />
               </Field>
             )}
             {results[i] && !['text', 'date', 'time', 'signature', 'image'].includes(s.value_type) && <Badge tone={results[i] === 'pass' ? 'ok' : results[i] === 'warn' ? 'warn' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : results[i] === 'warn' ? 'Approaching the limit' : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
