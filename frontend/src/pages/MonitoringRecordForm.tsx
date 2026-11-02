@@ -299,8 +299,8 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
           </div>
         )}
         {needsLots && (
-          <Field label="Food lot or lots">
-            <LotPicker value={lots} onChange={setLots} />
+          <Field label="Food lot or lots, or type what it is">
+            <LotPicker value={lots} onChange={setLots} allowCustom={{ value: reference, onChange: setReference }} />
           </Field>
         )}
       </div>
@@ -318,7 +318,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
         <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </Field>
       <div className="sticky -bottom-5 -mx-6 -mb-5 border-t border-border bg-surface px-6 py-4">
-        <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '' && lots.length === 0) || (needsLots && lots.length === 0)}>
+        <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '' && lots.length === 0) || (needsLots && lots.length === 0 && reference.trim() === '')}>
           {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : cycle.length > 1 ? 'Record all' : 'Record check'}
         </Button>
       </div>
