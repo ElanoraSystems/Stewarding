@@ -260,3 +260,15 @@ def test_each_item_can_have_its_own_time_before_its_time_out_is_due(client, logi
     db.commit()
     due = [n for n in db.scalars(select(Notification).where(Notification.kind == "time_out_missing"))]
     assert due and all(n.dedupe_key == f"pending_out:{quick}" for n in due)  # only the item that was set to 2 hours has reached its time
+
+
+def test_a_time_in_can_name_the_food_in_words_when_it_was_not_received_as_a_lot(client, login, db, clock):
+    m = login(MGR)
+    point = make(client, m, db, "defrosting")
+    time_in = checks(point, "start")
+    none = client.post("/api/monitoring/readings/batch", headers=m, json={"equipment_id": point["id"], "readings": [{"schedule_id": c["id"], "value": -20} for c in time_in]})
+    assert none.status_code == 400 and "or type what it is" in none.json()["detail"]
+    typed = client.post("/api/monitoring/readings/batch", headers=m, json={"equipment_id": point["id"], "readings": [{"schedule_id": c["id"], "value": -20, "reference": "Chicken thighs, 2 trays"} for c in time_in]})
+    assert typed.status_code == 201 and typed.json()[0]["reference"] == "Chicken thighs, 2 trays"
+    assert [p["item"] for p in client.get("/api/monitoring/pending", headers=m).json()] == ["Chicken thighs, 2 trays"]
+    assert finish(client, m, point, typed.json()[0]["id"]).status_code == 201  # the time out follows it as usual

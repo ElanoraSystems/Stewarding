@@ -120,7 +120,9 @@ export function LotPicker({ value, onChange, max = 20, allowCustom }: Props) {
       )}
       {problem && <p role="alert" className="text-sm text-danger">{problem}</p>}
       {!problem && text.trim().length >= 3 && found.length === 0 && !allowCustom && <p className="text-xs text-ink-muted">No lot to choose from matches. Press Enter to check this exact code.</p>}
-      {!problem && text.trim().length >= 3 && found.length === 0 && allowCustom && <p className="text-xs text-ink-muted">No lot matches. Press Enter to use what you typed.</p>}
+      {!problem && text.trim() !== '' && found.length === 0 && allowCustom && (
+        <Button type="button" variant="outline" className="w-full justify-start" onClick={() => keepTyped(text)}>Use &quot;{text.trim()}&quot; as the item</Button>
+      )}
       {text.trim() !== '' && found.length > 0 && (
         <ul className="max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-surface">
           {found.map((lot) => (

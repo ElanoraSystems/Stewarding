@@ -208,8 +208,8 @@ def _lots_used(db: Session, user: User, sched: EquipmentSchedule, body: ReadingI
     if not body.lot_ids and body.retest_of_id is not None:
         return list(db.scalars(select(Lot).join(ReadingLot, ReadingLot.lot_id == Lot.id).where(ReadingLot.reading_id == body.retest_of_id).order_by(Lot.id)))
     if not body.lot_ids:
-        if sched.trace_lots:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{sched.stage}: choose the food lot or lots this check is about")
+        if sched.trace_lots and not (body.reference or "").strip():  # food not received as a lot can be named in words instead
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{sched.stage}: choose the food lot or lots this check is about, or type what it is")
         return []
     found = {lot.id: lot for lot in db.scalars(select(Lot).where(Lot.id.in_(set(body.lot_ids))))}
     missing = set(body.lot_ids) - set(found)
