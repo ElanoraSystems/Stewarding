@@ -163,7 +163,16 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     return [...open].sort((a, b) => (a.time_of_day ?? '').localeCompare(b.time_of_day ?? '') || a.id - b.id).at(-1)
   }
 
-  const nameOf = (s: Schedule) => `${cycleOf(s, schedules).map((c) => label(c.stage)).join(' and ')}${s.time_of_day ? ` at ${s.time_of_day.slice(0, 5)}` : ''}`
+  const nameOf = (s: Schedule, list: Schedule[] = schedules) => `${cycleOf(s, list).map((c) => label(c.stage)).join(' and ')}${s.time_of_day ? ` at ${s.time_of_day.slice(0, 5)}` : ''}`
+
+  /** A point as the drop-down lists it: its name and the check that is due now, as on the Monitoring page. */
+  function pointLabel(point: EquipmentItem): string {
+    const list = point.schedules.filter((s) => s.active)
+    const open = availableCycles(list)
+    if (open.length === 0) return `${point.name} - nothing due now`
+    const due = currentCheck(list)
+    return due ? `${point.name} - ${nameOf(due, list)}${open.length > 1 ? ` (+${open.length - 1} more)` : ''}` : `${point.name} - ${open.length} checks, choose one`
+  }
 
   function pickPoint(id: string) {
     const list = equipment.find((e) => String(e.id) === id)?.schedules.filter((s) => s.active) ?? []
@@ -219,7 +228,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
           <Select required value={equipmentId} disabled={!!prefill?.retestOf}
             onChange={(e) => pickPoint(e.target.value)}>
             <option value="">Select monitoring point</option>
-            {equipment.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            {equipment.map((e) => <option key={e.id} value={e.id}>{pointLabel(e)}</option>)}
           </Select>
         </Field>
         {cycles.length > 1 && cycles.some((c) => !c.time_of_day) && !prefill?.retestOf && (
@@ -235,7 +244,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
             <p className="mb-1 text-sm font-medium">Check</p>
             <p className="flex min-h-10 items-center rounded-md border border-border bg-surface-muted px-3 text-sm font-semibold">{nameOf(schedule)}</p>
             {cycles.filter((c) => c.id !== schedule.id).length > 0 && (
-              <p className="mt-1 text-xs text-ink-muted">Also waiting: {cycles.filter((c) => c.id !== schedule.id).map(nameOf).join(', ')}. Record those from the list on the Monitoring page, so each goes in at the right time.</p>
+              <p className="mt-1 text-xs text-ink-muted">Also waiting: {cycles.filter((c) => c.id !== schedule.id).map((c) => nameOf(c)).join(', ')}. Record those from the list on the Monitoring page, so each goes in at the right time.</p>
             )}
           </div>
         )}

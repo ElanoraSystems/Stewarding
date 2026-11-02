@@ -51,6 +51,8 @@ interface Task {
 }
 
 const TABS = [['notifications', 'Notifications'], ['tasks', 'My tasks'], ['pending', 'Pending activities']] as const
+/** The permissions of people who approve checklist tasks, readings, breakage or stock. */
+const APPROVING = ['checklist.verify', 'temp.review', 'breakage.review', 'breakage.approve', 'stock.approve']
 const SIZE = 15
 
 function Notifications() {
@@ -66,7 +68,9 @@ function Notifications() {
   const [selected, setSelected] = useState<number[]>([])
   const [deciding, setDeciding] = useState<{ ids: number[]; initial: Decision } | null>(null)
   const [clearing, setClearing] = useState(false)
-  const open = (data?.items ?? []).filter((n) => n.requires_ack && !n.acknowledged_at)
+  // only people who approve work decide on alerts; someone who has to do the check just opens it
+  const canDecide = APPROVING.some((p) => me?.permissions.includes(p))
+  const open = canDecide ? (data?.items ?? []).filter((n) => n.requires_ack && !n.acknowledged_at) : []
   const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
 
   async function decide(decision: Decision, note: string) {
@@ -126,7 +130,7 @@ function Notifications() {
               n.action_needed ? 'border-danger/60 bg-danger-soft' : n.priority === 'high' ? 'border-warn/50' : 'border-border')}>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <p className={cn('flex items-center gap-2', !n.read_at && 'font-semibold')}>
-                  {n.requires_ack && !n.acknowledged_at && <input type="checkbox" aria-label={`Select ${n.title}`} checked={selected.includes(n.id)} onChange={() => toggle(n.id)} />}
+                  {canDecide && n.requires_ack && !n.acknowledged_at && <input type="checkbox" aria-label={`Select ${n.title}`} checked={selected.includes(n.id)} onChange={() => toggle(n.id)} />}
                   {n.title}
                 </p>
                 <div className="flex items-center gap-1">
@@ -139,7 +143,7 @@ function Notifications() {
               <div className="mt-2 flex flex-wrap gap-2">
                 {n.link && <Button asChild size="sm" variant="outline"><Link to={n.link}>Open</Link></Button>}
                 {!n.read_at && <Button size="sm" variant="ghost" onClick={() => act(`${n.id}/read`)}>Mark read</Button>}
-                {n.requires_ack && !n.acknowledged_at && <>
+                {canDecide && n.requires_ack && !n.acknowledged_at && <>
                   <Button size="sm" onClick={() => setDeciding({ ids: [n.id], initial: 'approved' })}>Approve</Button>
                   <Button size="sm" variant="outline" className="text-danger" onClick={() => setDeciding({ ids: [n.id], initial: 'rejected' })}>Reject</Button>
                 </>}

@@ -49,4 +49,9 @@ describe('MonitoringRecordForm check choice', () => {
       unmount()
     }
   })
+
+  it('lists each point with the check that is due, as the Monitoring page does', () => {
+    render(<MonitoringRecordForm equipment={[chiller([check(1, 'morning_temperature', '08:00:00'), check(2, 'afternoon_temperature', '16:00:00')])]} prefill={null} onSaved={() => {}} onClearRetest={() => {}} />)
+    expect(screen.getByRole('option', { name: 'Chiller #25 - Afternoon temperature at 16:00 (+1 more)' })).toBeTruthy()
+  })
 })
