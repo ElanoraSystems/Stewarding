@@ -19,6 +19,7 @@ from ..services.scan import require_scan
 from ..services.settings import get_setting
 from ..services.traceability import usable
 from ..services.approvals import record_decision
+from ..services.work_area import enforce_work_area
 from ..services.visibility import hidden_points
 from ..services.monitoring import (CLOSED_ACTIONS, warns, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
@@ -46,6 +47,9 @@ class ReadingIn(BaseModel):
     corrective_action: str | None = Field(default=None, max_length=1000)
     retest_of_id: int | None = None
     start_reading_id: int | None = None
+    latitude: float | None = Field(default=None, ge=-90, le=90)  # where it was recorded; checked against the work area when one is set
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracy: float | None = Field(default=None, ge=0, le=100000)
 
 
 class CommentIn(BaseModel):
@@ -72,6 +76,9 @@ class BatchIn(BaseModel):
     equipment_id: int
     start_reading_id: int | None = None
     readings: list[BatchItem] = Field(min_length=1, max_length=20)
+    latitude: float | None = Field(default=None, ge=-90, le=90)  # where it was recorded; checked against the work area when one is set
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracy: float | None = Field(default=None, ge=0, le=100000)
 
 
 class ActionIn(BaseModel):
@@ -284,6 +291,7 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
 
 @router.post("/readings", status_code=201)
 def record_reading(body: ReadingIn, user: User = Depends(require("temp.record")), db: Session = Depends(get_db)):
+    enforce_work_area(db, body.latitude, body.longitude, body.accuracy, "record monitoring logs")  # not from home
     reading = _record(db, user, body)
     db.commit()
     return _serialize_reading(db, reading, _names(db, {reading.recorded_by}))
@@ -310,6 +318,7 @@ def record_readings(body: BatchIn, user: User = Depends(require("temp.record")),
     """Saves every measurement of one cycle (for example wash and rinse) together, or none of them."""
     if len({r.schedule_id for r in body.readings}) != len(body.readings):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A check appears twice")
+    enforce_work_area(db, body.latitude, body.longitude, body.accuracy, "record monitoring logs")  # not from home
     _require_whole_cycle(db, user, body)
     readings = [_record(db, user, ReadingIn(equipment_id=body.equipment_id, start_reading_id=body.start_reading_id, **r.model_dump())) for r in body.readings]
     db.commit()

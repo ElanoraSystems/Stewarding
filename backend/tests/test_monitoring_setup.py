@@ -118,3 +118,21 @@ def test_the_log_leaves_out_readings_of_points_limited_to_other_job_titles(clien
     assert client.put(f"/api/equipment/{eq['id']}", json={"visible_to": ["Stewarding Supervisor"]}, headers=m).status_code == 200
     assert client.get("/api/monitoring/readings", headers=steward).json()["total"] == 0
     assert client.get("/api/monitoring/readings", headers=m).json()["total"] == 1  # a manager still sees it
+
+
+def test_monitoring_logs_can_only_be_recorded_inside_the_work_area(client, login, db, clock):
+    from app.models import Organization
+    steward = login(STEWARD)
+    eq, wash = mk_stage(client, steward)
+    _, rinse = mk_stage(client, steward, "final_rinse")
+    assert record(client, steward, eq, wash, 60.0).status_code == 201  # no area set: no position needed
+    org = db.get(Organization, 1) or Organization(id=1)
+    org.latitude, org.longitude, org.geofence_radius_m = 29.3759, 47.9774, 100
+    db.add(org)
+    db.commit()
+    assert record(client, steward, eq, rinse, 85.0).status_code == 400                                               # no position sent
+    far = record(client, steward, eq, rinse, 85.0, latitude=29.3859, longitude=47.9774)                              # about 1.1 km away, "at home"
+    assert far.status_code == 403 and "record monitoring logs only within 100 m" in far.json()["detail"]
+    batch = {"equipment_id": eq["id"], "readings": [{"schedule_id": rinse["id"], "value": 85.0}]}
+    assert client.post("/api/monitoring/readings/batch", json={**batch, "latitude": 29.3859, "longitude": 47.9774}, headers=steward).status_code == 403
+    assert record(client, steward, eq, rinse, 85.0, latitude=29.3760, longitude=47.9775).status_code == 201          # about 15 m away

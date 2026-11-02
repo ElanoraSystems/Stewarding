@@ -8,6 +8,8 @@ import { LotPicker, type LotChoice } from '@/components/LotPicker'
 import { SignaturePad } from '@/components/SignaturePad'
 import { Select } from '@/components/ui/select'
 import { api, uploadFile } from '@/lib/api'
+import { useAuth } from '@/lib/auth'
+import { currentPosition } from '@/lib/geo'
 import { label } from '@/lib/format'
 import { cycleOf } from '@/lib/monitoring'
 import { useRun } from '@/lib/toast'
@@ -107,6 +109,7 @@ const limitsText = (s: { min_value?: string | number | null; max_value?: string 
 
 export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetest, doneSchedules, closedSchedules }: RecordFormProps) {
   const run = useRun()
+  const { me } = useAuth()
   const standardActions = useLookup('corrective_action')
   const [equipmentId, setEquipmentId] = useState('')
   const [scheduleId, setScheduleId] = useState('')
@@ -174,7 +177,8 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     setBusy(true)
     const ok = await run(async () => {
       const evidence = file ? await uploadFile(file) : null
-      const common = { comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null, lot_ids: lots.map((l) => l.id) }
+      const where = me?.geofence ? await currentPosition() : {}  // logs are made inside the organization's work area, so the server needs the position
+      const common = { ...where, comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null, lot_ids: lots.map((l) => l.id) }
       const body = { equipment_id: Number(equipmentId), start_reading_id: prefill?.startReadingId ?? null }
       if (prefill?.retestOf) {
         await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), ...answerOf(schedule, values[Number(scheduleId)]), retest_of_id: prefill.retestOf, ...common } })
@@ -184,7 +188,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
           const answer = s.value_type === 'signature' || s.value_type === 'image' ? { answer: await uploadFile(blobs[s.id] instanceof File ? (blobs[s.id] as File) : new File([blobs[s.id]], 'signature.png', { type: 'image/png' })) } : answerOf(s, values[s.id])
           readings.push({ schedule_id: s.id, ...answer, ...common })
         }
-        await api('/monitoring/readings/batch', { body: { ...body, readings } })
+        await api('/monitoring/readings/batch', { body: { ...body, ...where, readings } })
       }
     }, anyFail ? 'Failed check recorded - supervisor notified' : cycle.length > 1 ? 'Checks recorded' : 'Check recorded')
     setBusy(false)

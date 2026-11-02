@@ -28,7 +28,7 @@ interface Organization {
   logo: string | null
 }
 
-/** The check-in area is edited as text in three fields, saved with the rest of the organization. */
+/** The work area is edited as text in three fields, saved with the rest of the organization. */
 interface Area {
   latitude: string
   longitude: string
@@ -124,10 +124,10 @@ export function SettingsOrganization() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><MapPin aria-hidden className="h-4 w-4 text-brand" /> Check-in area</CardTitle>
+            <CardTitle className="flex items-center gap-2"><MapPin aria-hidden className="h-4 w-4 text-brand" /> Work area</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-ink-muted">People can check in and out only within this circle, at any of your locations. Leave it empty to allow check-in from anywhere.</p>
+            <p className="text-sm text-ink-muted">People can check in and out, and record monitoring logs, only within this circle, at any of your locations. Leave it empty to allow it from anywhere.</p>
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Latitude"><SignedNumberInput value={areaValue('latitude')} onChange={(v) => setArea((a) => ({ ...a, latitude: v }))} /></Field>
               <Field label="Longitude"><SignedNumberInput value={areaValue('longitude')} onChange={(v) => setArea((a) => ({ ...a, longitude: v }))} /></Field>

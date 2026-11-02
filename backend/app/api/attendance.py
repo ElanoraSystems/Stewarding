@@ -3,7 +3,7 @@ import binascii
 import secrets
 import uuid
 from datetime import date, datetime, time, timedelta
-from math import asin, cos, dist, isfinite, radians, sin, sqrt
+from math import dist, isfinite
 from pathlib import Path
 from typing import Literal
 
@@ -27,7 +27,8 @@ from ..services.checklists import DONE
 from ..services.deletion import blockers
 from ..services.settings import get_setting
 from ..services.notify import notify
-from ..services.organization import checkin_area, get_organization
+from ..services.organization import get_organization, work_area
+from ..services.work_area import distance_m, enforce_work_area
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
@@ -73,27 +74,9 @@ def _place_by_position(db: Session, user: User, emp: Employee, where: Position) 
     return places[0], _enforce_geofence(db, where, "check in")
 
 
-def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    a = sin(radians(lat2 - lat1) / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(radians(lon2 - lon1) / 2) ** 2
-    return 2 * 6371000 * asin(sqrt(a))
-
-
 def _enforce_geofence(db: Session, where: Position, action: str) -> float | None:
-    """Refuses a position outside the organization's check-in area or too vague to trust, and returns the distance from its centre."""
-    area = checkin_area(db)
-    if not area:
-        return None
-    latitude, longitude, radius = area
-    place = get_organization(db)["name"] or "the site"
-    if where.latitude is None or where.longitude is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Allow location access in your browser to {action} at {place}")
-    limit = get_setting(db, "attendance.max_accuracy_m")
-    if limit and where.accuracy and where.accuracy > limit:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Your location is too imprecise (within {round(where.accuracy)} m, the limit is {limit} m). Move to open sky or turn Wi-Fi on and try again")
-    away = _distance_m(where.latitude, where.longitude, latitude, longitude)
-    if away > radius:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, f"You are about {round(away)} m from {place}. You can {action} only within {radius} m")
-    return away
+    """The check-in and check-out position must be inside the organization's work area; returns the distance from its centre."""
+    return enforce_work_area(db, where.latitude, where.longitude, where.accuracy, action)
 
 
 def _verify_face(db: Session, emp: Employee, where: Position, action: str) -> float | None:
@@ -172,7 +155,7 @@ def _geo_evidence(db: Session, emp: Employee, where: Position, distance: float |
         if (round(geo["latitude"], 6), round(geo["longitude"], 6)) == (round(where.latitude, 6), round(where.longitude, 6)):
             flags.append("Same position as the last punch")
         else:
-            km = _distance_m(geo["latitude"], geo["longitude"], where.latitude, where.longitude) / 1000
+            km = distance_m(geo["latitude"], geo["longitude"], where.latitude, where.longitude) / 1000
             hours = max((now - when).total_seconds() / 3600, 1 / 60)
             if km > 2 and km / hours > 150:
                 flags.append("Impossible travel since the last punch")
@@ -454,7 +437,7 @@ def my_status(user: User = Depends(require("attendance.self")), db: Session = De
     out = {"checked_in": record is not None, "server_time": iso(now), "employee": emp.full_name,
            "employee_code": emp.employee_code, "record": None, "incomplete_task_count": 0,
            "face_required": bool(get_setting(db, "attendance.face_required")), "face_enrolled": emp.face_descriptor is not None,
-           "rostered_today": rostered_today(db, emp, now), "geofence": checkin_area(db) is not None}
+           "rostered_today": rostered_today(db, emp, now), "geofence": work_area(db) is not None}
     if record:
         out["record"] = _serialize(record, now)
         out["incomplete_task_count"] = len(incomplete_tasks(db, user, record))
