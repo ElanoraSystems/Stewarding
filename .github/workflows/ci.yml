@@ -50,7 +50,13 @@ jobs:
         env:
           STW_DATABASE_URL: postgresql+psycopg://postgres:ci-only-password@localhost:5432/stewarding_test
         run: |
-          python -c "from app.db import Base, engine; Base.metadata.drop_all(engine); engine.dispose()"
+          python - <<'PY'
+          from sqlalchemy import text
+          from app.db import engine
+          with engine.begin() as conn:  # start from an empty database: the tests above left their tables behind
+              conn.execute(text("DROP SCHEMA public CASCADE"))
+              conn.execute(text("CREATE SCHEMA public"))
+          PY
           alembic upgrade head
           alembic check
 
