@@ -114,7 +114,7 @@ def test_a_template_can_be_checked_at_the_times_chosen(client, login, db):
     assert [(s["stage"], s["time_of_day"]) for s in made.json()["schedules"]] == [("Temperature", "06:00:00"), ("Temperature", "12:00:00"), ("Temperature", "20:00:00")]
     reheat = client.post("/api/equipment/from-template", json={"template": "reheating", "location_id": loc_id(db, "MK"), "times": ["11:00", "17:00"]}, headers=m).json()
     assert [(s["stage"], s["time_of_day"]) for s in reheat["schedules"]] == [("Core temperature after reheating", "11:00:00"), ("Core temperature after reheating", "17:00:00")]
-    assert client.post("/api/equipment/from-template", json={"template": "dishwasher", "location_id": loc_id(db, "MK"), "times": ["09:00"]}, headers=m).status_code == 400  # it runs at startup, with no clock time
+    assert client.post("/api/equipment/from-template", json={"template": "hot_holding", "location_id": loc_id(db, "MK"), "times": ["09:00"]}, headers=m).status_code == 400  # every N minutes, with no clock times
     assert client.post("/api/equipment/from-template", json={"template": "chiller", "location_id": loc_id(db, "MK"), "times": ["09:00", "09:00"]}, headers=m).status_code == 422
 
 
@@ -153,3 +153,15 @@ def test_a_template_can_be_recorded_when_needed_with_no_set_time(client, login, 
     chiller = client.post("/api/equipment/from-template", json={"template": "chiller", "location_id": loc_id(db, "MK"), "on_demand": True}, headers=m).json()
     assert [(c["stage"], c["timing"]) for c in chiller["schedules"]] == [("Temperature", "manual")]
     assert client.post("/api/equipment/from-template", json={"template": "hot_holding", "location_id": loc_id(db, "MK"), "on_demand": True}, headers=m).status_code == 400
+
+
+def test_a_dishwasher_can_be_checked_at_set_times_with_the_wash_and_rinse_together(client, login, db, clock):
+    m = login(MGR)
+    listed = {t["key"]: t for t in client.get("/api/equipment/templates", headers=m).json()}
+    assert listed["dishwasher"]["startup"] is True and listed["chiller"]["startup"] is False
+    plain = client.post("/api/equipment/from-template", json={"template": "dishwasher", "location_id": loc_id(db, "MK")}, headers=m).json()
+    assert {(c["timing"], c["time_of_day"]) for c in plain["schedules"]} == {("startup", None)}  # without times it is checked at startup as before
+    timed = client.post("/api/equipment/from-template", json={"template": "dishwasher", "location_id": loc_id(db, "MK"), "times": ["07:00", "15:00"]}, headers=m).json()
+    assert sorted((c["stage"], c["time_of_day"]) for c in timed["schedules"]) == [("Final rinse", "07:00:00"), ("Final rinse", "15:00:00"), ("Wash", "07:00:00"), ("Wash", "15:00:00")]
+    assert {c["timing"] for c in timed["schedules"]} == {"checkpoint"}
+
