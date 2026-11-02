@@ -375,3 +375,18 @@ def test_a_closed_day_waives_tasks_stops_generation_and_silences_alerts(client, 
     run(db, clock)
     assert client.post("/api/checklists/generate", json={"location_id": mk}, headers=m).json()["created"] > 0
     assert client.delete(f"/api/closures/{made.json()['id']}", headers=m).status_code == 200
+
+
+def test_waiving_the_overdue_tasks_closes_their_alerts_at_once_and_takes_them_off_the_list(client, login, db, clock):
+    no_grace(client, login)
+    generate(client, login, db)
+    clock.set(2026, 3, 2, 11, 31)  # 121 minutes late: overdue and escalated to the manager
+    run(db, clock)
+    m, sup = login(MGR), login(SUP)
+    before = client.get("/api/notifications", headers=sup).json()["items"]
+    assert any(n["kind"] == "task_overdue" for n in before)
+    ids = [i["id"] for i in client.get("/api/checklists/instances?size=200&status=overdue", headers=m).json()["items"]]
+    assert ids and client.post("/api/checklists/instances/waive-many", json={"instance_ids": ids, "reason": "Old days, cleared"}, headers=m).status_code == 200
+    assert all(n["kind"] not in ("task_overdue", "task_escalated") for n in client.get("/api/notifications", headers=sup).json()["items"])
+    assert all(n.resolved_at is not None for kind in ("task_overdue", "task_escalated") for n in notes(db, kind))  # no need to wait for the next minute
+    assert all(n["kind"] != "task_escalated" for n in client.get("/api/notifications", headers=m).json()["items"])  # the manager's escalation is gone too
