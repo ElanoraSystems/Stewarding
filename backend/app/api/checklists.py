@@ -369,7 +369,7 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
     db.add(TaskCompletion(instance_id=inst.id, user_id=user.id, status=inst.status, comment=body.comment,
                           evidence_path=body.evidence_path))
     if inst.status == "pending_verification":
-        notify(db, recipients(db, inst.location_id, SUPERVISOR, MANAGER), "verification_needed",
+        notify(db, recipients(db, inst.location_id, SUPERVISOR, MANAGER, category="checklists"), "verification_needed",
                f"Verify: {task.description}", key=f"verify:{inst.id}", location_id=inst.location_id,
                link="/checklists", priority="high")
     db.commit()

@@ -10,8 +10,9 @@ from ..audit import audit
 from ..services.deletion import delete_if_unused
 from ..db import get_db
 from ..deps import require
-from ..models import Location, Setting, User
+from ..models import Location, Role, Setting, User
 from ..pagination import row
+from ..services.notify import CATEGORIES, ROUTES_KEY, routes
 from ..services.settings import DEFAULTS, LIMITS, all_settings
 from ..services.snapshots import forget_from
 
@@ -74,6 +75,50 @@ def update_settings(body: SettingsIn, user: User = Depends(require("settings.man
     audit(db, user, "settings.update", "setting", None, {k: before[k] for k in body.values}, body.values)
     db.commit()
     return {"settings": all_settings(db)}
+
+
+DEFAULT_WHO = {"attendance": "Managers and supervisors at the location (by role type)", "checklists": "Stewards and supervisors at the location, limited to the checklist's job titles; escalations to supervisors and managers",
+               "monitoring": "Stewards and supervisors at the location for what is due; supervisors and managers for the rest", "stock": "Supervisors and managers",
+               "breakage": "Supervisors and managers", "summary": "Supervisors and managers"}
+
+
+class RoutesIn(BaseModel):
+    routes: dict[str, list[str] | None]
+
+
+def _routes_payload(db: Session) -> dict:
+    chosen = routes(db)
+    return {"categories": [{"key": k, "label": label, "about": about, "default": DEFAULT_WHO[k]} for k, (label, about) in CATEGORIES.items()],
+            "roles": [{"name": r.name, "label": r.label or r.name, "tier": r.tier} for r in db.scalars(select(Role).order_by(Role.id))],
+            "routes": {k: chosen.get(k) for k in CATEGORIES}}
+
+
+@router.get("/notification-routes")
+def read_routes(user: User = Depends(require("settings.manage")), db: Session = Depends(get_db)):
+    """Which roles receive each kind of alert; a kind with no roles chosen keeps the default, which goes by role type."""
+    return _routes_payload(db)
+
+
+@router.put("/notification-routes")
+def update_routes(body: RoutesIn, user: User = Depends(require("settings.manage")), db: Session = Depends(get_db)):
+    unknown = set(body.routes) - set(CATEGORIES)
+    if unknown:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown kind of alert: {sorted(unknown)[0]}")
+    known = set(db.scalars(select(Role.name)))
+    for names in body.routes.values():
+        if names is not None and set(names) - known:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown role")
+    before = routes(db)
+    after = {k: list(dict.fromkeys(v)) for k, v in body.routes.items() if v is not None}  # null puts a kind back to the default
+    record = db.get(Setting, ROUTES_KEY)
+    if record:
+        record.value = {"v": after}
+    else:
+        db.add(Setting(key=ROUTES_KEY, value={"v": after}))
+    db.flush()
+    audit(db, user, "notification_routes.update", "setting", None, before, after)
+    db.commit()
+    return _routes_payload(db)
 
 
 @router.post("/locations", status_code=201)

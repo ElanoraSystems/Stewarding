@@ -169,7 +169,7 @@ def request_transfer(body: TransferIn, user: User = Depends(require("stock.trans
         if wanted[item.id] > on_hand:
             source = db.get(Location, body.from_location_id)
             message = f"Only {on_hand} of {item.name} are in stock at {source.name}; {wanted[item.id]} were asked for. Something is wrong: check the quantity and the stock."
-            notify(db, recipients(db, source.id, SUPERVISOR, MANAGER), "transfer_over_stock",
+            notify(db, recipients(db, source.id, SUPERVISOR, MANAGER, category="stock"), "transfer_over_stock",
                    f"Transfer asks for more than is in stock at {source.name}: {item.name} {wanted[item.id]} asked, {on_hand} held",
                    key=f"transferover:{source.id}:{item.id}:{user.id}:{timeutil.utc_now().isoformat(timespec='minutes')}", priority="high",
                    location_id=source.id, link="/stock-movements", requires_ack=True, body=message)
@@ -258,7 +258,7 @@ def _over_received_message(item: InventoryItem, counted: int, limit: int, parts:
 
 def _alert_over_received(db: Session, user: User, location: Location, item: InventoryItem, counted: int, limit: int, parts: dict | None) -> None:
     """A count higher than everything received is refused, but supervisors and managers are told and it is kept in the audit log."""
-    notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "count_over_received",
+    notify(db, recipients(db, location.id, SUPERVISOR, MANAGER, category="stock"), "count_over_received",
            f"Count higher than received at {location.name}: {item.name} counted {counted}, received {limit}",
            key=f"countover:{location.id}:{item.id}:{user.id}:{timeutil.utc_now().isoformat(timespec='minutes')}", priority="critical",
            location_id=location.id, link="/stock-movements", requires_ack=True, body=_over_received_message(item, counted, limit, parts))
@@ -345,7 +345,7 @@ def create_count(body: CountIn, user: User = Depends(require("inventory.count"))
         db.add(InventoryCountLine(count_id=count.id, item_id=item.id, system_qty=balance.qty if balance else 0,
                                   counted_qty=ln.counted_qty, reason=ln.reason.strip() if ln.reason else None))
     for item, counted, book in surplus:
-        notify(db, recipients(db, location.id, SUPERVISOR, MANAGER), "count_surplus",
+        notify(db, recipients(db, location.id, SUPERVISOR, MANAGER, category="stock"), "count_surplus",
                f"Count surplus at {location.name}: {item.name} counted {counted}, system {book}",
                key=f"surplus:{count.id}:{item.id}", priority="high", location_id=location.id, link="/stock-movements", requires_ack=True,
                body=f"Counted by {user.email}. A manager decides whether to post it.")

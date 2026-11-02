@@ -338,7 +338,7 @@ def save_counts(round_id: int, location_id: int, body: CountsIn, user: User = De
                        f"(everything received, less breakage, write-offs and earlier counts). At most {max(limit.get(item_id, 0) - others, 0)} can be entered here. "
                        "Check the count. If the stock really was found, a manager records it as a found-stock adjustment first, then counts again.")
             refused.append({"item_id": item_id, "message": message})
-            notify(db, recipients(db, location_id, SUPERVISOR, MANAGER), "count_over_received",
+            notify(db, recipients(db, location_id, SUPERVISOR, MANAGER, category="stock"), "count_over_received",
                    f"Count above the books: {item.name} at {place.name} ({others + qty} counted in all, {limit.get(item_id, 0)} held)",
                    key=f"roundover:{round_.id}:{item_id}:{user.id}:{timeutil.utc_now().isoformat(timespec='minutes')}", priority="critical",
                    location_id=location_id, link="/stock-movements?tab=rounds", requires_ack=True, body=message)
@@ -531,7 +531,7 @@ def ask_recount(round_id: int, body: ItemsIn, user: User = Depends(_manager), db
     names = {i.id: i.name for i in db.scalars(select(InventoryItem).where(InventoryItem.id.in_(body.item_ids)))}
     for rc in reopen:
         rc.status, rc.done_at = "counting", None
-        notify(db, recipients(db, rc.location_id, SUPERVISOR, STEWARD), "round_recount",
+        notify(db, recipients(db, rc.location_id, SUPERVISOR, STEWARD, category="stock"), "round_recount",
                f"Count again at {db.get(Location, rc.location_id).name}: {', '.join(sorted(names.values())[:4])}{' and more' if len(names) > 4 else ''}",
                key=f"recount:{round_.id}:{rc.location_id}:{timeutil.utc_now().isoformat(timespec='minutes')}", priority="high",
                location_id=rc.location_id, link="/stock-movements?tab=rounds", body=body.note or "The manager asked for these items to be counted again.")

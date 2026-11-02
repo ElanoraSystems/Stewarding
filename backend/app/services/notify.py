@@ -4,7 +4,8 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from .. import timeutil
-from ..models import Employee, EmployeeLocation, Equipment, Location, Notification, Role, RolePermission, ScanEvent, ShiftAssignment, User
+from ..cache import memo
+from ..models import Setting, Employee, EmployeeLocation, Equipment, Location, Notification, Role, RolePermission, ScanEvent, ShiftAssignment, User
 from ..permissions import MANAGER
 from .push import queue
 from .settings import get_setting
@@ -26,8 +27,28 @@ def _working_here(db: Session, location_id: int) -> set[int]:
     return users
 
 
-def recipients(db: Session, location_id: int | None, *roles: str) -> list[int]:
+CATEGORIES = {
+    "attendance": ("Attendance", "No check-in, missed check-out"),
+    "checklists": ("Checklists", "Tasks due, overdue and escalated; tasks waiting for approval"),
+    "monitoring": ("Monitoring", "Checks due and overdue, failed checks, time outs, retests"),
+    "stock": ("Stock", "Low stock, counts, transfers"),
+    "breakage": ("Breakage", "Breakage to review"),
+    "summary": ("Daily summary", "The morning list of what is pending"),
+}
+ROUTES_KEY = "notify.routes"
+
+
+def routes(db: Session) -> dict[str, list[str]]:
+    """The roles chosen to receive each kind of alert (role names); a kind that is missing keeps the default, which goes by role type."""
+    def build() -> dict[str, list[str]]:
+        row = db.get(Setting, ROUTES_KEY)
+        return dict(row.value["v"]) if row else {}
+    return memo(db, "notify_routes", build)
+
+
+def recipients(db: Session, location_id: int | None, *roles: str, category: str | None = None) -> list[int]:
     """Active users whose role behaves like one of `roles` (a tier) at the location; managers are included when asked for.
+    When a person has chosen the roles for this `category`, those roles are used instead of the tiers.
 
     "At the location" means assigned to it, rostered there today, or having scanned its QR code within the scan window,
     so staff who move between outlets get the reminders of the outlet they are working at."""
@@ -35,9 +56,19 @@ def recipients(db: Session, location_id: int | None, *roles: str) -> list[int]:
         select(User.id)
         .join(Role, User.role_id == Role.id)
         .join(Employee, Employee.user_id == User.id)
-        .where(User.active.is_(True), Employee.status == "active", Role.tier.in_(roles))
+        .where(User.active.is_(True), Employee.status == "active")
     )
+    chosen = routes(db).get(category) if category else None
+    if chosen is not None:
+        who = db.execute(select(User.id, Role.tier).join(Role, User.role_id == Role.id).join(Employee, Employee.user_id == User.id)
+                         .where(User.active.is_(True), Employee.status == "active", Role.name.in_(chosen or [""]))).all()
+        here: set[int] = set()
+        if location_id is not None:
+            here = _working_here(db, location_id) | set(db.scalars(select(Employee.user_id).join(EmployeeLocation, EmployeeLocation.employee_id == Employee.id)
+                                                                   .where(EmployeeLocation.location_id == location_id, Employee.user_id.is_not(None))))
+        return sorted(user_id for user_id, tier in who if tier == MANAGER or user_id in here)  # a manager hears about every place; others where they are
     non_manager = [r for r in roles if r != MANAGER]
+    base = base.where(Role.tier.in_(roles))
     ids: set[int] = set()
     if MANAGER in roles:
         ids |= set(db.scalars(base.where(Role.tier == MANAGER)))
