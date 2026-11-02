@@ -65,7 +65,8 @@ describe('MonitoringRecordForm check choice', () => {
     await user.type(screen.getByLabelText('Temperature'), '20')
     const submit = screen.getByRole('button', { name: 'Record check' }) as HTMLButtonElement
     expect(submit.disabled).toBe(true)  // no lot and no name yet
-    await user.type(screen.getByLabelText('Lot code or food name'), 'Chicken thighs{Enter}')
+    await user.type(screen.getByLabelText('Lot code or food name'), 'Chicken thighs')
+    await user.click(screen.getByRole('button', { name: 'Use "Chicken thighs" as the item' }))  // a button, so no one has to know to press Enter
     expect(submit.disabled).toBe(false)
     await user.click(submit)
     const call = mocks.api.mock.calls.find((c) => String(c[0]).includes('/readings/batch')) as unknown as [string, { body: { readings: { reference: string; lot_ids: number[] }[] } }]
