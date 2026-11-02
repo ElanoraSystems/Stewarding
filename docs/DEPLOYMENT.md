@@ -38,7 +38,7 @@ Or leave out `STW_BOOTSTRAP_PASSWORD` and use `docker compose run --rm backend .
 ## First-time setup (Settings, in this order)
 Sign in as the manager and open **Settings**. Each tab manages one kind of data:
 
-1. **Organization** - your organization's name, address, contact details, registration number, report footer note and logo. They head the app and every PDF, Excel and CSV report. The **Check-in area** (latitude, longitude and radius) is also set here: one circle for the whole organization that every check-in and check-out must be inside, at any location. Leave it empty to allow check-in from anywhere; use "Use my current position" while standing on site, and keep the radius generous because phone GPS is often 20 to 50 m off.
+1. **Organization** - your organization's name, address, contact details, registration number, report footer note and logo. They head the app and every PDF, Excel and CSV report. The **Work area** (latitude, longitude and radius) is also set here: one circle for the whole organization that every check-in, check-out and monitoring log must be made inside, at any location, so nobody can record logs from home. Leave it empty to allow it from anywhere; use "Use my current position" while standing on site, and keep the radius generous because phone GPS is often 20 to 50 m off.
 2. **Locations** - kitchens, bars, banquet areas and their time zones.
 3. **Shifts** - hours, late-after minutes, break and overtime rules.
 4. **Categories & units** - item categories, units of measure.
