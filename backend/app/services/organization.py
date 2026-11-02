@@ -18,8 +18,8 @@ def get_organization(db: Session) -> dict:
             "latitude": org.latitude if org else None, "longitude": org.longitude if org else None, "geofence_radius_m": org.geofence_radius_m if org else None}
 
 
-def checkin_area(db: Session) -> tuple[float, float, int] | None:
-    """The one area every check-in and check-out must be inside (latitude, longitude, radius in metres), or none when it is not limited."""
+def work_area(db: Session) -> tuple[float, float, int] | None:
+    """The one area every check-in, check-out and monitoring log must be made inside (latitude, longitude, radius in metres), or none when it is not limited."""
     org = db.get(Organization, 1)
     if not org or not org.geofence_radius_m or org.latitude is None or org.longitude is None:
         return None
