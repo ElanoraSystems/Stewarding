@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { MonitoringRecordForm, type EquipmentItem } from '@/pages/MonitoringRecordForm'
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(async () => ({})), geofence: false }))
+const mocks = vi.hoisted(() => ({ api: vi.fn(async (_path: string, _options?: unknown) => ({}) as unknown), geofence: false }))
 
 vi.mock('@/lib/api', () => ({ api: mocks.api, uploadFile: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ me: { geofence: mocks.geofence } }) }))
@@ -49,4 +49,48 @@ describe('MonitoringRecordForm check choice', () => {
       unmount()
     }
   })
+
+  it('lets each item of a time in choose how long it takes before its time out is due', async () => {
+    const user = userEvent.setup()
+    mocks.geofence = false
+    mocks.api.mockClear()
+    const timeIn = { ...check(1, 'time_in', null, 'manual'), phase: 'start', max_open_minutes: 1440, min_value: -40, max_value: -18 }
+    render(<MonitoringRecordForm equipment={[chiller([timeIn as unknown as ReturnType<typeof check>])]} prefill={null} onSaved={() => {}} onClearRetest={() => {}} />)
+    await user.selectOptions(screen.getByLabelText('Monitoring point'), '1')
+    await user.type(screen.getByLabelText('Temperature'), '20')
+    expect(screen.getByRole('option', { name: 'Standard: 24 hours' })).toBeTruthy()
+    await user.selectOptions(screen.getByLabelText(/Ready after/), '48')
+    await user.click(screen.getByRole('button', { name: 'Record check' }))
+    const call = mocks.api.mock.calls.find((c) => String(c[0]).includes('/readings/batch')) as unknown as [string, { body: { readings: { ready_after_minutes: number }[] } }]
+    expect(call[1].body.readings[0].ready_after_minutes).toBe(48 * 60)
+  })
+
+  it('lists each point with the check that is due, as the Monitoring page does', () => {
+    render(<MonitoringRecordForm equipment={[chiller([check(1, 'morning_temperature', '08:00:00'), check(2, 'afternoon_temperature', '16:00:00')])]} prefill={null} onSaved={() => {}} onClearRetest={() => {}} />)
+    expect(screen.getByRole('option', { name: 'Chiller #25 - Afternoon temperature at 16:00 (+1 more)' })).toBeTruthy()
+  })
+
+  it('lets a time in name the food in words when it is not a lot in the system', async () => {
+    const user = userEvent.setup()
+    mocks.geofence = false
+    mocks.api.mockClear()
+    mocks.api.mockImplementation(async (path: string) => {
+      if (path.startsWith('/lots/search')) return []
+      if (path.startsWith('/lots/by-code')) throw new Error('No such lot')  // so the typed name is kept as words
+      return {}
+    })
+    const timeIn = { ...check(1, 'time_in', null, 'manual'), phase: 'start', trace_lots: true, min_value: -40, max_value: -18 }
+    render(<MonitoringRecordForm equipment={[chiller([timeIn as unknown as ReturnType<typeof check>])]} prefill={null} onSaved={() => {}} onClearRetest={() => {}} />)
+    await user.selectOptions(screen.getByLabelText('Monitoring point'), '1')
+    await user.type(screen.getByLabelText('Temperature'), '20')
+    const submit = screen.getByRole('button', { name: 'Record check' }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)  // no lot and no name yet
+    await user.type(screen.getByLabelText('Lot code or food name'), 'Chicken thighs')
+    await user.click(screen.getByRole('button', { name: 'Use "Chicken thighs" as the item' }))  // a button, so no one has to know to press Enter
+    expect(submit.disabled).toBe(false)
+    await user.click(submit)
+    const call = mocks.api.mock.calls.find((c) => String(c[0]).includes('/readings/batch')) as unknown as [string, { body: { readings: { reference: string; lot_ids: number[] }[] } }]
+    expect(call[1].body.readings[0]).toMatchObject({ reference: 'Chicken thighs', lot_ids: [] })
+  })
 })
+
