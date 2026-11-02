@@ -141,3 +141,15 @@ def test_every_template_check_can_be_recorded(client, login, db, clock):
             assert r.status_code == 201 and r.json()["passed"] is True, (t["key"], sched["stage"], r.text)
             if sched["phase"] == "start":
                 started = r.json()["id"]
+
+
+def test_a_template_can_be_recorded_when_needed_with_no_set_time(client, login, db, clock):
+    m = login(MGR)
+    point = client.post("/api/equipment/from-template", json={"template": "defrosting", "location_id": loc_id(db, "MK"), "on_demand": True}, headers=m).json()
+    time_in = [c for c in point["schedules"] if c["phase"] == "start"]
+    assert len(time_in) == 1 and time_in[0]["timing"] == "manual" and time_in[0]["time_of_day"] is None and len(point["schedules"]) == 3  # time in once, both time outs kept
+    due = [d for d in client.get("/api/monitoring/due", headers=m).json() if d["equipment_id"] == point["id"]]
+    assert due == []  # never due or overdue: it is recorded when an item goes in
+    chiller = client.post("/api/equipment/from-template", json={"template": "chiller", "location_id": loc_id(db, "MK"), "on_demand": True}, headers=m).json()
+    assert [(c["stage"], c["timing"]) for c in chiller["schedules"]] == [("Temperature", "manual")]
+    assert client.post("/api/equipment/from-template", json={"template": "hot_holding", "location_id": loc_id(db, "MK"), "on_demand": True}, headers=m).status_code == 400

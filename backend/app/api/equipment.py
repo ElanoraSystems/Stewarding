@@ -17,7 +17,7 @@ from ..pagination import row
 from ..services.settings import get_setting
 from ..services.visibility import clean_titles
 from ..services.monitoring import failure_count
-from ..services.monitoring_templates import BY_KEY, TEMPLATES, default_times, with_times
+from ..services.monitoring_templates import BY_KEY, TEMPLATES, default_times, when_needed, with_times
 from .. import timeutil
 
 router = APIRouter(prefix="/api/equipment", tags=["monitoring points"])
@@ -318,6 +318,7 @@ class FromTemplateIn(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     supervisor_id: int | None = None
     times: list[time] | None = Field(default=None, min_length=1, max_length=6)
+    on_demand: bool = False  # no set times: the checks are recorded when the work is done
 
     @field_validator("times")
     @classmethod
@@ -357,7 +358,11 @@ def create_from_template(body: FromTemplateIn, user: User = Depends(require("equ
     db.add(eq)
     db.flush()
     checks = preset["checks"]
-    if body.times:
+    if body.on_demand:
+        if default_times(preset) is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This template has no set times to leave out")
+        checks = when_needed(preset)
+    elif body.times:
         if default_times(preset) is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "This template has no times a day to choose")
         if sorted(body.times) != default_times(preset):  # the times it already has: keep the template as it is
