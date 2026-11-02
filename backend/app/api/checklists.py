@@ -16,6 +16,7 @@ from ..pagination import paginate, row
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services import checklists as engine
 from ..services.checklists import DONE, OPEN, effective_status, overdue_after
+from ..services.alerts import close_stale_alerts
 from ..services.approvals import record_decision
 from ..services.notify import notify, recipients
 from ..services.scan import require_scan
@@ -473,6 +474,8 @@ def waive_many(body: WaiveManyIn, user: User = Depends(require("checklist.verify
         inst.status, inst.waive_reason, inst.verified_by, inst.verified_at = "waived", body.reason, user.id, now
         waived.append(inst.id)
     audit(db, user, "checklist.waive_many", "checklist_instance", None, None, {"reason": body.reason, "instance_ids": sorted(waived)})
+    db.flush()
+    close_stale_alerts(db, now)  # their overdue alerts are closed now, not at the next minute
     db.commit()
     return {"waived": len(waived), "skipped": len(set(body.instance_ids)) - len(waived)}
 
@@ -488,6 +491,8 @@ def waive(instance_id: int, body: WaiveIn, user: User = Depends(require("checkli
     inst.verified_by, inst.verified_at = user.id, timeutil.utc_now()
     audit(db, user, "checklist.waive", "checklist_instance", inst.id, {"status": before},
           {"status": "waived", "reason": body.reason})
+    db.flush()
+    close_stale_alerts(db, inst.verified_at)
     db.commit()
     return _serialize(inst, task, template, overdue_after(db), _lead(db))
 

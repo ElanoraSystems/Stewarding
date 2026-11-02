@@ -2,7 +2,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .. import timeutil
@@ -40,7 +40,8 @@ def _mine(db: Session, user: User, notification_id: int) -> Notification:
 @router.get("")
 def list_notifications(unread: bool = False, priority: str | None = None, page: int = 1, size: int = 25,
                        user: User = Depends(require("notification.view")), db: Session = Depends(get_db)):
-    stmt = select(Notification).where(Notification.user_id == user.id)
+    # an alert whose cause has gone and that has been seen (closed alerts are marked read) leaves the list instead of piling up
+    stmt = select(Notification).where(Notification.user_id == user.id, or_(Notification.resolved_at.is_(None), Notification.read_at.is_(None)))
     if unread:
         stmt = stmt.where(Notification.read_at.is_(None))
     if priority:
