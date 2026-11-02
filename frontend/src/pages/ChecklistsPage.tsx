@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
+import { LocationSelect } from '@/components/LocationSelect'
 import { ScanButton } from '@/components/ScanButton'
 import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { DecisionDialog } from '@/components/DecisionDialog'
@@ -18,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { ChecklistConfig } from '@/pages/ChecklistConfig'
 import { ChecklistGroups } from '@/pages/ChecklistGroups'
 import { ChecklistTaskCard, type Instance } from '@/pages/ChecklistTaskCard'
+import { OverdueBacklog } from '@/pages/OverdueBacklog'
 import type { EmployeeRow } from '@/pages/EmployeeForm'
 
 const DONE = ['completed', 'pending_verification', 'verified', 'waived']
@@ -29,7 +31,8 @@ export function ChecklistsPage() {
   const arrived = useLocation().state as { locationId?: number } | null
   const [locationId, setLocationId] = useState<number | null>(arrived?.locationId ?? null)
   const [day, setDay] = useState(todayIso())
-  const [view, setView] = useState<'day' | 'week'>('day')
+  const [params] = useSearchParams()
+  const [view, setView] = useState<'day' | 'week' | 'overdue'>(params.get('view') === 'overdue' ? 'overdue' : 'day')  // the dashboard's overdue count opens the backlog
   const [approvingAll, setApprovingAll] = useState(false)
   const [status, setStatus] = useState('')
   const [frequency, setFrequency] = useState('')
@@ -42,12 +45,12 @@ export function ChecklistsPage() {
   const canConfigure = me?.permissions.includes('checklist.configure') ?? false
   const range = weekRange(day)
 
-  const { data, loading, reload } = useApi<{ items: Instance[] }>(
-    locationId === null ? null : `/checklists/instances${qs({
-      location_id: locationId, status, frequency,
-      ...(view === 'week' ? { date_from: range.from, date_to: range.to } : { day }), size: 200,
-    })}`,
+  const { data, loading, reload } = useApi<{ items: Instance[]; total: number }>(
+    locationId === null && view !== 'overdue' ? null : `/checklists/instances${qs(view === 'overdue'
+      ? { location_id: locationId, status: 'overdue', frequency, size: 200 }  // every date, so the overdue count can be worked through in one place
+      : { location_id: locationId, status, frequency, ...(view === 'week' ? { date_from: range.from, date_to: range.to } : { day }), size: 200 })}`,
   )
+  const places = new Map((me?.locations ?? []).map((l) => [l.id, l.name]))
   const staff = useApi<{ items: EmployeeRow[] }>(me?.permissions.includes('employee.view') ? '/employees?size=200&status=active' : null)
   const items = data?.items ?? []
   const done = items.filter((i) => DONE.includes(i.effective_status)).length
@@ -82,8 +85,8 @@ export function ChecklistsPage() {
   }
 
   // the tasks of a day as one section per checklist (Opening, Closing and so on) instead of one long mixed list
-  const cards = (list: Instance[]) => (
-    <ChecklistGroups items={list} timezone={timezone} openAll={status !== '' || frequency !== ''}
+  const cards = (list: Instance[], opened = status !== '' || frequency !== '') => (
+    <ChecklistGroups items={list} places={view === 'overdue' ? places : undefined} timezone={timezone} openAll={opened}
       selection={selecting ? { selectable: new Set(selectable), selected, onSet: (ids, on) => setSelected((s) => (on ? [...new Set([...s, ...ids])] : s.filter((id) => !ids.includes(id)))) } : undefined}
       renderTask={(i) => (
         <ChecklistTaskCard key={i.id} item={i} timezone={timezone} staff={staff.data?.items ?? []} onChanged={reload}
@@ -104,16 +107,16 @@ export function ChecklistsPage() {
       {configuring ? <ChecklistConfig locationId={locationId} onLocation={setLocationId} /> : (
         <>
           <div className="filter-bar">
-            <WorkLocationSelect value={locationId} onChange={setLocationId} />
+            {view === 'overdue' ? <LocationSelect allowAll value={locationId} onChange={setLocationId} /> : <WorkLocationSelect value={locationId} onChange={setLocationId} />}
             <div role="group" aria-label="View" className="inline-flex rounded-lg border border-border bg-surface p-0.5">
-              {(['day', 'week'] as const).map((v) => (
-                <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}
+              {(['day', 'week', 'overdue'] as const).map((v) => (
+                <button key={v} type="button" aria-pressed={view === v} onClick={() => { setView(v); if (v === 'overdue') setLocationId(null) }}
                   className={cn('rounded-md px-3 py-1.5 text-sm font-medium', view === v ? 'bg-brand text-brand-ink' : 'text-ink-muted hover:text-ink')}>
-                  {v === 'day' ? 'Day' : 'Week'}
+                  {v === 'day' ? 'Day' : v === 'week' ? 'Week' : 'Overdue'}
                 </button>
               ))}
             </div>
-            <Input aria-label="Date" type="date" className="w-auto" value={day} onChange={(e) => setDay(e.target.value)} />
+            {view !== 'overdue' && <Input aria-label="Date" type="date" className="w-auto" value={day} onChange={(e) => setDay(e.target.value)} />}
             <Select aria-label="Frequency filter" className="w-auto" value={frequency} onChange={(e) => setFrequency(e.target.value)}>
               <option value="">Every frequency</option>
               <option value="daily">Daily</option>
@@ -121,7 +124,7 @@ export function ChecklistsPage() {
               <option value="per_shift">Once per shift</option>
               <option value="custom">Custom</option>
             </Select>
-            <Select aria-label="Status filter" className="w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
+            {view !== 'overdue' && <Select aria-label="Status filter" className="w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">All statuses</option>
               <option value="not_started">Not started</option>
               <option value="in_progress">In progress</option>
@@ -131,13 +134,13 @@ export function ChecklistsPage() {
               <option value="failed">Failed</option>
               <option value="overdue">Overdue</option>
               <option value="waived">Waived</option>
-            </Select>
+            </Select>}
           </div>
 
-          <div aria-label="Completion progress">
+          {view !== 'overdue' && <div aria-label="Completion progress">
             <div className="mb-1 flex justify-between text-sm"><span>{done} of {items.length} done</span><span>{percent}%</span></div>
             <div className="h-2 overflow-hidden rounded bg-border"><div className="h-full bg-brand" style={{ width: `${percent}%` }} /></div>
-          </div>
+          </div>}
 
           {(canAssign || canWaive) && items.length > 0 && (
             <div className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
@@ -168,7 +171,11 @@ export function ChecklistsPage() {
             </div>
           )}
           {loading && !data ? <Skeleton className="h-32 w-full" /> : items.length === 0 ? (
-            <EmptyState title="No tasks for this selection" />
+            <EmptyState title={view === 'overdue' ? 'Nothing is overdue' : 'No tasks for this selection'} />
+          ) : view === 'overdue' ? (
+            <OverdueBacklog items={items} total={data?.total ?? items.length} canWaive={canWaive}
+              onWaiveDay={(ids) => { setSelected(ids); setWaiving(true) }}
+              renderDay={(_, tasks) => cards(tasks, new Set(tasks.map((t) => `${t.template_name}|${t.location_id}`)).size === 1)} />
           ) : view === 'week' ? (
             <div className="space-y-5">
               {days.map((d) => (
