@@ -238,6 +238,30 @@ def test_a_template_of_different_checks_at_different_times_keeps_them_together_a
     assert sorted(c["time_of_day"] for c in unchanged["schedules"]) == ["10:00:00", "10:30:00"]  # the times it already has keep the template as it is
 
 
+def test_each_item_can_have_its_own_time_before_its_time_out_is_due(client, login, db, clock):
+    from app.models import Notification
+    from sqlalchemy import select
+    from app.services.alerts import run_alerts
+    m = login(MGR)
+    point = make(client, m, db, "defrosting")  # the time in allows 24 hours by default
+    lot = lambda: make_lot(point["location_id"])  # noqa: E731
+
+    def log(**extra):
+        return client.post("/api/monitoring/readings/batch", headers=m, json={"equipment_id": point["id"], "readings": [
+            {"schedule_id": c["id"], "value": -20, "lot_ids": [lot()], **extra} for c in checks(point, "start")]}).json()[0]["id"]
+
+    standard, quick = log(), log(ready_after_minutes=120)
+    limits = {p["start_reading_id"]: p["limit_minutes"] for p in client.get("/api/monitoring/pending", headers=m).json()}
+    assert limits == {standard: 24 * 60, quick: 120}
+    assert client.post("/api/monitoring/readings/batch", headers=m, json={"equipment_id": point["id"], "readings": [
+        {"schedule_id": checks(point, "start")[0]["id"], "value": -20, "lot_ids": [lot()], "ready_after_minutes": 5}]}).status_code == 422  # at least half an hour
+    clock.advance(hours=3)
+    run_alerts(db, clock.now)
+    db.commit()
+    due = [n for n in db.scalars(select(Notification).where(Notification.kind == "time_out_missing"))]
+    assert due and all(n.dedupe_key == f"pending_out:{quick}" for n in due)  # only the item that was set to 2 hours has reached its time
+
+
 def test_a_time_in_can_name_the_food_in_words_when_it_was_not_received_as_a_lot(client, login, db, clock):
     m = login(MGR)
     point = make(client, m, db, "defrosting")

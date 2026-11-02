@@ -172,6 +172,7 @@ class TemperatureReading(Base):
     evidence_path: Mapped[str | None] = mapped_column(String(300))
     retest_of_id: Mapped[int | None] = mapped_column(ForeignKey("temperature_reading.id"))
     start_reading_id: Mapped[int | None] = mapped_column(ForeignKey("temperature_reading.id"), index=True)  # the time-in reading a finish closes
+    expected_minutes: Mapped[int | None] = mapped_column(Integer)  # a time in only: how long this item takes before its time out is due, set when it was logged
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
     rejected_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))  # a rejected reading must be recorded again

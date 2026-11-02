@@ -50,6 +50,21 @@ describe('MonitoringRecordForm check choice', () => {
     }
   })
 
+  it('lets each item of a time in choose how long it takes before its time out is due', async () => {
+    const user = userEvent.setup()
+    mocks.geofence = false
+    mocks.api.mockClear()
+    const timeIn = { ...check(1, 'time_in', null, 'manual'), phase: 'start', max_open_minutes: 1440, min_value: -40, max_value: -18 }
+    render(<MonitoringRecordForm equipment={[chiller([timeIn as unknown as ReturnType<typeof check>])]} prefill={null} onSaved={() => {}} onClearRetest={() => {}} />)
+    await user.selectOptions(screen.getByLabelText('Monitoring point'), '1')
+    await user.type(screen.getByLabelText('Temperature'), '20')
+    expect(screen.getByRole('option', { name: 'Standard: 24 hours' })).toBeTruthy()
+    await user.selectOptions(screen.getByLabelText(/Ready after/), '48')
+    await user.click(screen.getByRole('button', { name: 'Record check' }))
+    const call = mocks.api.mock.calls.find((c) => String(c[0]).includes('/readings/batch')) as unknown as [string, { body: { readings: { ready_after_minutes: number }[] } }]
+    expect(call[1].body.readings[0].ready_after_minutes).toBe(48 * 60)
+  })
+
   it('lists each point with the check that is due, as the Monitoring page does', () => {
     render(<MonitoringRecordForm equipment={[chiller([check(1, 'morning_temperature', '08:00:00'), check(2, 'afternoon_temperature', '16:00:00')])]} prefill={null} onSaved={() => {}} onClearRetest={() => {}} />)
     expect(screen.getByRole('option', { name: 'Chiller #25 - Afternoon temperature at 16:00 (+1 more)' })).toBeTruthy()

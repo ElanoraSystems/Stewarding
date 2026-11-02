@@ -223,7 +223,7 @@ def pending_entries(db: Session, equipment: list[Equipment], now: datetime) -> l
     out = []
     for r in entries:
         open_minutes = int((now - r.recorded_at).total_seconds() // 60)
-        limit = own.get(r.schedule_id) or (global_hours * 60 if global_hours else None)  # this check's own limit, else the general setting
+        limit = r.expected_minutes or own.get(r.schedule_id) or (global_hours * 60 if global_hours else None)  # this item's own time, else the check's, else the general setting
         out.append({"start_reading_id": r.id, "equipment_id": r.equipment_id, "equipment": points[r.equipment_id].name,
                     "location_id": r.location_id, "item": r.reference, "started_at": r.recorded_at.isoformat() + "Z", "started_by": r.recorded_by,
                     "minutes_open": open_minutes, "limit_minutes": limit, "minutes_left": limit - open_minutes if limit else None})
