@@ -164,7 +164,7 @@ def test_monitoring_due_then_overdue_alerts(client, login, db, clock):
     clock.advance(minutes=40)  # past the 30 minute grace
     run(db, clock)
     over = notes(db, "monitoring_overdue")
-    assert over and all(n.requires_ack and n.priority == "high" for n in over)
+    assert over and all(not n.requires_ack and n.priority == "high" for n in over)  # a notice only, nothing to approve
     assert emails(db, over) == {"manager@example.test", "sup.mk@example.test"}
     count = len(notes(db, "monitoring_overdue"))
     run(db, clock)
