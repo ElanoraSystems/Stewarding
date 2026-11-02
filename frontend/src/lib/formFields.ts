@@ -36,6 +36,7 @@ export function fieldProblem(f: FieldSpec): string | null {
   if (f.title.trim().length < 2) return 'Give every field a title.'
   if (f.type === 'number') {
     if (f.min === '' && f.max === '') return `${f.title}: a number needs a minimum or a maximum. For anything without limits use Short text.`
+    if ([f.min, f.max, f.warnMin, f.warnMax].some((v) => v !== '' && Number.isNaN(Number(v)))) return `${f.title}: enter the limits as numbers.`
     if (f.min !== '' && f.max !== '' && Number(f.min) > Number(f.max)) return `${f.title}: the minimum is above the maximum.`
     if (f.warnMax !== '' && ((f.max !== '' && Number(f.warnMax) > Number(f.max)) || (f.min !== '' && Number(f.warnMax) < Number(f.min)))) return `${f.title}: the warning level above must sit within the limits.`
     if (f.warnMin !== '' && ((f.min !== '' && Number(f.warnMin) < Number(f.min)) || (f.max !== '' && Number(f.warnMin) > Number(f.max)))) return `${f.title}: the warning level below must sit within the limits.`

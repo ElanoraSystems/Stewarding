@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
+import { SignedNumberInput } from '@/components/ui/signed-number-input'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
@@ -114,10 +115,10 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
             </Field>
             {isNumber && <Field label="Unit"><Input maxLength={20} value={form.unit} onChange={(e) => set('unit', e.target.value)} /></Field>}
             {isNumber && <span className="hidden sm:block" />}
-            {isNumber && <Field label="Minimum"><Input type="number" step="any" value={form.min_value} onChange={(e) => set('min_value', e.target.value)} /></Field>}
-            {isNumber && <Field label="Maximum"><Input type="number" step="any" value={form.max_value} onChange={(e) => set('max_value', e.target.value)} /></Field>}
-            {isNumber && <Field label="Amber warning from (optional)"><Input type="number" step="any" placeholder="Passes, but is flagged at or above this" value={form.warn_max} onChange={(e) => set('warn_max', e.target.value)} /></Field>}
-            {isNumber && <Field label="Amber warning down to (optional)"><Input type="number" step="any" placeholder="Passes, but is flagged at or below this" value={form.warn_min} onChange={(e) => set('warn_min', e.target.value)} /></Field>}
+            {isNumber && <Field label="Minimum"><SignedNumberInput value={form.min_value} onChange={(v) => set('min_value', v)} /></Field>}
+            {isNumber && <Field label="Maximum"><SignedNumberInput value={form.max_value} onChange={(v) => set('max_value', v)} /></Field>}
+            {isNumber && <Field label="Amber warning from (optional)"><SignedNumberInput placeholder="Passes, but is flagged at or above this" value={form.warn_max} onChange={(v) => set('warn_max', v)} /></Field>}
+            {isNumber && <Field label="Amber warning down to (optional)"><SignedNumberInput placeholder="Passes, but is flagged at or below this" value={form.warn_min} onChange={(v) => set('warn_min', v)} /></Field>}
           </div>
           {(form.value_type === 'text' || form.value_type === 'choice') && (
             <FieldRestrictions value={{ ...blankField(), type: form.value_type, ...extra }} onChange={(v) => setExtra({ options: v.options, fail: v.fail, maxLength: v.maxLength })} />

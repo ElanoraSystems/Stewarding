@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
+import { SignedNumberInput } from '@/components/ui/signed-number-input'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { FIELD_TYPES, optionList, type FieldSpec, type FieldType } from '@/lib/formFields'
@@ -20,10 +21,10 @@ export function FieldRestrictions({ value, onChange }: RestrictionsProps) {
       {value.type === 'number' && (
         <div className="grid grid-cols-3 gap-3">
           <Field label="Unit"><Input maxLength={20} value={value.unit} onChange={(e) => set({ unit: e.target.value })} /></Field>
-          <Field label="Minimum"><Input type="number" step="any" value={value.min} onChange={(e) => set({ min: e.target.value })} /></Field>
-          <Field label="Maximum"><Input type="number" step="any" value={value.max} onChange={(e) => set({ max: e.target.value })} /></Field>
-          <Field label="Amber warning from (optional)"><Input type="number" step="any" placeholder="Passes, but is flagged" value={value.warnMax} onChange={(e) => set({ warnMax: e.target.value })} /></Field>
-          <Field label="Amber warning down to (optional)"><Input type="number" step="any" placeholder="Passes, but is flagged" value={value.warnMin} onChange={(e) => set({ warnMin: e.target.value })} /></Field>
+          <Field label="Minimum"><SignedNumberInput value={value.min} onChange={(v) => set({ min: v })} /></Field>
+          <Field label="Maximum"><SignedNumberInput value={value.max} onChange={(v) => set({ max: v })} /></Field>
+          <Field label="Amber warning from (optional)"><SignedNumberInput placeholder="Passes, but is flagged" value={value.warnMax} onChange={(v) => set({ warnMax: v })} /></Field>
+          <Field label="Amber warning down to (optional)"><SignedNumberInput placeholder="Passes, but is flagged" value={value.warnMin} onChange={(v) => set({ warnMin: v })} /></Field>
         </div>
       )}
       {value.type === 'text' && (

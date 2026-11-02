@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTick } from '@/lib/useTick'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
+import { SignedNumberInput } from '@/components/ui/signed-number-input'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
@@ -128,7 +129,7 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
 
       <Modal open={dialog === 'complete'} title={item.description} onClose={() => setDialog(null)}>
         <div className="space-y-3">
-          {item.requires_reading && <Field label="Reading"><Input type="number" step="any" value={reading} onChange={(e) => setReading(e.target.value)} /></Field>}
+          {item.requires_reading && <Field label="Reading"><SignedNumberInput value={reading} onChange={setReading} /></Field>}
           {item.requires_photo && (
             <Field label="Photo evidence">
               <Input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />

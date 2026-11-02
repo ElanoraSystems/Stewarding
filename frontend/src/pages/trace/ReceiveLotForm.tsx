@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { WorkLocationSelect } from '@/components/WorkLocationSelect'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
+import { SignedNumberInput } from '@/components/ui/signed-number-input'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/table'
@@ -91,7 +92,7 @@ export function ReceiveLotForm({ onSaved }: { onSaved: () => void }) {
           </Select>
         </Field>
         <Field label="Supplier lot or batch number"><Input required maxLength={60} value={form.supplier_lot} onChange={(e) => set('supplier_lot', e.target.value)} /></Field>
-        <Field label="Temperature on arrival (C)"><Input type="number" step="0.1" value={form.temp_c} onChange={(e) => set('temp_c', e.target.value)} /></Field>
+        <Field label="Temperature on arrival (C)"><SignedNumberInput value={form.temp_c} onChange={(v) => set('temp_c', v)} /></Field>
         <Field label="Production date"><Input type="date" value={form.produced_on} onChange={(e) => set('produced_on', e.target.value)} /></Field>
         <Field label="Expiry date"><Input type="date" min={form.produced_on || undefined} value={form.expiry_on} onChange={(e) => set('expiry_on', e.target.value)} /></Field>
         <Field label="Quantity received"><Input type="number" min={0} step="any" value={form.qty} onChange={(e) => set('qty', e.target.value)} /></Field>
