@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo, available_timezones
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from ..audit import audit
@@ -40,6 +40,15 @@ class OrganizationIn(BaseModel):
     report_footer: str | None = Field(default=None, max_length=300)
     timezone: str = Field(default="Asia/Kuwait", max_length=64)
     currency: str | None = Field(default=None, max_length=8)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    geofence_radius_m: int | None = Field(default=None, ge=20, le=5000)
+
+    @model_validator(mode="after")
+    def _area_all_or_none(self):
+        if len({self.latitude is None, self.longitude is None, self.geofence_radius_m is None}) > 1:
+            raise ValueError("Give the latitude, the longitude and the radius together, or leave all three empty")
+        return self
 
     @field_validator("currency")
     @classmethod
@@ -122,7 +131,10 @@ def update_organization(body: OrganizationIn, user: User = Depends(require("sett
     if not org:
         org = Organization(id=1)
         db.add(org)
+    area = ("latitude", "longitude", "geofence_radius_m")
     for key, value in body.model_dump().items():
+        if key in area and not (set(area) & body.model_fields_set):
+            continue  # a save that does not mention the check-in area leaves it as it was
         setattr(org, key, value)
     db.flush()
     audit(db, user, "organization.update", "organization", 1, {k: v for k, v in before.items() if k != "logo"}, body.model_dump())

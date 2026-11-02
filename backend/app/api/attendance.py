@@ -27,7 +27,7 @@ from ..services.checklists import DONE
 from ..services.deletion import blockers
 from ..services.settings import get_setting
 from ..services.notify import notify
-from ..services.organization import get_organization
+from ..services.organization import checkin_area, get_organization
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
@@ -60,7 +60,7 @@ class CheckOutIn(Position):
 
 
 def _place_by_position(db: Session, user: User, emp: Employee, where: Position) -> tuple[Location, float | None]:
-    """When staff do not choose a location: today's rostered one first, else any they may work at, whichever the position fits."""
+    """When staff do not choose a location: today's rostered one first, else the first they may work at. The check-in area is the organization's, so it is checked once."""
     allowed = scoped_locations(user, db)
     query = select(Location).where(Location.active.is_(True)).order_by(Location.name)
     if allowed is not None:
@@ -70,13 +70,7 @@ def _place_by_position(db: Session, user: User, emp: Employee, where: Position) 
     places.sort(key=lambda p: p.id not in rostered)
     if not places:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to a location")
-    first_error = None
-    for place in places:
-        try:
-            return place, _enforce_geofence(db, place, where, "check in")
-        except HTTPException as err:
-            first_error = first_error or err
-    raise first_error
+    return places[0], _enforce_geofence(db, where, "check in")
 
 
 def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -84,18 +78,21 @@ def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * 6371000 * asin(sqrt(a))
 
 
-def _enforce_geofence(db: Session, location: Location, where: Position, action: str) -> float | None:
-    """Refuses a position outside the area or too vague to trust, and returns the distance from the centre."""
-    if not location.geofence_radius_m:
+def _enforce_geofence(db: Session, where: Position, action: str) -> float | None:
+    """Refuses a position outside the organization's check-in area or too vague to trust, and returns the distance from its centre."""
+    area = checkin_area(db)
+    if not area:
         return None
+    latitude, longitude, radius = area
+    place = get_organization(db)["name"] or "the site"
     if where.latitude is None or where.longitude is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Allow location access in your browser to {action} at {location.name}")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Allow location access in your browser to {action} at {place}")
     limit = get_setting(db, "attendance.max_accuracy_m")
     if limit and where.accuracy and where.accuracy > limit:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Your location is too imprecise (within {round(where.accuracy)} m, the limit is {limit} m). Move to open sky or turn Wi-Fi on and try again")
-    away = _distance_m(where.latitude, where.longitude, location.latitude, location.longitude)
-    if away > location.geofence_radius_m:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, f"You are about {round(away)} m from {location.name}. You can {action} only within {location.geofence_radius_m} m")
+    away = _distance_m(where.latitude, where.longitude, latitude, longitude)
+    if away > radius:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"You are about {round(away)} m from {place}. You can {action} only within {radius} m")
     return away
 
 
@@ -356,7 +353,7 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
         location = db.get(Location, body.location_id)
         if not location.active:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Location is not active")
-        away = _enforce_geofence(db, location, body, "check in")
+        away = _enforce_geofence(db, body, "check in")
     if _open_record(db, emp):
         raise HTTPException(status.HTTP_409_CONFLICT, "You are already checked in")
     photo = _snapshot_bytes(db, body) if get_setting(db, "attendance.face_required") else None
@@ -388,7 +385,7 @@ def check_out(body: CheckOutIn, user: User = Depends(require("attendance.self"))
     record = _open_record(db, emp)
     if not record:
         raise HTTPException(status.HTTP_409_CONFLICT, "You are not checked in")
-    away = _enforce_geofence(db, db.get(Location, record.location_id), body, "check out")
+    away = _enforce_geofence(db, body, "check out")
     pending = incomplete_tasks(db, user, record)
     reason = (body.exception_reason or "").strip()
     if pending and len(reason) < 5:
@@ -457,12 +454,12 @@ def my_status(user: User = Depends(require("attendance.self")), db: Session = De
     out = {"checked_in": record is not None, "server_time": iso(now), "employee": emp.full_name,
            "employee_code": emp.employee_code, "record": None, "incomplete_task_count": 0,
            "face_required": bool(get_setting(db, "attendance.face_required")), "face_enrolled": emp.face_descriptor is not None,
-           "rostered_today": rostered_today(db, emp, now)}
+           "rostered_today": rostered_today(db, emp, now), "geofence": checkin_area(db) is not None}
     if record:
         out["record"] = _serialize(record, now)
         out["incomplete_task_count"] = len(incomplete_tasks(db, user, record))
         location = db.get(Location, record.location_id)
-        out["location"] = {"id": location.id, "name": location.name, "timezone": location.timezone, "geofence": bool(location.geofence_radius_m)}
+        out["location"] = {"id": location.id, "name": location.name, "timezone": location.timezone}
         if record.shift_id:
             out["shift"] = db.get(Shift, record.shift_id).name
     return out

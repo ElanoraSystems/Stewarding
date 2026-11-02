@@ -5,7 +5,7 @@ import { MyShiftCard } from '@/pages/MyShiftCard'
 
 const mocks = vi.hoisted(() => ({ status: {} as Record<string, unknown>, api: vi.fn(), position: vi.fn() }))
 vi.mock('@/lib/auth', () => ({
-  useAuth: () => ({ me: { permissions: [], locations: [{ id: 1, name: 'Main Kitchen', timezone: 'Asia/Kuwait', geofence: true }] } }),
+  useAuth: () => ({ me: { permissions: [], geofence: true, locations: [{ id: 1, name: 'Main Kitchen', timezone: 'Asia/Kuwait' }] } }),
 }))
 vi.mock('@/lib/toast', () => ({ useRun: () => async () => true, useToast: () => () => undefined }))
 vi.mock('@/lib/useApi', () => ({ useApi: () => ({ loading: false, reload: () => undefined, data: mocks.status }) }))
@@ -78,7 +78,7 @@ describe('check in and out flow', () => {
 
   it('shows the running time while on duty and a summary after checking out', async () => {
     const since = new Date(Date.now() - 3 * 3600 * 1000).toISOString()
-    mocks.status = { ...base, checked_in: true, record: { check_in_at: since, late_minutes: 0 }, location: { id: 1, name: 'Main Kitchen', timezone: 'Asia/Kuwait', geofence: false }, shift: 'Morning', incomplete_task_count: 0 }
+    mocks.status = { ...base, checked_in: true, record: { check_in_at: since, late_minutes: 0 }, location: { id: 1, name: 'Main Kitchen', timezone: 'Asia/Kuwait' }, shift: 'Morning', incomplete_task_count: 0 }
     mocks.api.mockResolvedValue({})
     render(<MyShiftCard />)
     expect(screen.getByText('On duty')).toBeTruthy()

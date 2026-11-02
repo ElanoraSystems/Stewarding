@@ -40,9 +40,6 @@ class Location(Base):
     kind: Mapped[str] = mapped_column(String(30))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    latitude: Mapped[float | None] = mapped_column(Float)  # centre of the area check-in and check-out are limited to
-    longitude: Mapped[float | None] = mapped_column(Float)
-    geofence_radius_m: Mapped[int | None] = mapped_column(Integer)  # empty means no restriction
 
 
 class User(Base):

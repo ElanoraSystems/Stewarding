@@ -1,7 +1,7 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -17,7 +17,7 @@ from ..services.snapshots import forget_from
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-LOCATION_FIELDS = ("id", "code", "name", "kind", "timezone", "active", "latitude", "longitude", "geofence_radius_m")
+LOCATION_FIELDS = ("id", "code", "name", "kind", "timezone", "active")
 
 
 class SettingsIn(BaseModel):
@@ -29,15 +29,6 @@ class LocationIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     kind: str = Field(pattern="^(kitchen|restaurant|bar|banquet|station|other)$")
     timezone: str
-    latitude: float | None = Field(default=None, ge=-90, le=90)
-    longitude: float | None = Field(default=None, ge=-180, le=180)
-    geofence_radius_m: int | None = Field(default=None, ge=20, le=5000)
-
-    @model_validator(mode="after")
-    def _all_or_none(self):
-        if len({self.latitude is None, self.longitude is None, self.geofence_radius_m is None}) > 1:
-            raise ValueError("Give the latitude, the longitude and the radius together, or leave all three empty")
-        return self
 
 
 class LocationUpdate(BaseModel):
@@ -45,9 +36,6 @@ class LocationUpdate(BaseModel):
     kind: str | None = Field(default=None, pattern="^(kitchen|restaurant|bar|banquet|station|other)$")
     timezone: str | None = None
     active: bool | None = None
-    latitude: float | None = Field(default=None, ge=-90, le=90)
-    longitude: float | None = Field(default=None, ge=-180, le=180)
-    geofence_radius_m: int | None = Field(default=None, ge=20, le=5000)
 
 
 def _check_tz(name: str) -> None:
@@ -58,7 +46,7 @@ def _check_tz(name: str) -> None:
 
 
 def _location(loc: Location) -> dict:
-    return {**row(loc, *LOCATION_FIELDS), "geofence": bool(loc.geofence_radius_m)}
+    return row(loc, *LOCATION_FIELDS)
 
 
 @router.get("")
@@ -112,9 +100,6 @@ def update_location(location_id: int, body: LocationUpdate, user: User = Depends
     data = body.model_dump(exclude_unset=True)
     if "timezone" in data:
         _check_tz(data["timezone"])
-    fence = {k: data.get(k, getattr(loc, k)) for k in ("latitude", "longitude", "geofence_radius_m")}
-    if len({v is None for v in fence.values()}) > 1:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Give the latitude, the longitude and the radius together, or clear all three")
     before = {k: getattr(loc, k) for k in data}
     if "timezone" in data and data["timezone"] != loc.timezone:
         forget_from(db, loc.id)  # month boundaries move with the time zone, so stored month-end balances no longer apply

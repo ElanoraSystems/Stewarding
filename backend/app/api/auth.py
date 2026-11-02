@@ -14,6 +14,7 @@ from ..models import Employee, Location, Role, User
 from ..permissions import MODULES, STEWARD
 from ..security import check_password_rules, create_token, hash_password, verify_password
 from .. import timeutil
+from ..services.organization import checkin_area
 from ..services.settings import get_setting
 from .employees import next_code
 
@@ -155,8 +156,8 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
         if user.employee
         else None,
         "permissions": sorted(perms),
-        "locations": [{"id": loc.id, "code": loc.code, "name": loc.name, "timezone": loc.timezone,
-                       "geofence": bool(loc.geofence_radius_m)}
+        "geofence": checkin_area(db) is not None,  # check-in and check-out are limited to the organization's area
+        "locations": [{"id": loc.id, "code": loc.code, "name": loc.name, "timezone": loc.timezone}
                       for loc in places],
         "modules": [{"key": k, "label": label} for k, label, perm in MODULES if perm in perms],
     }
