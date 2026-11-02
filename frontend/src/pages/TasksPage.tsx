@@ -11,6 +11,7 @@ import { EmptyState, Skeleton, Table, Td, Th } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { fmtDateTime, label } from '@/lib/format'
+import { ApprovalsTab, type Waiting } from '@/pages/ApprovalsTab'
 import { PushToggle } from '@/components/PushToggle'
 import { useRun, useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
@@ -50,7 +51,7 @@ interface Task {
   local_date: string
 }
 
-const TABS = [['notifications', 'Notifications'], ['tasks', 'My tasks'], ['pending', 'Pending activities']] as const
+const TABS = [['notifications', 'Notifications'], ['approvals', 'Approvals'], ['tasks', 'My tasks'], ['pending', 'Pending activities']] as const
 /** The permissions of people who approve checklist tasks, readings, breakage or stock. */
 const APPROVING = ['checklist.verify', 'temp.review', 'breakage.review', 'breakage.approve', 'stock.approve']
 const SIZE = 15
@@ -211,17 +212,20 @@ function Pending() {
 export function TasksPage() {
   const { me } = useAuth()
   const canSummary = me?.permissions.includes('report.view') ?? false
-  const tabs = TABS.filter(([key]) => key !== 'pending' || canSummary)
+  const canApprove = ['checklist.verify', 'temp.review'].some((p) => me?.permissions.includes(p))  // the tab lists tasks and monitoring logs
+  const waiting = useApi<Waiting>(canApprove ? '/approvals' : null)
+  const tabs = TABS.filter(([key]) => (key !== 'pending' || canSummary) && (key !== 'approvals' || canApprove))
   const [tab, setTab] = useState<(typeof TABS)[number][0]>('notifications')
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Tasks &amp; Notifications</h1>
       <div role="tablist" className="flex flex-wrap gap-2">
         {tabs.map(([key, text]) => (
-          <Button key={key} role="tab" aria-selected={tab === key} size="sm" variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{text}</Button>
+          <Button key={key} role="tab" aria-selected={tab === key} size="sm" variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{text}{key === 'approvals' && waiting.data && waiting.data.count > 0 ? ` (${waiting.data.count})` : ''}</Button>
         ))}
       </div>
       {tab === 'notifications' && <Notifications />}
+      {tab === 'approvals' && canApprove && <ApprovalsTab data={waiting.data ?? null} loading={waiting.loading} reload={() => { waiting.reload(); notificationsChanged() }} />}
       {tab === 'tasks' && <MyTasks />}
       {tab === 'pending' && canSummary && <Pending />}
     </div>
