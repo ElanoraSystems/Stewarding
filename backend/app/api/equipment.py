@@ -17,7 +17,7 @@ from ..pagination import row
 from ..services.settings import get_setting
 from ..services.visibility import clean_titles
 from ..services.monitoring import failure_count
-from ..services.monitoring_templates import BY_KEY, TEMPLATES, default_times, with_times
+from ..services.monitoring_templates import BY_KEY, TEMPLATES, at_set_times, default_times, starts_up, with_times
 from .. import timeutil
 
 router = APIRouter(prefix="/api/equipment", tags=["monitoring points"])
@@ -339,7 +339,7 @@ def list_templates(user: User = Depends(require("equipment.manage"))):
     return [{"key": t["key"], "name": t["name"], "type": t["type"], "checks": [
         {"stage": c["stage"], "parameter": c["parameter"], "unit": c["unit"], "value_type": c["value_type"],
          "min_value": c.get("min_value"), "max_value": c.get("max_value"), "timing": c["timing"], "phase": c.get("phase")}
-        for c in t["checks"]], "times": [x.strftime("%H:%M") for x in default_times(t) or []] or None}
+        for c in t["checks"]], "times": [x.strftime("%H:%M") for x in default_times(t) or []] or None, "startup": starts_up(t)}
         for t in TEMPLATES]
 
 
@@ -358,9 +358,11 @@ def create_from_template(body: FromTemplateIn, user: User = Depends(require("equ
     db.flush()
     checks = preset["checks"]
     if body.times:
-        if default_times(preset) is None:
+        if starts_up(preset):
+            checks = at_set_times(preset, body.times)  # the machine's checks move from "at startup" to these times
+        elif default_times(preset) is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "This template has no times a day to choose")
-        if sorted(body.times) != default_times(preset):  # the times it already has: keep the template as it is
+        elif sorted(body.times) != default_times(preset):  # the times it already has: keep the template as it is
             checks = with_times(preset, body.times)
     for check in checks:
         weekdays = check.get("weekdays")
