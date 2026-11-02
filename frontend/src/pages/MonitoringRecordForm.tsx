@@ -116,6 +116,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const [values, setValues] = useState<Record<number, string>>({})
   const [reference, setReference] = useState('')
   const [lots, setLots] = useState<LotChoice[]>([])
+  const [readyHours, setReadyHours] = useState('')  // a time in: how long this item takes, empty for the check's standard
   const [comment, setComment] = useState('')
   const [action, setAction] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -146,6 +147,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     setValues((v) => ({ ...v, [s.id]: blob ? 'file' : '' }))
   }
   const needsReference = cycle.some((s) => s.require_reference && !s.trace_lots)
+  const timeInCheck = cycle.find((s) => s.phase === 'start')
   const needsLots = !prefill?.startReadingId && !prefill?.retestOf && cycle.some((s) => s.trace_lots)
   const alreadyDone = !prefill?.retestOf && cycle.length > 0 && cycle.every((s) => doneSchedules?.has(s.id))
 
@@ -186,7 +188,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
         const readings = []
         for (const s of cycle.filter((c) => (values[c.id] ?? '') !== '')) {
           const answer = s.value_type === 'signature' || s.value_type === 'image' ? { answer: await uploadFile(blobs[s.id] instanceof File ? (blobs[s.id] as File) : new File([blobs[s.id]], 'signature.png', { type: 'image/png' })) } : answerOf(s, values[s.id])
-          readings.push({ schedule_id: s.id, ...answer, ...common })
+          readings.push({ schedule_id: s.id, ...answer, ...common, ...(s.phase === 'start' && readyHours ? { ready_after_minutes: Number(readyHours) * 60 } : {}) })
         }
         await api('/monitoring/readings/batch', { body: { ...body, ...where, readings } })
       }
@@ -196,6 +198,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       setValues({})
       setReference('')
       setLots([])
+      setReadyHours('')
       setComment('')
       setAction('')
       setFile(null)
@@ -288,6 +291,14 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
             <p className="text-sm font-medium">{cycle.find((s) => s.reference_label)?.reference_label ?? 'Batch, lot or product'}</p>
             <LotPicker value={lots} onChange={setLots} allowCustom={{ value: reference, onChange: setReference }} />
           </div>
+        )}
+        {timeInCheck && !prefill?.startReadingId && (
+          <Field label="Ready after (when its time out is due)">
+            <Select value={readyHours} onChange={(e) => setReadyHours(e.target.value)}>
+              <option value="">{timeInCheck.max_open_minutes ? `Standard: ${timeInCheck.max_open_minutes / 60} hours` : 'Standard'}</option>
+              {[12, 24, 36, 48, 72].map((h) => <option key={h} value={h}>{h} hours</option>)}
+            </Select>
+          </Field>
         )}
         {needsLots && (
           <Field label="Food lot or lots">

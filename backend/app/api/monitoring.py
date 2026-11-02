@@ -47,6 +47,7 @@ class ReadingIn(BaseModel):
     corrective_action: str | None = Field(default=None, max_length=1000)
     retest_of_id: int | None = None
     start_reading_id: int | None = None
+    ready_after_minutes: int | None = Field(default=None, ge=30, le=20160)  # a time in: this item's own time before the time out is due
     latitude: float | None = Field(default=None, ge=-90, le=90)  # where it was recorded; checked against the work area when one is set
     longitude: float | None = Field(default=None, ge=-180, le=180)
     accuracy: float | None = Field(default=None, ge=0, le=100000)
@@ -70,6 +71,7 @@ class BatchItem(BaseModel):
     comment: str | None = Field(default=None, max_length=1000)
     evidence_path: str | None = None
     corrective_action: str | None = Field(default=None, max_length=1000)
+    ready_after_minutes: int | None = Field(default=None, ge=30, le=20160)
 
 
 class BatchIn(BaseModel):
@@ -270,7 +272,7 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
         source=sched.source, parameter=sched.parameter, unit=sched.unit, value_type=sched.value_type, value=value,
         answer=answer, reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed, warning=warns(sched, value, passed),
         recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, retest_of_id=body.retest_of_id,
-        start_reading_id=start.id if start else None)
+        start_reading_id=start.id if start else None, expected_minutes=body.ready_after_minutes if sched.phase == "start" else None)
     db.add(reading)
     db.flush()
     db.add_all(ReadingLot(reading_id=reading.id, lot_id=lot.id) for lot in lots)
