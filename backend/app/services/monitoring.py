@@ -202,15 +202,15 @@ def pending_entries(db: Session, equipment: list[Equipment], now: datetime) -> l
     points = {eq.id: eq for eq in equipment if eq.active}
     if not points:
         return []
-    lead: dict[int, int] = {}
+    lead: dict[int, set[int]] = {}  # a point can have a time in at several times a day
     has_finish: set[int] = set()
     for equipment_id, schedule_id, phase in db.execute(select(EquipmentSchedule.equipment_id, EquipmentSchedule.id, EquipmentSchedule.phase).where(
             EquipmentSchedule.equipment_id.in_(points), EquipmentSchedule.active.is_(True), EquipmentSchedule.phase.is_not(None)).order_by(EquipmentSchedule.id)):
         if phase == "start":
-            lead.setdefault(equipment_id, schedule_id)
+            lead.setdefault(equipment_id, set()).add(schedule_id)
         else:
             has_finish.add(equipment_id)
-    lead_ids = [schedule_id for equipment_id, schedule_id in lead.items() if equipment_id in has_finish]
+    lead_ids = [schedule_id for equipment_id, ids in lead.items() if equipment_id in has_finish for schedule_id in ids]
     if not lead_ids:
         return []
     closed = select(TemperatureReading.start_reading_id).where(TemperatureReading.start_reading_id.is_not(None))

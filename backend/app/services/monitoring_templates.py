@@ -64,17 +64,43 @@ TEMPLATES = [
 BY_KEY = {t["key"]: t for t in TEMPLATES}
 
 
+def _timed(check: dict) -> bool:
+    """A check that falls at a set clock time (a time in is one); startup, every-N-minutes, on-demand and time-out checks do not."""
+    return check.get("timing") == "checkpoint" and check.get("time_of_day") is not None
+
+
+def _signature(group: list[dict]) -> tuple:
+    return tuple(sorted((c["parameter"], c["value_type"], str(c.get("min_value")), str(c.get("max_value")), str(c.get("phase"))) for c in group))
+
+
+def _groups(preset: dict) -> dict:
+    groups: dict = {}
+    for c in preset["checks"]:
+        if _timed(c):
+            groups.setdefault(c["time_of_day"], []).append(c)
+    return groups
+
+
+def _same_check_each_time(groups: dict) -> bool:
+    """Morning and afternoon temperature are one check at two times; a delivery temperature and a label check are different checks."""
+    return len({_signature(g) for g in groups.values()}) == 1
+
+
 def default_times(preset: dict) -> list[time] | None:
-    """The times a template is checked at, or none when it is not a plain timed log (time in / time out, on demand, every N minutes) whose times can be changed."""
-    checks = preset["checks"]
-    if any(c.get("phase") or c.get("timing") != "checkpoint" or not c.get("time_of_day") for c in checks):
+    """The times a day a template is checked at, or none when it has no clock times to change (startup or every-N-minutes checks).
+    A template whose timed checks are different checks (delivery temperature, then labels) gives its first time: they are all done together."""
+    groups = _groups(preset)
+    if not groups:
         return None
-    return sorted({c["time_of_day"] for c in checks})
+    return sorted(groups) if _same_check_each_time(groups) else [min(groups)]
 
 
 def with_times(preset: dict, times: list[time]) -> list[dict]:
-    """The template's checks repeated at the chosen times: its first set of checks is the pattern, so a chiller asked for three times gets three temperature checks."""
-    first = min(c["time_of_day"] for c in preset["checks"])
-    pattern = [c for c in preset["checks"] if c["time_of_day"] == first]
-    single = len(pattern) == 1 and len(default_times(preset) or []) > 1  # "Morning temperature" and "Afternoon temperature" become "Temperature" at each time
-    return [{**c, "time_of_day": t, **({"stage": c["parameter"]} if single else {})} for t in sorted(times) for c in pattern]
+    """The template's timed checks repeated at the chosen times, with its other checks (such as a time out) kept as they are.
+    The first set of checks is the pattern when every time has the same check, so a chiller asked for three times gets three temperature checks."""
+    groups = _groups(preset)
+    same = _same_check_each_time(groups)
+    pattern = groups[min(groups)] if same else [c for g in groups.values() for c in g]
+    single = same and len(pattern) == 1 and len(groups) > 1 and not pattern[0].get("phase")  # "Morning temperature" and "Afternoon temperature" become "Temperature" at each time
+    fixed = [c for c in preset["checks"] if not _timed(c)]
+    return [{**c, "time_of_day": t, **({"stage": c["parameter"]} if single else {})} for t in sorted(times) for c in pattern] + fixed

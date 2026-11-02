@@ -215,3 +215,24 @@ def test_every_item_defrosted_is_its_own_time_in_however_many_there_are_in_a_day
     first, second = start(client, m, point), start(client, m, point)
     assert first.status_code == 201 and second.status_code == 201  # the second item is not "already recorded for this time"
     assert len(client.get("/api/monitoring/pending", headers=m).json()) == 2
+
+
+def test_a_two_step_log_can_have_a_time_in_at_several_times_a_day_and_each_waits_for_its_time_out(client, login, db, clock):
+    m = login(MGR)
+    point = client.post("/api/equipment/from-template", json={"template": "defrosting", "location_id": loc_id(db, "MK"), "times": ["09:00", "15:00"]}, headers=m).json()
+    assert sorted(c["time_of_day"] for c in checks(point, "start")) == ["09:00:00", "15:00:00"] and len(checks(point, "finish")) == 2  # the time outs are kept once
+    second = max(checks(point, "start"), key=lambda c: c["time_of_day"])
+    lot = make_lot(point["location_id"])
+    started = client.post("/api/monitoring/readings/batch", headers=m, json={"equipment_id": point["id"], "readings": [{"schedule_id": second["id"], "value": 3, "lot_ids": [lot]}]})
+    assert started.status_code == 201
+    assert [p["start_reading_id"] for p in client.get("/api/monitoring/pending", headers=m).json()] == [started.json()[0]["id"]]  # not lost because it is not the first time in
+
+
+def test_a_template_of_different_checks_at_different_times_keeps_them_together_at_each_time(client, login, db, clock):
+    m = login(MGR)
+    point = client.post("/api/equipment/from-template", json={"template": "goods_receiving", "location_id": loc_id(db, "MK"), "times": ["08:00", "14:00"]}, headers=m).json()
+    assert sorted((c["stage"], c["time_of_day"]) for c in point["schedules"]) == [
+        ("Delivery temperature", "08:00:00"), ("Delivery temperature", "14:00:00"),
+        ("Labels, batch and expiry checked", "08:00:00"), ("Labels, batch and expiry checked", "14:00:00")]
+    unchanged = client.post("/api/equipment/from-template", json={"template": "goods_receiving", "location_id": loc_id(db, "MK"), "times": ["10:00"]}, headers=m).json()
+    assert sorted(c["time_of_day"] for c in unchanged["schedules"]) == ["10:00:00", "10:30:00"]  # the times it already has keep the template as it is
