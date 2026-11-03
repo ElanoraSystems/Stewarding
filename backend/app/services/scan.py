@@ -32,11 +32,14 @@ def read_token(token: str) -> tuple[str, int] | None:
     return (kind, target_id) if hmac.compare_digest(signature, _signature(kind, target_id)) else None
 
 
-def require_scan(db: Session, user: User, kind: str, target_id: int, setting: str, name: str) -> None:
-    """403 when scanning is required for this kind of record and the user has not scanned this place recently."""
+def require_scan(db: Session, user: User, kind: str, target_id: int, setting: str, name: str, *also: tuple[str, int]) -> None:
+    """403 when scanning is required for this kind of record and the user has not scanned this place recently.
+    `also` names other codes that count for the same record: the location's code is as good as a monitoring point's own."""
     if not get_setting(db, setting):
         return
     since = timeutil.utc_now() - timedelta(minutes=get_setting(db, "scan.valid_minutes"))
-    if db.scalar(select(ScanEvent.id).where(ScanEvent.user_id == user.id, ScanEvent.kind == kind,
-                                            ScanEvent.target_id == target_id, ScanEvent.created_at >= since).limit(1)) is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Scan the QR code at {name} to record this")
+    for scanned_kind, scanned_id in ((kind, target_id), *also):
+        if db.scalar(select(ScanEvent.id).where(ScanEvent.user_id == user.id, ScanEvent.kind == scanned_kind,
+                                                ScanEvent.target_id == scanned_id, ScanEvent.created_at >= since).limit(1)) is not None:
+            return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, f"Scan the QR code at {name} to record this")
