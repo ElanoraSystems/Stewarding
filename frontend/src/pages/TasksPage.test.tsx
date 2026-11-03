@@ -12,7 +12,7 @@ vi.mock('@/lib/toast', () => ({ useRun: () => async () => true, useToast: () => 
 vi.mock('@/components/PushToggle', () => ({ PushToggle: () => null }))
 vi.mock('@/lib/useApi', () => ({
   qs: () => '',
-  useApi: (path: string) => ({ reload: () => undefined, loading: false, data: path.startsWith('/notifications') ? { total: 1, unread: 1, items: [alert] } : { total: 0, items: [] } }),
+  useApi: (path: string | null) => ({ reload: () => undefined, loading: false, data: path?.startsWith('/notifications') ? { total: 1, unread: 1, items: [alert] } : { total: 0, items: [] } }),
 }))
 
 describe('alerts on the Tasks page', () => {

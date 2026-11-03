@@ -150,7 +150,7 @@ def report(body: ReportIn, user: User = Depends(require("breakage.report")), db:
     now = timeutil.utc_now()
     cost = body.est_cost if body.est_cost is not None else _worth(db, item, body.location_id, body.qty)
     incident = _create(db, user, now, item, body.qty, cost, **body.model_dump(exclude={"est_cost", "item_id", "qty"}))
-    notify(db, recipients(db, incident.location_id, SUPERVISOR, MANAGER), "breakage_review",
+    notify(db, recipients(db, incident.location_id, SUPERVISOR, MANAGER, category="breakage"), "breakage_review",
            f"Breakage to review: {body.qty} x {item.name}", key=f"brk_review:{incident.id}", priority="high",
            location_id=incident.location_id, link="/breakage")
     db.commit()
@@ -171,7 +171,7 @@ def report_many(body: BatchIn, user: User = Depends(require("breakage.report")),
         made.append((_create(db, user, now, item, ln.qty, _worth(db, item, body.location_id, ln.qty), **common), item))
     total = sum((i.est_cost or Decimal(0) for i, _ in made), Decimal(0))
     names = ", ".join(f"{i.qty} x {item.name}" for i, item in made)
-    notify(db, recipients(db, body.location_id, SUPERVISOR, MANAGER), "breakage_review", f"Breakage to review: {names}",
+    notify(db, recipients(db, body.location_id, SUPERVISOR, MANAGER, category="breakage"), "breakage_review", f"Breakage to review: {names}",
            key=f"brk_review:{made[0][0].id}", priority="high", location_id=body.location_id, link="/breakage")
     db.commit()
     shown = _can_see_cost(user)
