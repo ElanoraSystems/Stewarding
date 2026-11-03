@@ -86,3 +86,14 @@ def test_only_settings_managers_get_the_printable_codes(client, login):
     first = r.json()["points"][0]
     assert first["url"].startswith(f"{BASE}/scan/e") and first["svg"].lstrip().startswith("<?xml")
     assert client.get("/api/scan/codes", params={"base": "javascript:alert(1)"}, headers=login(MGR)).status_code == 422
+
+
+def test_the_locations_own_qr_is_enough_to_record_monitoring_logs_there(client, login, db, clock):
+    from app.services.scan import make_token
+    from .test_monitoring import mk_stage, record
+    steward, m = login("steward.mk@example.test"), login("manager@example.test")
+    assert client.put("/api/settings", json={"values": {"scan.monitoring_required": 1}}, headers=m).status_code == 200
+    eq, wash = mk_stage(client, steward)
+    assert record(client, steward, eq, wash, 60.0).status_code == 403                      # nothing scanned yet
+    assert client.post("/api/scan", json={"token": make_token("location", eq["location_id"])}, headers=steward).status_code == 200
+    assert record(client, steward, eq, wash, 60.0).status_code == 201                      # one code for the location, no code on the point

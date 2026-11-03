@@ -72,11 +72,11 @@ export function ScanSummary({ locationId }: { locationId: number }) {
 
       {waiting.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Monitoring checks</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Monitoring checks for you</CardTitle></CardHeader>
           <CardContent className="pt-0">
             <ul className="divide-y divide-border">
               {waiting.slice(0, 8).map((c) => (
-                <li key={`${c.schedule_id}-${c.slot_at}`}><Link to="/monitoring" className="flex items-center justify-between gap-2 py-2.5 text-sm">
+                <li key={`${c.schedule_id}-${c.slot_at}`}><Link to="/monitoring" state={{ locationId, equipmentId: c.equipment_id }} className="flex items-center justify-between gap-2 py-2.5 text-sm">
                   <span><span className="block font-medium">{c.equipment}</span><span className="text-xs text-ink-muted">{c.status === 'upcoming' ? 'Opens' : 'Due'} {fmtTime(c.slot_at)}</span></span>
                   <Badge tone={c.status === 'overdue' ? 'critical' : c.status === 'due' ? 'warn' : 'neutral'}>{c.status}</Badge>
                 </Link></li>

@@ -32,7 +32,7 @@ export function SettingsQrCodes() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Codes to print</h2>
-          <p className="text-sm text-ink-muted">Post a location code where checklists are done and a point code on each fridge, oven or station.</p>
+          <p className="text-sm text-ink-muted">One code per location is enough: post it where the work is done. Scanning it opens that location's checklists and the monitoring checks for the person's job title. A code for each monitoring point is optional.</p>
         </div>
         <Button variant="outline" onClick={() => window.print()}><Printer aria-hidden className="mr-2 h-4 w-4" />Print</Button>
       </div>
@@ -43,10 +43,10 @@ export function SettingsQrCodes() {
               <h3 className="font-semibold">Locations</h3>
               <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{data.locations.map((c) => <Label key={`l${c.id}`} code={c} />)}</ul>
             </section>
-            <section aria-label="Monitoring point codes" className="space-y-2">
-              <h3 className="font-semibold">Monitoring points</h3>
-              <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{data.points.map((c) => <Label key={`e${c.id}`} code={c} />)}</ul>
-            </section>
+            <details aria-label="Monitoring point codes" className="space-y-2 print:hidden">
+              <summary className="cursor-pointer font-semibold">Optional: a code for each monitoring point ({data.points.length})</summary>
+              <ul className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{data.points.map((c) => <Label key={`e${c.id}`} code={c} />)}</ul>
+            </details>
           </CardContent>
         </Card>
       )}

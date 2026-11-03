@@ -228,7 +228,7 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     eq = _equipment_for(db, user, body.equipment_id)
     if not eq.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This monitoring point is inactive")
-    require_scan(db, user, "equipment", eq.id, "scan.monitoring_required", eq.name)
+    require_scan(db, user, "equipment", eq.id, "scan.monitoring_required", eq.name, ("location", eq.location_id))  # the location code counts too
     sched = db.get(EquipmentSchedule, body.schedule_id)
     if not sched or sched.equipment_id != eq.id or not sched.active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown check for this monitoring point")
