@@ -408,3 +408,41 @@ def test_a_recount_goes_only_to_the_locations_that_hold_the_item_and_says_which_
     sheet = client.get(f"/api/rounds/{rid}/entry?location_id={loc_id(db, place)}", headers=m).json()
     assert not any(i["recount"] for i in sheet["items"])
     assert client.post(f"/api/rounds/{rid}/counts/{loc_id(db, place)}/done", headers=m).status_code == 200
+
+
+def test_a_count_can_be_done_in_an_excel_sheet_downloaded_filled_in_and_uploaded(client, login, db, clock):
+    import io
+    from openpyxl import load_workbook
+    m = login(MGR)
+    rid = start(client, m, db).json()["id"]
+    mk = loc_id(db, "MK")
+    pl = item_id(db, "PL-001")
+    sheet = client.get(f"/api/rounds/{rid}/sheet?location_id={mk}", headers=m)
+    assert sheet.status_code == 200 and "spreadsheetml" in sheet.headers["content-type"]
+    book = load_workbook(io.BytesIO(sheet.content))
+    ws = book["Count"]
+    header = [c.value for c in ws[1]]
+    assert header[:2] == ["Code", "Item"] and "Books (system)" not in header  # a blind count by default
+    code = db.get(InventoryItem, pl).code
+    qty_col = header.index("Counted quantity") + 1
+    row = next(r for r in range(2, ws.max_row + 1) if ws.cell(row=r, column=1).value == code)
+    ws.cell(row=row, column=qty_col, value=7)
+    ws.cell(row=row, column=qty_col + 1, value="Counted twice")
+    ws.append(["NOPE-1", "Not an item", "", "", "", 3])        # a code that is not in the system
+    other_code = next(ws.cell(row=r, column=1).value for r in range(2, ws.max_row + 1) if ws.cell(row=r, column=1).value not in (code, "NOPE-1"))
+    ws.append([other_code, "Bad number", "", "", "", "abc"])
+    out = io.BytesIO()
+    book.save(out)
+    sent = client.post(f"/api/rounds/{rid}/counts/{mk}/upload", files={"file": ("count.xlsx", out.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}, headers=m)
+    body = sent.json()
+    assert sent.status_code == 200 and body["saved"] == 1 and body["unknown_codes"] == ["NOPE-1"] and body["invalid"][0]["message"].startswith("'abc'")
+    line = next(i for i in client.get(f"/api/rounds/{rid}/entry?location_id={mk}", headers=m).json()["items"] if i["item_id"] == pl)
+    assert line["qty"] == 7 and line["reason"] == "Counted twice"                       # it is in the count as if it had been typed
+    assert row_state(client, m, rid, pl) is not None
+    other = client.post(f"/api/rounds/{rid}/counts/{loc_id(db, 'BQ')}/upload", files={"file": ("count.xlsx", out.getvalue(), "application/octet-stream")}, headers=m)
+    assert other.status_code == 400 and "not this count and location" in other.json()["detail"]   # the sheet of another location is refused
+    assert client.post(f"/api/rounds/{rid}/counts/{mk}/upload", files={"file": ("x.xlsx", b"not a workbook", "application/octet-stream")}, headers=m).status_code == 400
+
+
+def row_state(client, h, rid, item):
+    return row(client, h, rid, item)

@@ -5,7 +5,7 @@ import io
 from datetime import date, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import (CountRound, InventoryBalance, InventoryCategory, InventoryItem, InventoryUnit, Location, RoundCount, RoundCountLine,
                       RoundReview, StockTransaction, User)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
+from ..services import exporters
 from ..services.inventory import StockError, post_txn
 from ..services.notify import holders_of, notify, recipients
 from ..services.settings import get_setting
@@ -616,3 +617,107 @@ def report(round_id: int, user: User = Depends(_manager), db: Session = Depends(
         writer.writerow([r["code"], r["name"], r["category"], r["received"], *cells, r["book"], r["counted"], r["unaccounted"], r["value"], r["decision"] or ""])
     return Response("﻿" + out.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="count-round-{round_.id}.csv"'})
+
+
+SHEET_COLUMNS = ["Code", "Item", "Category", "Unit", "Storage area", "Counted quantity", "Reason (if different from the books)"]
+MAX_SHEET_BYTES = 5 * 1024 * 1024
+SHEET_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get("/{round_id}/sheet")
+def count_sheet(round_id: int, location_id: int, books: bool = False, user: User = Depends(require("inventory.count")), db: Session = Depends(get_db)):
+    """An Excel sheet of the items to count at one location, with the Counted quantity column empty (or holding what is already saved) to fill in and upload back."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.worksheet.datavalidation import DataValidation
+    round_ = _round(db, user, round_id)
+    place = db.get(Location, location_id)
+    sheet = entry_sheet(round_id, location_id, user, db)
+    book = Workbook()
+    ws = book.active
+    ws.title = "Count"
+    head = [*SHEET_COLUMNS[:5], *(["Books (system)"] if books else []), *SHEET_COLUMNS[5:]]
+    ws.append(head)
+    for cell in ws[1]:
+        cell.font, cell.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F4E9C")
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    counted_col = head.index("Counted quantity") + 1
+    ws.cell(row=1, column=counted_col).fill = PatternFill("solid", fgColor="2E7D32")
+    for it in sheet["items"]:
+        ws.append([exporters.safe(it["code"]), exporters.safe(it["name"]), exporters.safe(it["category"] or ""), exporters.safe(it["unit"] or ""), exporters.safe(it["storage_location"] or ""),
+                   *([it["here"]] if books else []), it["qty"], exporters.safe(it["reason"] or "")])
+    for index, width in enumerate([12, 60, 18, 8, 18, *([14] if books else []), 16, 40], 1):
+        ws.column_dimensions[ws.cell(row=1, column=index).column_letter].width = width
+    ws.freeze_panes = "C2"
+    last = ws.max_row
+    check = DataValidation(type="whole", operator="greaterThanOrEqual", formula1="0", allow_blank=True, showErrorMessage=True,
+                           errorTitle="Whole number", error="Enter a whole number, zero or more, or leave it empty.")
+    ws.add_data_validation(check)
+    check.add(f"{ws.cell(row=2, column=counted_col).coordinate}:{ws.cell(row=max(last, 2), column=counted_col).coordinate}")
+    guide = book.create_sheet("Read me")
+    for row in [["Stock count sheet"], ["Count", round_.name], ["Location", place.name], ["Round id", round_.id], ["Location id", location_id], [],
+                ["How to use"], ["1. Fill the Counted quantity column for every item you counted, including 0 for items you looked for and found none of."],
+                ["2. Leave it empty for an item you did not count (it stays uncounted)."],
+                ["3. Do not change the Code column or add rows for new items."],
+                ["4. Save the file and upload it on the count page for this location. You then review the numbers before finishing."]]:
+        guide.append(row)
+    guide["A1"].font = Font(bold=True, size=14)
+    guide["A7"].font = Font(bold=True)
+    guide.column_dimensions["A"].width = 24
+    guide.column_dimensions["B"].width = 40
+    out = io.BytesIO()
+    book.save(out)
+    return Response(out.getvalue(), media_type=SHEET_MEDIA, headers={"Content-Disposition": f'attachment; filename="count-{round_.id}-{place.code}.xlsx"'})
+
+
+@router.post("/{round_id}/counts/{location_id}/upload")
+async def upload_counts(round_id: int, location_id: int, file: UploadFile, user: User = Depends(require("inventory.count")), db: Session = Depends(get_db)):
+    """Loads a filled-in count sheet as if its numbers had been typed: the rows that name a Code and have a Counted quantity are saved; the rest are left as they were."""
+    from openpyxl import load_workbook
+    data = await file.read(MAX_SHEET_BYTES + 1)
+    if len(data) > MAX_SHEET_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "The sheet is over 5 MB")
+    try:
+        book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This is not an Excel (.xlsx) file") from None
+    info = {str(r[0]).strip(): r[1] for r in book["Read me"].iter_rows(values_only=True) if r and r[0] is not None and len(r) > 1} if "Read me" in book.sheetnames else {}
+    if info and (str(info.get("Round id")) != str(round_id) or str(info.get("Location id")) != str(location_id)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"This sheet is for '{info.get('Count')}' at {info.get('Location')}, not this count and location")
+    ws = book["Count"] if "Count" in book.sheetnames else book[book.sheetnames[0]]
+    rows = ws.iter_rows(values_only=True)
+    header = [str(c).strip() if c is not None else "" for c in next(rows, [])]
+    try:
+        code_at, qty_at = header.index("Code"), header.index("Counted quantity")
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The sheet needs the columns Code and Counted quantity, as in the sheet you downloaded") from None
+    reason_at = next((i for i, h in enumerate(header) if h.startswith("Reason")), None)
+    by_code = {i.code: i.id for i in db.scalars(select(InventoryItem))}
+    entries, unknown, bad, empty = {}, [], [], 0
+    for number, row in enumerate(rows, 2):
+        code = str(row[code_at]).strip() if len(row) > code_at and row[code_at] is not None else ""
+        raw = row[qty_at] if len(row) > qty_at else None
+        if not code:
+            continue
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            empty += 1
+            continue
+        item_id = by_code.get(code)
+        if item_id is None:
+            unknown.append(code)
+            continue
+        try:
+            number_value = float(raw)
+        except (TypeError, ValueError):
+            bad.append({"row": number, "code": code, "message": f"'{raw}' is not a number"})
+            continue
+        if number_value < 0 or number_value != int(number_value):
+            bad.append({"row": number, "code": code, "message": f"{raw} is not a whole number of zero or more"})
+            continue
+        reason = str(row[reason_at]).strip() if reason_at is not None and len(row) > reason_at and row[reason_at] is not None else ""
+        entries[item_id] = EntryIn(qty=str(int(number_value)), reason=reason)
+    saved = save_counts(round_id, location_id, CountsIn(entries=entries), user, db) if entries else {"saved": 0, "refused": [], "needs_reason": []}
+    names = {i.id: i.code for i in db.scalars(select(InventoryItem).where(InventoryItem.id.in_([r["item_id"] for r in saved["refused"]] or [0])))}
+    return {"read": len(entries) + len(bad) + len(unknown), "saved": saved["saved"], "left_empty": empty, "unknown_codes": unknown[:50], "invalid": bad[:50],
+            "refused": [{"code": names.get(r["item_id"], ""), "message": r["message"]} for r in saved["refused"]][:50], "needs_reason": saved["needs_reason"]}
+
