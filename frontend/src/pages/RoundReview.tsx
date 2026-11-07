@@ -1,3 +1,4 @@
+import { Download } from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -5,9 +6,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Select } from '@/components/ui/select'
 import { EmptyState, Skeleton, Table, Td, Th } from '@/components/ui/table'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { api, tokenStore } from '@/lib/api'
+import { api } from '@/lib/api'
+import { downloadFile } from '@/lib/download'
 import { useMoney } from '@/lib/money'
-import { useRun } from '@/lib/toast'
+import { useRun, useToast } from '@/lib/toast'
 import { useApi } from '@/lib/useApi'
 
 interface Item {
@@ -53,6 +55,10 @@ const PAGE = 60
 export function RoundReview({ roundId, canManage, posted = false, onChanged }: { roundId: number; canManage: boolean; posted?: boolean; onChanged: () => void }) {
   const money = useMoney()
   const run = useRun()
+  const toast = useToast()
+  const save = async (fmt: 'xlsx' | 'pdf') => {
+    if (!(await downloadFile(`/api/rounds/${roundId}/report?fmt=${fmt}`, `count-${roundId}.${fmt}`))) toast('error', 'Could not create the file')
+  }
   const { data, reload } = useApi<Review>(`/rounds/${roundId}/review`)
   const [show, setShow] = useState(posted ? 'approved' : 'open')
   const [shown, setShown] = useState(PAGE)
@@ -117,11 +123,8 @@ export function RoundReview({ roundId, canManage, posted = false, onChanged }: {
             <Button disabled={!allDone || blocked > 0 || toApprove.length > 0 || (data.first_round && gap === null)} title={toApprove.length ? 'Approve or recount every item with unaccounted stock first' : data.first_round && gap === null ? 'Choose how to treat the gap first' : undefined} onClick={() => setPosting(true)}>Post the round</Button>
           </>
         )}
-        <Button variant="outline" asChild><a href={`/api/rounds/${roundId}/report.csv`} onClick={async (e) => {
-          e.preventDefault()
-          const blob = await fetch(`/api/rounds/${roundId}/report.csv`, { headers: { Authorization: `Bearer ${tokenStore.get() ?? ''}` } }).then((r) => r.blob()).catch(() => null)
-          if (blob) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `count-round-${roundId}.csv`; a.click(); URL.revokeObjectURL(url) }
-        }}>Download the results</a></Button>
+        <Button variant="outline" onClick={() => save('xlsx')}><Download className="h-4 w-4" /> Download Excel</Button>
+        <Button variant="outline" onClick={() => save('pdf')}><Download className="h-4 w-4" /> Download PDF</Button>
       </div>
 
       {rows.length === 0 ? <EmptyState title="Nothing in this list" /> : (

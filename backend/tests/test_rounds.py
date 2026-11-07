@@ -408,3 +408,22 @@ def test_a_recount_goes_only_to_the_locations_that_hold_the_item_and_says_which_
     sheet = client.get(f"/api/rounds/{rid}/entry?location_id={loc_id(db, place)}", headers=m).json()
     assert not any(i["recount"] for i in sheet["items"])
     assert client.post(f"/api/rounds/{rid}/counts/{loc_id(db, place)}/done", headers=m).status_code == 200
+
+
+def test_the_count_results_download_as_excel_and_pdf_as_well_as_csv(client, login, db, clock):
+    import io
+    from openpyxl import load_workbook
+    m = login(MGR)
+    rid = start(client, m, db).json()["id"]
+    pl = item_id(db, "PL-001")
+    received = next(i for i in client.get(f"/api/rounds/{rid}/entry?location_id={loc_id(db, 'MK')}", headers=m).json()["items"] if i["item_id"] == pl)["received"]
+    assert put(client, m, db, rid, "MK", {pl: (received - 3, "Three broken, not reported")}).json()["refused"] == []
+    xlsx = client.get(f"/api/rounds/{rid}/report?fmt=xlsx", headers=m)
+    assert xlsx.status_code == 200 and "spreadsheetml" in xlsx.headers["content-type"] and xlsx.headers["content-disposition"].endswith('.xlsx"')
+    sheets = load_workbook(io.BytesIO(xlsx.content)).sheetnames
+    assert sheets[0].startswith("Items with a gap") and "All items counted" in sheets
+    pdf = client.get(f"/api/rounds/{rid}/report?fmt=pdf", headers=m)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and pdf.headers["content-type"] == "application/pdf"
+    assert client.get(f"/api/rounds/{rid}/report?fmt=csv", headers=m).status_code == 200
+    assert client.get(f"/api/rounds/{rid}/report?fmt=docx", headers=m).status_code == 400
+    assert client.get(f"/api/rounds/{rid}/report?fmt=xlsx", headers=login(SUP)).status_code == 403  # a manager's report
