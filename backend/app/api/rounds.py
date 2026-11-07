@@ -14,12 +14,13 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, scoped_locations
-from ..models import (CountRound, InventoryBalance, InventoryCategory, InventoryItem, InventoryUnit, Location, RoundCount, RoundCountLine,
+from ..models import (CountRound, Employee, InventoryBalance, InventoryCategory, InventoryItem, InventoryUnit, Location, RoundCount, RoundCountLine,
                       RoundReview, StockTransaction, User)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from ..services import exporters
 from ..services.inventory import StockError, post_txn
 from ..services.notify import holders_of, notify, recipients
+from ..services.organization import report_identity, stamp
 from ..services.settings import get_setting
 
 router = APIRouter(prefix="/api/rounds", tags=["count rounds"])
@@ -720,4 +721,56 @@ async def upload_counts(round_id: int, location_id: int, file: UploadFile, user:
     names = {i.id: i.code for i in db.scalars(select(InventoryItem).where(InventoryItem.id.in_([r["item_id"] for r in saved["refused"]] or [0])))}
     return {"read": len(entries) + len(bad) + len(unknown), "saved": saved["saved"], "left_empty": empty, "unknown_codes": unknown[:50], "invalid": bad[:50],
             "refused": [{"code": names.get(r["item_id"], ""), "message": r["message"]} for r in saved["refused"]][:50], "needs_reason": saved["needs_reason"]}
+
+
+MEDIA = {"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "pdf": "application/pdf", "csv": "text/csv"}
+RENDER = {"xlsx": exporters.record_to_xlsx, "pdf": exporters.record_to_pdf, "csv": exporters.record_to_csv}
+STATE_TEXT = {"balanced": "Balanced", "within_tolerance": "Within tolerance", "needs_review": "Needs review", "not_counted": "Not counted", "approved": "Approved", "recount": "Recount"}
+
+
+def _money(value) -> str:
+    return f"{float(value or 0):,.3f}"
+
+
+def round_document(db: Session, user: User, round_: CountRound) -> dict:
+    """The count as a printable document: the items with a gap first, then every item counted, with the totals."""
+    rows = posted_rows(db, round_) if round_.status == "posted" else review_rows(db, round_)
+    places = sorted({loc["location"] for r in rows for loc in r["locations"]})
+    show_places = len(places) <= 3  # more columns than that do not fit a printed page
+    columns = [("code", "Code"), ("item", "Item"), ("category", "Category"), ("received", "Received"), ("book", "Books"), ("counted", "Counted")]
+    columns += [(f"at_{i}", f"Counted at {p}") for i, p in enumerate(places)] if show_places else []
+    columns += [("gap", "Unaccounted"), ("value", "Value"), ("status", "Status"), ("note", "Note")]
+
+    def line(r: dict) -> dict:
+        by = {loc["location"]: loc for loc in r["locations"]}
+        out = {"code": r["code"], "item": r["name"], "category": r["category"] or "", "received": r["received"], "book": r["book"], "counted": r["counted"],
+               "gap": r["unaccounted"], "value": _money(r["value"]), "status": STATE_TEXT.get(r["state"], r["state"]), "note": r["note"] or ""}
+        for i, p in enumerate(places):
+            out[f"at_{i}"] = by[p]["counted"] if p in by else 0
+        return out
+
+    gaps = [r for r in rows if r["unaccounted"]]
+    shortage = sum(float(r["value"] or 0) for r in rows if r["unaccounted"] > 0)
+    surplus = sum(-float(r["value"] or 0) for r in rows if r["unaccounted"] < 0)
+    totals = [("Items", len(rows)), ("Balanced", sum(1 for r in rows if not r["unaccounted"])), ("With a gap", len(gaps)),
+              ("Shortage value", _money(shortage)), ("Surplus value", _money(surplus))]
+    meta = [("Count", round_.name), ("Status", round_.status.capitalize() + (", gap taken as the starting point" if round_.baseline else "")), ("Locations counted", ", ".join(places) or "-")]
+    groups = [{"title": "Items with a gap", "meta": meta, "columns": columns, "rows": [line(r) for r in gaps], "totals": totals},
+              {"title": "All items counted", "meta": meta, "columns": columns, "rows": [line(r) for r in rows], "totals": totals}]
+    now, identity = timeutil.utc_now(), report_identity(db)
+    emp = db.scalar(select(Employee).where(Employee.user_id == user.id))
+    day = timeutil.to_local(round_.posted_at or round_.created_at, identity["timezone"]).strftime("%d %b %Y")
+    return {"kind": "count_round", "title": f"Stock count: {round_.name}", "period": {"from": day, "to": day, "label": day}, "locations": places,
+            "prepared_by": emp.full_name if emp else user.email, "prepared_position": emp.job_title if emp else user.role.name.replace("_", " ").capitalize(),
+            "generated_at": stamp(now, identity["timezone"]), "organization": identity, "groups": groups}
+
+
+@router.get("/{round_id}/report")
+def report_file(round_id: int, fmt: str = "xlsx", user: User = Depends(_manager), db: Session = Depends(get_db)):
+    """The count's results as Excel (default), PDF or CSV."""
+    if fmt not in RENDER:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose xlsx, pdf or csv")
+    round_ = _round(db, user, round_id)
+    return Response(RENDER[fmt](round_document(db, user, round_)), media_type=MEDIA[fmt],
+                    headers={"Content-Disposition": f'attachment; filename="count-{round_.id}.{fmt}"'})
 
