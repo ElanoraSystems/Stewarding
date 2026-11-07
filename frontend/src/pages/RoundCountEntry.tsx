@@ -1,4 +1,4 @@
-import { ArrowLeft, Printer } from 'lucide-react'
+import { ArrowLeft, Download, Printer, Upload } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ItemThumb } from '@/components/ItemThumb'
 import { Badge } from '@/components/ui/badge'
@@ -7,7 +7,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Skeleton, Table, Td, Th } from '@/components/ui/table'
-import { api } from '@/lib/api'
+import { api, tokenStore } from '@/lib/api'
+import { downloadFile } from '@/lib/download'
 import { fmtDateTime } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
@@ -32,6 +33,7 @@ interface Row {
 }
 
 interface Sheet { status: string; round_status: string; items: Row[] }
+interface Uploaded { read: number; saved: number; left_empty: number; unknown_codes: string[]; invalid: { row: number; code: string; message: string }[]; refused: { code: string; message: string }[] }
 interface Saved { saved: number; refused: { item_id: number; message: string }[]; needs_reason: number[] }
 
 /** Counting one location in a round: the number found, what others have counted, and how much is left to enter. */
@@ -49,6 +51,8 @@ export function RoundCountEntry({ roundId, locationId, locationName, onBack }: {
   const [onlyRecount, setOnlyRecount] = useState(false)
   const [showPictures, setShowPictures] = useState(true)
   const [showBooks, setShowBooks] = useState(true)  // turn off to count without seeing the system figure
+  const [uploaded, setUploaded] = useState<Uploaded | null>(null)
+  const [sending, setSending] = useState(false)
   const loaded = useRef(false)
 
   useEffect(() => {
@@ -56,6 +60,26 @@ export function RoundCountEntry({ roundId, locationId, locationName, onBack }: {
     loaded.current = true
     setTyped(Object.fromEntries(sheet.data.items.filter((i) => i.qty !== null).map((i) => [i.item_id, { qty: String(i.qty), reason: i.reason }])))
   }, [sheet.data])
+
+  async function uploadSheet(file: File | undefined) {
+    if (!file) return
+    setSending(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const response = await fetch(`/api/rounds/${roundId}/counts/${locationId}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${tokenStore.get() ?? ''}` }, body: form })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Could not read the sheet')
+      setUploaded(body as Uploaded)
+      loaded.current = false  // show what the sheet put in
+      reloadSheet()
+    } catch (err) {
+      setUploaded(null)
+      setProblems((all) => ({ ...all, 0: err instanceof Error ? err.message : 'Could not read the sheet' }))  // key 0 shows above the list
+    } finally {
+      setSending(false)
+    }
+  }
 
   const finished = !!sheet.data && (sheet.data.status === 'done' || sheet.data.round_status !== 'counting')
 
@@ -155,7 +179,22 @@ export function RoundCountEntry({ roundId, locationId, locationName, onBack }: {
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showPictures} onChange={(e) => setShowPictures(e.target.checked)} /> Show pictures</label>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showBooks} onChange={(e) => setShowBooks(e.target.checked)} /> Show the system stock here</label>
             <Button variant="outline" size="sm" onClick={() => window.open(`/count-sheet${qs({ location_id: locationId, all: 1 })}`, '_blank')}><Printer className="h-4 w-4" /> Print count sheet</Button>
+            {!finished && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => downloadFile(`/api/rounds/${roundId}/sheet${qs({ location_id: locationId })}`, `count-${roundId}.xlsx`)}><Download className="h-4 w-4" /> Excel sheet to fill in</Button>
+                <label className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-border-strong bg-surface px-3 text-sm font-medium hover:bg-surface-muted ${sending ? 'opacity-60' : ''}`}>
+                  <Upload className="h-4 w-4" aria-hidden /> {sending ? 'Reading the sheet...' : 'Upload the filled sheet'}
+                  <input type="file" accept=".xlsx" className="sr-only" disabled={sending} onChange={(e) => { void uploadSheet(e.target.files?.[0]); e.target.value = '' }} />
+                </label>
+              </>
+            )}
           </div>
+          {uploaded && (
+            <div role="status" className="space-y-2 rounded-lg border border-border bg-surface px-3 py-3 text-sm">
+              <p className="font-medium">{uploaded.saved} quantit{uploaded.saved === 1 ? 'y' : 'ies'} loaded from the sheet{uploaded.left_empty ? `; ${uploaded.left_empty} left empty (not counted)` : ''}. Check them below, then press Done when the location is finished.</p>
+              {[...uploaded.invalid.map((i) => `Row ${i.row} (${i.code}): ${i.message}`), ...uploaded.refused.map((r) => `${r.code}: ${r.message}`), ...uploaded.unknown_codes.map((c) => `${c}: not an item in the system`)].map((t, i) => <p key={i} className="text-danger">{t}</p>)}
+            </div>
+          )}
           {problems[0] && <p role="alert" className="text-sm text-danger">{problems[0]}</p>}
           {toRecount.length > 0 && (
             <p role="status" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
