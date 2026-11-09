@@ -14,6 +14,7 @@ from .uploads import upload_path
 from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import ChecklistInstance, CorrectiveAction, Employee, Equipment, EquipmentSchedule, Location, ReadingLot, Role, Shift, TemperatureReading, User
 from ..pagination import row
+from ..services import approvers
 from ..services.settings import get_setting
 from ..services.visibility import clean_titles
 from ..services.monitoring import failure_count
@@ -23,7 +24,7 @@ from .. import timeutil
 router = APIRouter(prefix="/api/equipment", tags=["monitoring points"])
 
 EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer", "model", "serial_number",
-                    "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active", "visible_to")
+                    "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active", "visible_to", "approvers")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
                    "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "warn_min", "warn_max", "max_open_minutes", "options",
                    "fail_options", "max_length", "required", "reference_label", "phase", "trace_lots", "active")
@@ -42,6 +43,7 @@ class EquipmentIn(BaseModel):
     procedure_reference: str | None = Field(default=None, max_length=300)
     maintenance_notes: str | None = None
     visible_to: list[str] | None = None  # job titles that record this log; empty or none means all
+    approvers: list[int] | None = None  # people who review its readings, any one of them; empty or none means everyone who may
 
 
 class EquipmentUpdate(BaseModel):
@@ -55,6 +57,7 @@ class EquipmentUpdate(BaseModel):
     maintenance_notes: str | None = None
     active: bool | None = None
     visible_to: list[str] | None = None
+    approvers: list[int] | None = None
 
 
 class ScheduleIn(BaseModel):
@@ -143,7 +146,7 @@ def serialize(db: Session, eq: Equipment) -> dict:
     schedules = db.scalars(select(EquipmentSchedule).where(EquipmentSchedule.equipment_id == eq.id)
                            .order_by(EquipmentSchedule.id))
     failures = failure_count(db, eq.id, timeutil.utc_now())
-    return {**row(eq, *EQUIPMENT_FIELDS), "schedules": [schedule_out(s) for s in schedules],
+    return {**row(eq, *EQUIPMENT_FIELDS), "approver_names": approvers.names_of(db, eq.approvers), "schedules": [schedule_out(s) for s in schedules],
             "recent_failures": failures,
             "needs_attention": eq.status != "operational" or failures >= get_setting(db, "temp.repeat_failure_count")}
 
@@ -177,7 +180,7 @@ def create_equipment(body: EquipmentIn, user: User = Depends(require("equipment.
     _validate_refs(db, body.supervisor_id)
     if db.scalar(select(Equipment.id).where(Equipment.code == body.code)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Monitoring point code already exists")
-    eq = Equipment(**{**body.model_dump(), "visible_to": clean_titles(db, body.visible_to)})
+    eq = Equipment(**{**body.model_dump(), "visible_to": clean_titles(db, body.visible_to), "approvers": approvers.clean(db, body.approvers, approvers.MONITORING)})
     db.add(eq)
     db.flush()
     audit(db, user, "equipment.create", "equipment", eq.id, None, body.model_dump())
@@ -193,6 +196,8 @@ def update_equipment(equipment_id: int, body: EquipmentUpdate, user: User = Depe
     _validate_refs(db, data.get("supervisor_id"))
     if "visible_to" in data:
         data["visible_to"] = clean_titles(db, data["visible_to"])
+    if "approvers" in data:
+        data["approvers"] = approvers.clean(db, data["approvers"], approvers.MONITORING)
     before = {k: getattr(eq, k) for k in data}
     for key, value in data.items():
         setattr(eq, key, value)

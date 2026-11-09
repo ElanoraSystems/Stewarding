@@ -1,17 +1,26 @@
 """Everything waiting for an approver in one list: checklist tasks done and monitoring readings recorded."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import current_user, permissions_of, scoped_locations
 from ..models import ChecklistInstance, ChecklistTask, ChecklistTemplate, Equipment, TemperatureReading, User
+from ..services import approvers
 from ..services.monitoring import describe
 from ..services.reference import user_names
 from ..services.visibility import hidden_points, hidden_templates
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 LIMIT = 200
+
+
+@router.get("/approvers")
+def who_can_approve(kind: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """The people who can be chosen to approve a kind of work: checklists or monitoring."""
+    if kind not in ("checklists", "monitoring"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose checklists or monitoring")
+    return approvers.candidates(db, approvers.CHECKLISTS if kind == "checklists" else approvers.MONITORING)
 
 
 @router.get("")
@@ -28,7 +37,11 @@ def waiting_for_approval(user: User = Depends(current_user), db: Session = Depen
             stmt = stmt.where(ChecklistInstance.location_id.in_(allowed))
         if hidden := hidden_templates(db, user):
             stmt = stmt.where(ChecklistTemplate.id.not_in(hidden))
-        for inst, task, template in db.execute(stmt.order_by(ChecklistInstance.completed_at, ChecklistInstance.id).limit(LIMIT)):
+        for inst, task, template in db.execute(stmt.order_by(ChecklistInstance.completed_at, ChecklistInstance.id).limit(LIMIT * 4)):
+            if len(tasks) >= LIMIT:
+                break
+            if not approvers.may_decide(user, template.approvers):
+                continue  # someone else is chosen to approve this checklist
             tasks.append({"id": inst.id, "description": task.description, "checklist": template.name, "location_id": inst.location_id,
                           "local_date": inst.local_date.isoformat(), "done_by": names.get(inst.completed_by, ""), "done_at": inst.completed_at.isoformat() + "Z",
                           "comment": inst.comment, "has_photo": bool(inst.evidence_path)})
@@ -39,7 +52,11 @@ def waiting_for_approval(user: User = Depends(current_user), db: Session = Depen
             stmt = stmt.where(TemperatureReading.location_id.in_(allowed))
         if hidden := hidden_points(db, user):
             stmt = stmt.where(TemperatureReading.equipment_id.not_in(hidden))
-        for reading, eq in db.execute(stmt.order_by(TemperatureReading.recorded_at, TemperatureReading.id).limit(LIMIT)):
+        for reading, eq in db.execute(stmt.order_by(TemperatureReading.recorded_at, TemperatureReading.id).limit(LIMIT * 4)):
+            if len(readings) >= LIMIT:
+                break
+            if not approvers.may_decide(user, eq.approvers):
+                continue  # someone else is chosen to review this log
             readings.append({"id": reading.id, "equipment": eq.name, "stage": reading.stage, "value": describe(reading), "passed": reading.passed,
                              "location_id": reading.location_id, "done_by": names.get(reading.recorded_by, ""), "done_at": reading.recorded_at.isoformat() + "Z",
                              "comment": reading.comment})
