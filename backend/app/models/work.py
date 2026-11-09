@@ -17,6 +17,7 @@ class ChecklistTemplate(Base):
     frequency: Mapped[str] = mapped_column(String(20))  # per_shift | daily | weekly | custom
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     visible_to: Mapped[list | None] = mapped_column(JSON)  # job titles that see this checklist; none means everyone
+    approvers: Mapped[list | None] = mapped_column(JSON)  # user ids who approve this checklist, any one of them; none means everyone with the permission
 
 
 class ChecklistTask(Base):
@@ -113,6 +114,7 @@ class Equipment(Base):
     maintenance_notes: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     visible_to: Mapped[list | None] = mapped_column(JSON)  # job titles that record this log; none means everyone who can record
+    approvers: Mapped[list | None] = mapped_column(JSON)  # user ids who review this log's readings, any one of them; none means everyone with the permission
 
 
 class EquipmentSchedule(Base):

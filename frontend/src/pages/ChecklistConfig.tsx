@@ -16,6 +16,7 @@ import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useLookup } from '@/lib/useLookups'
 import { ChecklistTaskModal, type ConfigTask } from '@/pages/ChecklistTaskModal'
+import { ApproversModal } from '@/pages/ApproversModal'
 import { JobTitlesModal } from '@/pages/JobTitlesModal'
 
 interface Template {
@@ -25,6 +26,8 @@ interface Template {
   frequency: string
   active: boolean
   visible_to?: string[] | null
+  approvers?: number[] | null
+  approver_names?: string[]
   tasks: ConfigTask[]
 }
 
@@ -47,6 +50,7 @@ interface ConfigProps {
 export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
   const run = useRun()
   const [limiting, setLimiting] = useState<Template | null>(null)
+  const [approving, setApproving] = useState<Template | null>(null)
   const { data, reload } = useApi<Template[]>(locationId ? `/checklists/templates${qs({ location_id: locationId })}` : null)
   const categories = useLookup('checklist_category')
   const [template, setTemplate] = useState<TemplateDraft | null>(null)
@@ -132,6 +136,7 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
                   <Badge>{t.category}</Badge>
                   {!t.active && <Badge tone="warn">Inactive</Badge>}
                   {t.visible_to && t.visible_to.length > 0 && <Badge>Only: {t.visible_to.join(', ')}</Badge>}
+                  {t.approver_names && t.approver_names.length > 0 && <Badge tone="ok">Approved by: {t.approver_names.join(', ')}</Badge>}
                   <span className="text-sm text-ink-muted">{t.tasks.length} task{t.tasks.length === 1 ? '' : 's'}{inactive ? `, ${inactive} inactive` : ''}</span>
                 </span>
               </span>
@@ -140,6 +145,7 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
             <ActionMenu label={`More for ${t.name}`} text="More" actions={[
               { label: 'Edit', onClick: () => setTemplate({ id: t.id, name: t.name, category: t.category, frequency: t.frequency }) },
               { label: 'Who sees it', onClick: () => setLimiting(t) },
+              { label: 'Who approves it', onClick: () => setApproving(t) },
               { label: t.active ? 'Make inactive' : 'Make active', onClick: () => setTemplateActive(t) },
               { label: 'Delete', onClick: () => setRemovingTemplate(t), tone: 'danger' },
             ]} />
@@ -179,6 +185,8 @@ export function ChecklistConfig({ locationId, onLocation }: ConfigProps) {
       {limiting && <JobTitlesModal point={{ id: limiting.id, name: limiting.name, visible_to: limiting.visible_to ?? null }} path={`/checklists/templates/${limiting.id}`} title={`Who sees ${limiting.name}`}
         description="Tick the job titles that see and work on this checklist. Leave all unticked and everyone sees it. Managers and people who set up checklists always see it."
         onClose={() => setLimiting(null)} onSaved={() => { setLimiting(null); reload() }} />}
+      {approving && <ApproversModal name={approving.name} kind="checklists" approvers={approving.approvers ?? null} names={approving.approver_names} path={`/checklists/templates/${approving.id}`}
+        onClose={() => setApproving(null)} onSaved={() => { setApproving(null); reload() }} />}
       {editing && <ChecklistTaskModal templateId={editing.templateId} templateFrequency={editing.frequency} task={editing.task} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
 
       <Modal

@@ -44,6 +44,7 @@ interface Props {
   onStatus: (status: string) => void
   onRename: () => void
   onWho: () => void
+  onApprovers: () => void
   onPointActive: () => void
   onDeletePoint: () => void
   onEditCheck: (schedule: Schedule | null) => void
@@ -52,7 +53,7 @@ interface Props {
 }
 
 /** One monitoring point: a single line while closed, its checks and actions when opened. */
-export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onStatus, onRename, onWho, onPointActive, onDeletePoint, onEditCheck, onCheckActive, onDeleteCheck }: Props) {
+export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onStatus, onRename, onWho, onApprovers, onPointActive, onDeletePoint, onEditCheck, onCheckActive, onDeleteCheck }: Props) {
   const body = useId()
   const limited = eq.visible_to && eq.visible_to.length > 0
   return (
@@ -70,6 +71,7 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
           {!eq.active && <StatusBadge status="inactive" />}
           {eq.active && eq.status !== 'operational' && <StatusBadge status={eq.status} />}
           {eq.needs_attention && <Badge tone="warn">{eq.recent_failures} recent failures</Badge>}
+          {eq.approver_names && eq.approver_names.length > 0 && <span title={`Reviewed by: ${eq.approver_names.join(', ')}`}><Badge tone="ok">{eq.approver_names.length} reviewer{eq.approver_names.length === 1 ? '' : 's'}</Badge></span>}
           {limited && <span title={`Only: ${eq.visible_to!.join(', ')}`}><Badge>{eq.visible_to!.length} job title{eq.visible_to!.length === 1 ? '' : 's'}</Badge></span>}
         </span>
         <ChevronDown aria-hidden className={cn('ci-chevron h-5 w-5 shrink-0 text-ink-muted', open && 'rotate-180')} />
@@ -79,6 +81,7 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
           <div className="space-y-4 border-t border-border bg-surface-muted/30 p-4">
             {eq.maintenance_notes && <p className="text-sm text-ink-muted">{eq.maintenance_notes}</p>}
             {limited && <p className="text-sm text-ink-muted">Recorded by: {eq.visible_to!.join(', ')}</p>}
+            {eq.approver_names && eq.approver_names.length > 0 && <p className="text-sm text-ink-muted">Reviewed by: {eq.approver_names.join(', ')} (any one of them)</p>}
             {canManage && (
               <div className="flex flex-wrap items-center gap-2">
                 <Select aria-label={`Status of ${eq.name}`} className="w-auto" value={eq.status} onChange={(e) => onStatus(e.target.value)}>
@@ -87,6 +90,7 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
                   <option value="out_of_service">Out of service</option>
                 </Select>
                 <Button size="sm" variant="outline" onClick={onWho}>Who records it</Button>
+                <Button size="sm" variant="outline" onClick={onApprovers}>Who reviews it</Button>
                 <ActionMenu label={`More for ${eq.name}`} text="More" actions={[
                   { label: 'Rename', onClick: onRename },
                   { label: eq.active ? 'Make inactive' : 'Make active', onClick: onPointActive },

@@ -14,6 +14,7 @@ import { label } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { CheckFormModal } from '@/pages/CheckFormModal'
+import { ApproversModal } from '@/pages/ApproversModal'
 import { JobTitlesModal } from '@/pages/JobTitlesModal'
 import { MonitoringPointRow } from '@/pages/MonitoringPointRow'
 import { FormBuilderModal } from '@/pages/FormBuilderModal'
@@ -38,6 +39,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
   const [locationId, setLocationId] = useState<number | null>(null)
   const { data, reload } = useApi<EquipmentItem[]>(locationId ? `/equipment${qs({ location_id: locationId })}` : null)
   const [limiting, setLimiting] = useState<EquipmentItem | null>(null)
+  const [approving, setApproving] = useState<EquipmentItem | null>(null)
   const [editing, setEditing] = useState<{ equipmentId: number; schedule: Schedule | null } | null>(null)
   const [adding, setAdding] = useState(false)
   const [find, setFind] = useState('')
@@ -134,7 +136,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
           {points.map((eq) => (
             <MonitoringPointRow key={eq.id} point={eq} canManage={canManage} open={openIds.has(eq.id) || find.trim() !== ''}
               onToggle={() => setOpenIds((ids) => { const next = new Set(ids); if (!next.delete(eq.id)) next.add(eq.id); return next })}
-              onStatus={(status) => setStatus(eq, status)} onRename={() => setRenaming({ id: eq.id, name: eq.name })} onWho={() => setLimiting(eq)}
+              onStatus={(status) => setStatus(eq, status)} onRename={() => setRenaming({ id: eq.id, name: eq.name })} onWho={() => setLimiting(eq)} onApprovers={() => setApproving(eq)}
               onPointActive={() => setPointActive(eq)} onDeletePoint={() => setDeleting({ kind: 'point', id: eq.id, name: eq.name })}
               onEditCheck={(schedule) => setEditing({ equipmentId: eq.id, schedule })} onCheckActive={setCheckActive}
               onDeleteCheck={(s) => setDeleting({ kind: 'check', id: s.id, name: s.stage })} />
@@ -148,6 +150,8 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
           : `Delete ${deleting?.name ?? ''}? This cannot be undone. Anything with recorded readings cannot be deleted; make it inactive instead.`}
         confirmLabel="Delete" onConfirm={confirmDelete} onCancel={() => setDeleting(null)} />
 
+      {approving && <ApproversModal name={approving.name} kind="monitoring" approvers={approving.approvers ?? null} names={approving.approver_names} path={`/equipment/${approving.id}`}
+        onClose={() => setApproving(null)} onSaved={() => { setApproving(null); reload() }} />}
       {limiting && <JobTitlesModal point={limiting} onClose={() => setLimiting(null)} onSaved={() => { setLimiting(null); reload() }} />}
       {editing && <CheckFormModal equipmentId={editing.equipmentId} schedule={editing.schedule} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
 

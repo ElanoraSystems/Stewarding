@@ -14,7 +14,7 @@ from ..models import (ChecklistInstance, ChecklistTask, ChecklistTemplate, Emplo
                       Shift, TaskAssignment, TaskCompletion, User)
 from ..pagination import paginate, row
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
-from ..services import checklists as engine
+from ..services import approvers, checklists as engine
 from ..services.checklists import DONE, OPEN, effective_status, overdue_after
 from ..services.alerts import close_stale_alerts
 from ..services.approvals import record_decision
@@ -40,6 +40,7 @@ class TemplateIn(BaseModel):
     location_id: int
     frequency: str = Field(pattern="^(per_shift|daily|weekly|custom)$")
     visible_to: list[str] | None = None  # job titles that see this checklist; empty or none means all
+    approvers: list[int] | None = None  # people who approve it, any one of them; empty or none means everyone who may
 
 
 class TemplateUpdate(BaseModel):
@@ -48,6 +49,7 @@ class TemplateUpdate(BaseModel):
     frequency: str | None = Field(default=None, pattern="^(per_shift|daily|weekly|custom)$")
     active: bool | None = None
     visible_to: list[str] | None = None
+    approvers: list[int] | None = None
 
 
 class TaskIn(BaseModel):
@@ -124,7 +126,7 @@ def list_templates(location_id: int | None = None, user: User = Depends(require(
         if t.id in hidden:
             continue
         tasks = db.scalars(select(ChecklistTask).where(ChecklistTask.template_id == t.id).order_by(ChecklistTask.id))
-        out.append({**row(t, "id", "name", "category", "location_id", "frequency", "active", "visible_to"),
+        out.append({**row(t, "id", "name", "category", "location_id", "frequency", "active", "visible_to", "approvers"), "approver_names": approvers.names_of(db, t.approvers),
                     "tasks": [row(k, *TASK_FIELDS) for k in tasks]})
     return out
 
@@ -134,12 +136,12 @@ def create_template(body: TemplateIn, user: User = Depends(require("checklist.co
                     db: Session = Depends(get_db)):
     check_location(user, db, body.location_id)
     _ensure_unique_name(db, body.location_id, body.name)
-    template = ChecklistTemplate(**{**body.model_dump(), "visible_to": clean_titles(db, body.visible_to)})
+    template = ChecklistTemplate(**{**body.model_dump(), "visible_to": clean_titles(db, body.visible_to), "approvers": approvers.clean(db, body.approvers, approvers.CHECKLISTS)})
     db.add(template)
     db.flush()
     audit(db, user, "checklist.template_create", "checklist_template", template.id, None, body.model_dump())
     db.commit()
-    return row(template, "id", "name", "category", "location_id", "frequency", "active", "visible_to")
+    return {**row(template, "id", "name", "category", "location_id", "frequency", "active", "visible_to", "approvers"), "approver_names": approvers.names_of(db, template.approvers)}
 
 
 @router.put("/templates/{template_id}")
@@ -149,6 +151,8 @@ def update_template(template_id: int, body: TemplateUpdate, user: User = Depends
     data = body.model_dump(exclude_unset=True)
     if "visible_to" in data:
         data["visible_to"] = clean_titles(db, data["visible_to"])
+    if "approvers" in data:
+        data["approvers"] = approvers.clean(db, data["approvers"], approvers.CHECKLISTS)
     if data.get("name"):
         _ensure_unique_name(db, template.location_id, data["name"], template.id)
     before = {k: getattr(template, k) for k in data}
@@ -156,7 +160,7 @@ def update_template(template_id: int, body: TemplateUpdate, user: User = Depends
         setattr(template, key, value)
     audit(db, user, "checklist.template_update", "checklist_template", template.id, before, data)
     db.commit()
-    return row(template, "id", "name", "category", "location_id", "frequency", "active", "visible_to")
+    return {**row(template, "id", "name", "category", "location_id", "frequency", "active", "visible_to", "approvers"), "approver_names": approvers.names_of(db, template.approvers)}
 
 
 def _ensure_unique_name(db: Session, location_id: int, name: str, own_id: int | None = None) -> None:
@@ -369,7 +373,8 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
     db.add(TaskCompletion(instance_id=inst.id, user_id=user.id, status=inst.status, comment=body.comment,
                           evidence_path=body.evidence_path))
     if inst.status == "pending_verification":
-        notify(db, recipients(db, inst.location_id, SUPERVISOR, MANAGER, category="checklists"), "verification_needed",
+        who = approvers.active_ids(db, template.approvers) if template.approvers else None
+        notify(db, who or recipients(db, inst.location_id, SUPERVISOR, MANAGER, category="checklists"), "verification_needed",
                f"Verify: {task.description}", key=f"verify:{inst.id}", location_id=inst.location_id,
                link="/checklists", priority="high")
     db.commit()
@@ -380,6 +385,8 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
 def verify(instance_id: int, body: VerifyIn, user: User = Depends(require("checklist.verify")),
            db: Session = Depends(get_db)):
     inst, task, template = _load(db, user, instance_id)
+    if not approvers.may_decide(user, template.approvers):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the people chosen to approve this checklist can decide it")
     if inst.status != "pending_verification":
         raise HTTPException(status.HTTP_409_CONFLICT, "Task is not awaiting verification")
     if inst.completed_by == user.id:
@@ -417,6 +424,9 @@ def verify_many(body: ApproveManyIn, user: User = Depends(require("checklist.ver
         check_location(user, db, inst.location_id)
         if inst.status != "pending_verification" or inst.completed_by == user.id:
             continue
+        template = db.scalar(select(ChecklistTemplate).join(ChecklistTask, ChecklistTask.template_id == ChecklistTemplate.id).where(ChecklistTask.id == inst.task_id))
+        if template and not approvers.may_decide(user, template.approvers):
+            continue  # someone else is chosen to approve this checklist
         inst.status, inst.verified_by, inst.verified_at = "verified", user.id, now
         if body.comment and body.comment.strip():
             inst.comment = f"{inst.comment}\nVerifier: {body.comment.strip()}" if inst.comment else f"Verifier: {body.comment.strip()}"

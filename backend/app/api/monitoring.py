@@ -14,6 +14,7 @@ from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, Equ
                       TemperatureReading, User)
 from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
+from ..services import approvers
 from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
@@ -376,13 +377,19 @@ def list_readings(equipment_id: int | None = None, location_id: int | None = Non
     return {"total": total, "items": _serialize_readings(db, readings, names)}
 
 
+def _may_decide_reading(db: Session, user: User, reading: TemperatureReading) -> bool:
+    """True when nobody is named to review this log, or the person is one of those named (or a manager)."""
+    eq = db.get(Equipment, reading.equipment_id)
+    return approvers.may_decide(user, eq.approvers if eq else None)
+
+
 @router.post("/readings/review")
 def review_readings(body: ReviewManyIn, user: User = Depends(require("temp.review")), db: Session = Depends(get_db)):
     """Approves the chosen readings; whoever gets there first approves, and a reading already approved or recorded by you is skipped."""
     now, reviewed = timeutil.utc_now(), []
     for reading in db.scalars(select(TemperatureReading).where(TemperatureReading.id.in_(set(body.reading_ids)))):
         check_location(user, db, reading.location_id)
-        if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id:
+        if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id or not _may_decide_reading(db, user, reading):
             continue
         reading.reviewed_by, reading.reviewed_at = user.id, now
         record_decision(db, user, "reading", reading.id, True, body.comment)
@@ -398,6 +405,8 @@ def review_reading(reading_id: int, body: CommentIn | None = None, user: User = 
     if not reading:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reading not found")
     check_location(user, db, reading.location_id)
+    if not _may_decide_reading(db, user, reading):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the people chosen to review this log can decide it")
     if reading.recorded_by == user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot review your own reading")
     if reading.reviewed_at or reading.rejected_at:
@@ -444,7 +453,7 @@ def reject_readings(body: RejectManyIn, user: User = Depends(require("temp.revie
     now, rejected = timeutil.utc_now(), []
     for reading in db.scalars(select(TemperatureReading).where(TemperatureReading.id.in_(set(body.reading_ids)))):
         check_location(user, db, reading.location_id)
-        if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id or _has_open_time_out(db, reading):
+        if reading.reviewed_at or reading.rejected_at or reading.recorded_by == user.id or _has_open_time_out(db, reading) or not _may_decide_reading(db, user, reading):
             continue
         reading.rejected_by, reading.rejected_at, reading.reject_reason = user.id, now, body.reason.strip()
         record_decision(db, user, "reading", reading.id, False, body.reason)
@@ -503,6 +512,8 @@ def record_action(action_id: int, body: ActionIn, user: User = Depends(require("
 def decide(action_id: int, body: DecisionIn, user: User = Depends(require("temp.review")),
            db: Session = Depends(get_db)):
     action, reading = _action_for(db, user, action_id)
+    if not _may_decide_reading(db, user, reading):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the people chosen to review this log can decide it")
     if action.taken_by == user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot approve your own corrective action")
     if action.status == "resolved":
