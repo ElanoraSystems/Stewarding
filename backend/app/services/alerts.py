@@ -10,6 +10,7 @@ from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
 from .checklists import OPEN, alerts_for, is_closed, overdue_after
 from .inventory import shortage_rows
+from . import approvers
 from .notify import notify, recipients
 from .settings import get_setting
 from .visibility import norm_title
@@ -151,7 +152,9 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
             created += notify(db, crew, "monitoring_due", f"Check due: {title}",
                               key=f"checkdue:{check['schedule_id']}:{slot}", location_id=location.id, link="/monitoring")
         elif check["status"] == "overdue":
-            created += notify(db, recipients(db, location.id, SUPERVISOR, MANAGER, category="monitoring"), "monitoring_overdue",
+            eq = next((e for e in equipment if e.id == check["equipment_id"]), None)
+            who = recipients(db, location.id, SUPERVISOR, MANAGER, category="monitoring")
+            created += notify(db, approvers.audience(db, eq, who) if eq else who, "monitoring_overdue",
                               f"Check overdue: {title}", key=f"checkover:{check['schedule_id']}:{slot}",
                               priority="high", location_id=location.id, link="/monitoring")  # a notice only: it closes itself when the check is recorded, so nothing to approve
     return created
@@ -167,12 +170,16 @@ def corrective_alerts(db: Session, now: datetime) -> int:
                Equipment.active.is_(True), Location.active.is_(True))).all()  # a point or place that is turned off sends nothing
     for action, reading in rows:
         if action.status == "retest_due" and action.retest_due_at and action.retest_due_at < now:
-            created += notify(db, recipients(db, reading.location_id, SUPERVISOR, category="monitoring") + [action.taken_by], "retest_due",
+            point = db.get(Equipment, reading.equipment_id)
+            crew = recipients(db, reading.location_id, SUPERVISOR, category="monitoring")
+            created += notify(db, (approvers.audience(db, point, crew) if point else crew) + [action.taken_by], "retest_due",
                               f"Retest overdue for {reading.stage}: {describe(reading)}", key=f"retest:{action.id}",
                               priority="critical", location_id=reading.location_id, link="/monitoring", requires_ack=True)
         if now - reading.recorded_at >= escalate_after and action.escalated_at is None:
             action.escalated_at = now
-            created += notify(db, recipients(db, None, MANAGER, category="monitoring"), "monitoring_escalated",
+            point = db.get(Equipment, reading.equipment_id)
+            managers = recipients(db, None, MANAGER, category="monitoring")
+            created += notify(db, approvers.audience(db, point, managers) if point else managers, "monitoring_escalated",
                               f"Unresolved failed check ({describe(reading)}, {reading.stage})",
                               key=f"check_esc:{action.id}", priority="critical", location_id=reading.location_id,
                               link="/monitoring", requires_ack=True)
@@ -187,6 +194,8 @@ def pending_time_outs(db: Session, now: datetime) -> int:
         if entry["limit_minutes"] and entry["minutes_open"] >= entry["limit_minutes"]:
             hours, minutes = divmod(entry["minutes_open"], 60)
             who = recipients(db, entry["location_id"], SUPERVISOR, MANAGER, category="monitoring")
+            point = db.get(Equipment, entry["equipment_id"])
+            who = approvers.audience(db, point, who) if point else who
             if entry["started_by"] and entry["started_by"] not in who:
                 who = [*who, entry["started_by"]]  # the person who started it is told too
             created += notify(db, who, "time_out_missing",
