@@ -10,7 +10,8 @@ import { Select } from '@/components/ui/select'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { api, uploadFile } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { fmtTime } from '@/lib/format'
+import { fmtLate, fmtTime } from '@/lib/format'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useRun } from '@/lib/toast'
 import { DecisionDialog, type Decision } from '@/components/DecisionDialog'
@@ -38,6 +39,8 @@ export interface Instance {
   frequency: string
   template_name?: string
   waive_reason: string | null
+  late_minutes?: number | null
+  late_reason?: string | null
 }
 
 type Dialog = 'complete' | 'waive' | 'assign' | null
@@ -58,6 +61,7 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
   const [dialog, setDialog] = useState<Dialog>(null)
   const [decide, setDecide] = useState<Decision | null>(null)
   const [comment, setComment] = useState('')
+  const [lateReason, setLateReason] = useState('')
   const [reading, setReading] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [assignee, setAssignee] = useState('')
@@ -77,12 +81,13 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
   async function complete() {
     const ok = await run(async () => {
       const evidence = file ? await uploadFile(file) : null
-      await api(`${base}/complete`, { body: { comment: comment || null, reading: reading === '' ? null : Number(reading), evidence_path: evidence } })
+      await api(`${base}/complete`, { body: { comment: comment || null, reading: reading === '' ? null : Number(reading), evidence_path: evidence, late_reason: status === 'overdue' ? lateReason.trim() : null } })
     }, 'Task submitted')
     if (ok) {
       setDialog(null)
       setComment('')
       setReading('')
+      setLateReason('')
       setFile(null)
       onChanged()
     }
@@ -103,6 +108,7 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
           </p>
         </div>
         <StatusBadge status={status} />
+        {!!item.late_minutes && <Badge tone="warn">Late by {fmtLate(item.late_minutes)}</Badge>}
         <div className="flex flex-wrap items-center gap-2">
           {open && can('checklist.complete') && (
             notYet
@@ -124,6 +130,7 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
         </div>
       </div>
       {item.instructions && <p className="mt-1 text-sm text-ink-muted">{item.instructions}</p>}
+      {!!item.late_minutes && item.late_reason && <p className="mt-2 text-sm text-warn">Why it was late: {item.late_reason}</p>}
       {item.comment && <p className="mt-2 whitespace-pre-line rounded bg-surface-muted p-2 text-sm">{item.comment}</p>}
       {item.waive_reason && <p className="mt-1 text-sm text-ink-muted">Waived: {item.waive_reason}</p>}
 
@@ -135,10 +142,15 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
               <Input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             </Field>
           )}
+          {status === 'overdue' && (
+            <Field label="This task is overdue. Why is it late?">
+              <Input value={lateReason} maxLength={500} placeholder="At least 5 characters" onChange={(e) => setLateReason(e.target.value)} />
+            </Field>
+          )}
           <Field label="Comment (optional)"><Input value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-            <Button onClick={complete}>Submit</Button>
+            <Button disabled={status === 'overdue' && lateReason.trim().length < 5} onClick={complete}>Submit</Button>
           </div>
         </div>
       </Modal>

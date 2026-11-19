@@ -63,3 +63,8 @@ export function weekdaysText(days: number[]): string {
   }
   return parts.join(', ')
 }
+
+/** How late something was, in plain words: "45 min", "1 h 05 min". */
+export function fmtLate(minutes: number): string {
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`
+}

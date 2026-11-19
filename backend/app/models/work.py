@@ -63,6 +63,8 @@ class ChecklistInstance(Base):
     verified_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime)
     waive_reason: Mapped[str | None] = mapped_column(Text)
+    late_minutes: Mapped[int | None] = mapped_column(Integer)  # how long after its deadline it was completed, when it was overdue then
+    late_reason: Mapped[str | None] = mapped_column(Text)  # why it was late, required when completing an overdue task
 
 
 class ClosedDay(Base):
