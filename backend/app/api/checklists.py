@@ -84,6 +84,7 @@ class CompleteIn(BaseModel):
     comment: str | None = Field(default=None, max_length=1000)
     reading: Decimal | None = None
     evidence_path: str | None = None
+    late_reason: str | None = Field(default=None, max_length=500)  # required when the task is already overdue
 
 
 class VerifyIn(BaseModel):
@@ -250,7 +251,7 @@ def _opens_at(inst: ChecklistInstance, task: ChecklistTask, lead: int):
 def _serialize(inst: ChecklistInstance, task: ChecklistTask, template: ChecklistTemplate, now, lead: int = 0) -> dict:
     out = row(inst, "id", "task_id", "location_id", "local_date", "shift_key", "status", "due_at",
               "assigned_employee_id", "completed_at", "completed_by", "evidence_path", "reading", "comment",
-              "verified_by", "verified_at", "waive_reason")
+              "verified_by", "verified_at", "waive_reason", "late_minutes", "late_reason")
     out["effective_status"] = effective_status(inst, now)
     out.update({"description": task.description, "instructions": task.instructions, "priority": task.priority,
                 "requires_photo": task.requires_photo, "requires_reading": task.requires_reading,
@@ -365,6 +366,12 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Photo evidence is required")
     if body.evidence_path and not is_valid_evidence(body.evidence_path):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown evidence file")
+    if inst.status in ("not_started", "in_progress", "overdue") and inst.due_at and now >= inst.due_at + timedelta(minutes=get_setting(db, "checklist.grace_minutes")):
+        late = int((now - inst.due_at).total_seconds() // 60)  # a redo after a rejection is not a late start, so only a first completion counts
+        reason = (body.late_reason or "").strip()
+        if len(reason) < 5:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"This task is overdue by {late} min. Give the reason it is late (at least 5 characters)")
+        inst.late_minutes, inst.late_reason = late, reason
     needs_approval = task.requires_verification or get_setting(db, "approval.checklists") == 1
     inst.status = "pending_verification" if needs_approval else "completed"
     inst.completed_at = now

@@ -44,7 +44,7 @@ def waiting_for_approval(user: User = Depends(current_user), db: Session = Depen
                 continue  # someone else is chosen to approve this checklist
             tasks.append({"id": inst.id, "description": task.description, "checklist": template.name, "location_id": inst.location_id,
                           "local_date": inst.local_date.isoformat(), "done_by": names.get(inst.completed_by, ""), "done_at": inst.completed_at.isoformat() + "Z",
-                          "comment": inst.comment, "has_photo": bool(inst.evidence_path)})
+                          "comment": inst.comment, "has_photo": bool(inst.evidence_path), "late_minutes": inst.late_minutes, "late_reason": inst.late_reason})
     if "temp.review" in perms:
         stmt = (select(TemperatureReading, Equipment).join(Equipment, Equipment.id == TemperatureReading.equipment_id)
                 .where(TemperatureReading.reviewed_at.is_(None), TemperatureReading.rejected_at.is_(None), TemperatureReading.recorded_by != user.id))

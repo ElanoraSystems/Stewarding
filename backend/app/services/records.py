@@ -384,14 +384,17 @@ def _checklist_groups(db: Session, locations: list[Location], day_from: date, da
                 "completed_by": names.get(inst.completed_by, ""), "completed_at": _local(inst.completed_at, loc.timezone),
                 "reading": "" if inst.reading is None else f"{inst.reading.normalize():f}",
                 "comment": inst.comment or inst.waive_reason or "",
+                "late": "" if not inst.late_minutes else f"{inst.late_minutes} min", "late_reason": inst.late_reason or "",
                 "verified_by": names.get(inst.verified_by, ""), "verified_at": _local(inst.verified_at, loc.timezone)})
         for title, rows in rows_by_template.items():
             counts = {s: sum(1 for r in rows if r["status"] == s) for s in ("verified", "pending verification", "completed", "failed")}
             columns = [("date", "Date"), ("task", "Task"), ("status", "Status"), ("completed_by", "Completed by"),
-                       ("completed_at", "Completed at"), ("reading", "Reading"), ("comment", "Comment"),
+                       ("completed_at", "Completed at"), ("late", "Late by"), ("late_reason", "Why late"), ("reading", "Reading"), ("comment", "Comment"),
                        ("verified_by", "Approved by"), ("verified_at", "Approved at")]
             if not any(r["reading"] for r in rows):
                 columns = [c for c in columns if c[0] != "reading"]  # only tasks that ask for a measurement have one
+            if not any(r["late"] for r in rows):
+                columns = [c for c in columns if c[0] not in ("late", "late_reason")]  # nothing was late, so no empty columns
             groups.append({
                 "title": f"{loc.name} - {title}",
                 "meta": [("Location", loc.name), ("Checklist", title)],

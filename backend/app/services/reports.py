@@ -91,11 +91,12 @@ def sec_checklists(c: Ctx) -> dict:
         rows += [{"location": w.loc.name, "date": inst.local_date.isoformat(), "task": task.description,
                   "category": tpl.category, "status": state, "due": local(inst.due_at, tz),
                   "completed_at": local(inst.completed_at, tz), "completed_by": c.names_by_user.get(inst.completed_by),
+                  "late": f"{inst.late_minutes} min" if inst.late_minutes else "", "late_reason": inst.late_reason or "",
                   "verified_by": c.names_by_user.get(inst.verified_by)}
                  for inst, task, tpl, state in stats["rows"]]
     comp = metrics.compliance(counts)
     cols = [("location", "Location"), ("date", "Date"), ("task", "Task"), ("category", "Category"), ("status", "Status"),
-            ("due", "Due"), ("completed_at", "Completed"), ("completed_by", "By"), ("verified_by", "Verified by")]
+            ("due", "Due"), ("completed_at", "Completed"), ("completed_by", "By"), ("late", "Late by"), ("late_reason", "Why late"), ("verified_by", "Verified by")]
     return section("checklists", "Checklist completion and overdue activities", cols, rows,
                    [("Compliance", ratio(comp["numerator"], comp["denominator"])), ("Completed", counts["completed"]),
                     ("Verified", counts["verified"]), ("Pending verification", counts["pending_verification"]),

@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button'
 import { EmptyState, Skeleton } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { fmtDateTime } from '@/lib/format'
+import { fmtDateTime, fmtLate } from '@/lib/format'
 import { useToast } from '@/lib/toast'
 
-export interface TaskWaiting { id: number; description: string; checklist: string; location_id: number; local_date: string; done_by: string; done_at: string; comment: string | null; has_photo: boolean }
+export interface TaskWaiting { id: number; description: string; checklist: string; location_id: number; local_date: string; done_by: string; done_at: string; comment: string | null; has_photo: boolean; late_minutes?: number | null; late_reason?: string | null }
 export interface ReadingWaiting { id: number; equipment: string; stage: string; value: string; passed: boolean; location_id: number; done_by: string; done_at: string; comment: string | null }
 export interface Waiting { tasks: TaskWaiting[]; readings: ReadingWaiting[]; count: number }
 
@@ -79,7 +79,8 @@ export function ApprovalsTab({ data, loading, reload }: { data: Waiting | null; 
 
   return (
     <div className="space-y-6">
-      {section('tasks', 'Checklist tasks', data.tasks, (t) => ({ name: t.description, detail: t.checklist, place: t.location_id, by: t.done_by, at: t.done_at, note: t.comment }))}
+      {section('tasks', 'Checklist tasks', data.tasks, (t) => ({ name: t.description, detail: t.checklist, place: t.location_id, by: t.done_by, at: t.done_at, tag: t.late_minutes ? <Badge tone="warn">Late by {fmtLate(t.late_minutes)}</Badge> : undefined,
+        note: [t.late_minutes ? `Why it was late: ${t.late_reason ?? ''}` : '', t.comment].filter(Boolean).join('\n') || null }))}
       {section('readings', 'Monitoring logs', data.readings, (r) => ({
         name: `${r.equipment} - ${r.stage}: ${r.value}`, detail: 'Monitoring log', place: r.location_id, by: r.done_by, at: r.done_at, note: r.comment,
         tag: <Badge tone={r.passed ? 'ok' : 'critical'}>{r.passed ? 'Pass' : 'Fail'}</Badge>,
