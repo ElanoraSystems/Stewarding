@@ -4,8 +4,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Employee, Role, RolePermission, User
+from ..models import Employee, Equipment, Role, RolePermission, User
 from ..permissions import MANAGER
+from .visibility import norm_title, title_of
 
 CHECKLISTS = "checklist.verify"
 MONITORING = "temp.review"
@@ -47,3 +48,16 @@ def names_of(db: Session, ids: list[int] | None) -> list[str]:
 
 def active_ids(db: Session, ids: list[int] | None) -> list[int]:
     return list(db.scalars(select(User.id).where(User.id.in_(ids or [0]), User.active.is_(True))))
+
+
+def audience(db: Session, eq: Equipment, user_ids: list[int]) -> list[int]:
+    """Who hears about a monitoring log: those the alert would reach anyway, narrowed to the job titles chosen for the log (managers always stay),
+    plus the people named to review it. A log with neither chosen keeps its usual recipients."""
+    ids = list(user_ids)
+    if eq.visible_to and ids:
+        wanted = {norm_title(t) for t in eq.visible_to}
+        users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(ids)))}
+        ids = [i for i in ids if i in users and (users[i].role.tier == MANAGER or title_of(users[i]) in wanted)]
+    if eq.approvers:
+        ids += active_ids(db, eq.approvers)
+    return list(dict.fromkeys(ids))
