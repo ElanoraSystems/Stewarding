@@ -1,4 +1,4 @@
-import { CalendarOff, Pencil, Plus, Trash2 } from 'lucide-react'
+import { CalendarOff, History, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { LocationSelect } from '@/components/LocationSelect'
@@ -13,6 +13,7 @@ import { Select } from '@/components/ui/select'
 import { EmptyState } from '@/components/ui/table'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { iso } from '@/lib/dates'
 import { fmtDate, label, weekdaysText } from '@/lib/format'
 import { useRun } from '@/lib/toast'
 import { cycleOffset, cycleStart, cycleWeek } from '@/lib/rosterCycle'
@@ -74,6 +75,19 @@ interface Draft {
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const PAGE = 12
+
+type Phase = 'active' | 'soon' | 'ended'
+const PHASES: { key: Phase; text: string; hint: string }[] = [
+  { key: 'active', text: 'Active', hint: 'Running now, grouped by shift' },
+  { key: 'soon', text: 'Starting soon', hint: 'Assigned, but not started yet' },
+  { key: 'ended', text: 'Ended', hint: 'Finished assignments, kept as history' },
+]
+
+/** Where an assignment stands today: finished (its last day is today or earlier), not started yet, or running. */
+function phaseOf(g: { valid_from: string; valid_to: string | null }, today: string): Phase {
+  if (g.valid_to !== null && g.valid_to <= today) return 'ended'
+  return g.valid_from > today ? 'soon' : 'active'
+}
 const BLANK: Draft = { ids: null, employee_id: '', shift_id: '', weekdays: [0, 1, 2, 3, 4], valid_from: '', valid_to: '', cycle_weeks: 1, offset: 0 }
 
 export function RosterPage() {
@@ -86,6 +100,8 @@ export function RosterPage() {
   const [search, setSearch] = useState('')
   const [shiftFilter, setShiftFilter] = useState('')
   const [shown, setShown] = useState(PAGE)
+  const [phase, setPhase] = useState<Phase>('active')
+  const [todayText] = useState(() => iso(new Date()))
 
   const today = useApi<Today[]>(locationId ? `/roster/today${qs({ location_id: locationId })}` : null)
   const shifts = useApi<Shift[]>('/roster/shifts')
@@ -114,7 +130,7 @@ export function RosterPage() {
   }
 
   async function end(group: Group) {
-    if (await run(() => api('/roster/assignments/end', { body: { ids: group.ids } }), 'Assignment ended')) assignments.reload()
+    if (await run(() => api('/roster/assignments/end', { body: { ids: group.ids } }), 'Assignment ended. It is now under Ended.')) assignments.reload()
   }
 
   async function remove() {
@@ -141,6 +157,46 @@ export function RosterPage() {
       .filter((g) => (!shiftFilter || String(g.shift_id) === shiftFilter) && (!needle || (names.get(g.employee_id) ?? '').toLowerCase().includes(needle)))
       .sort((x, y) => (names.get(x.employee_id) ?? '').localeCompare(names.get(y.employee_id) ?? '') || x.valid_from.localeCompare(y.valid_from))
   })()
+
+  const counts = { active: 0, soon: 0, ended: 0 }
+  for (const g of groups) counts[phaseOf(g, todayText)] += 1
+  const inPhase = groups.filter((g) => phaseOf(g, todayText) === phase)
+  const visible = phase === 'ended' ? [...inPhase].sort((x, y) => (y.valid_to ?? '').localeCompare(x.valid_to ?? '')) : phase === 'soon' ? [...inPhase].sort((x, y) => x.valid_from.localeCompare(y.valid_from)) : inPhase
+  // running assignments sit under their shift, earliest shift first, week off last, so it is clear who is on which shift
+  const shiftsInView = phase === 'active'
+    ? [...new Set(visible.map((g) => g.shift_id))].sort((a, b) => {
+        const x = shiftById.get(a), y = shiftById.get(b)
+        return Number(x?.kind === 'weekoff') - Number(y?.kind === 'weekoff') || (x?.start_time ?? '').localeCompare(y?.start_time ?? '')
+      })
+    : []
+  const more = phase === 'active' ? shiftsInView.some((id) => visible.filter((g) => g.shift_id === id).length > shown) : visible.length > shown
+  const daysFrom = (day: string) => Math.max(0, Math.round((new Date(`${day}T00:00:00`).getTime() - new Date(`${todayText}T00:00:00`).getTime()) / 86400000))
+
+  const card = (g: Group) => {
+    const shift = shiftById.get(g.shift_id)
+    const ended = phaseOf(g, todayText) === 'ended'
+    return (
+      <RecordCard
+        key={g.key}
+        inactive={ended}
+        title={names.get(g.employee_id) ?? `Employee ${g.employee_id}`}
+        subtitle={shift ? (shift.kind === 'weekoff' ? `${shift.name} (week off)` : `${shift.name}, ${shift.start_time.slice(0, 5)} to ${shift.end_time.slice(0, 5)}`) : undefined}
+        badges={ended ? <Badge>Ended {fmtDate(g.valid_to!)}</Badge>
+          : phaseOf(g, todayText) === 'soon' ? <Badge tone="warn">Starts {daysFrom(g.valid_from) === 1 ? 'tomorrow' : `in ${daysFrom(g.valid_from)} days`}</Badge>
+          : shift?.kind === 'weekoff' ? <Badge>Week off</Badge> : g.valid_to ? <Badge tone="warn">Ends {fmtDate(g.valid_to)}</Badge> : <Badge tone="ok">Ongoing</Badge>}
+        facts={[
+          { label: 'Days', value: weekdaysText(g.weekdays) },
+          { label: 'Repeats', value: g.cycle_weeks === 1 ? 'Every week' : `Every ${g.cycle_weeks} weeks, from the week of ${fmtDate(cycleStart(g.valid_from, g.cycle_weeks, g.cycle_week))}` },
+          { label: ended ? 'Ran' : 'From', value: ended ? `${fmtDate(g.valid_from)} to ${fmtDate(g.valid_to!)}` : fmtDate(g.valid_from) },
+        ]}
+        actions={canManage ? [
+          { label: 'Edit', icon: Pencil, onClick: () => setDraft({ ids: g.ids, employee_id: String(g.employee_id), shift_id: String(g.shift_id), weekdays: g.weekdays, valid_from: g.valid_from, valid_to: g.valid_to ?? '', cycle_weeks: g.cycle_weeks, offset: cycleOffset(g.valid_from, g.cycle_weeks, g.cycle_week) }) },
+          ...(ended ? [] : [{ label: 'End', icon: CalendarOff, onClick: () => end(g), disabled: g.valid_to !== null, title: g.valid_to ? 'Already ends on a set date' : 'Stop this assignment from today. It moves to Ended.' }]),
+          { label: 'Delete', icon: Trash2, tone: 'danger' as const, onClick: () => setRemoving(g) },
+        ] : []}
+      />
+    )
+  }
 
   const editing = draft?.ids != null
   const toggleDay = (day: number) => setDraft((d) => d && { ...d, weekdays: d.weekdays.includes(day) ? d.weekdays.filter((x) => x !== day) : [...d.weekdays, day].sort() })
@@ -190,32 +246,33 @@ export function RosterPage() {
           </Select>
         </div>
 
-        {groups.length > 0 && (
-          <CardGrid>
-            {groups.slice(0, shown).map((g) => {
-              const shift = shiftById.get(g.shift_id)
-              return (
-                <RecordCard
-                  key={g.key}
-                  title={names.get(g.employee_id) ?? `Employee ${g.employee_id}`}
-                  subtitle={shift ? (shift.kind === 'weekoff' ? `${shift.name} (week off)` : `${shift.name}, ${shift.start_time.slice(0, 5)} to ${shift.end_time.slice(0, 5)}`) : undefined}
-                  badges={shift?.kind === 'weekoff' ? <Badge>Week off</Badge> : g.valid_to ? <Badge tone="warn">Ends {fmtDate(g.valid_to)}</Badge> : <Badge tone="ok">Ongoing</Badge>}
-                  facts={[
-                    { label: 'Days', value: weekdaysText(g.weekdays) },
-                    { label: 'Repeats', value: g.cycle_weeks === 1 ? 'Every week' : `Every ${g.cycle_weeks} weeks, from the week of ${fmtDate(cycleStart(g.valid_from, g.cycle_weeks, g.cycle_week))}` },
-                    { label: 'From', value: fmtDate(g.valid_from) },
-                  ]}
-                  actions={canManage ? [
-                    { label: 'Edit', icon: Pencil, onClick: () => setDraft({ ids: g.ids, employee_id: String(g.employee_id), shift_id: String(g.shift_id), weekdays: g.weekdays, valid_from: g.valid_from, valid_to: g.valid_to ?? '', cycle_weeks: g.cycle_weeks, offset: cycleOffset(g.valid_from, g.cycle_weeks, g.cycle_week) }) },
-                    { label: 'End', icon: CalendarOff, onClick: () => end(g), disabled: g.valid_to !== null, title: g.valid_to ? 'Already ends on a set date' : 'Stop this assignment from today' },
-                    { label: 'Delete', icon: Trash2, tone: 'danger', onClick: () => setRemoving(g) },
-                  ] : []}
-                />
-              )
-            })}
-          </CardGrid>
-        )}
-        {groups.length > shown && <Button variant="outline" onClick={() => setShown((n) => n + PAGE)}>Show more ({groups.length - shown} left)</Button>}
+        <div role="tablist" aria-label="Which assignments" className="flex flex-wrap gap-2">
+          {PHASES.map(({ key, text, hint }) => (
+            <Button key={key} role="tab" aria-selected={phase === key} size="sm" variant={phase === key ? 'default' : 'outline'} title={hint}
+              onClick={() => { setPhase(key); setShown(PAGE) }}>
+              {key === 'ended' && <History className="h-4 w-4" aria-hidden />}{text} ({counts[key]})
+            </Button>
+          ))}
+          <span className="self-center text-xs text-ink-muted">{PHASES.find((p) => p.key === phase)?.hint}</span>
+        </div>
+
+        {phase === 'active' ? shiftsInView.map((shiftId) => {
+          const shift = shiftById.get(shiftId)
+          const members = visible.filter((g) => g.shift_id === shiftId)
+          return (
+            <div key={shiftId} className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
+                <h3 className="text-base font-semibold">{shift?.name ?? `Shift ${shiftId}`}</h3>
+                {shift && shift.kind === 'work' && <Badge tone="ok">{shift.start_time.slice(0, 5)} to {shift.end_time.slice(0, 5)}</Badge>}
+                {shift?.kind === 'weekoff' && <Badge>Week off</Badge>}
+                <span className="ml-auto flex items-center gap-1 text-sm text-ink-muted"><Users className="h-4 w-4" aria-hidden /> {members.length} {members.length === 1 ? 'person' : 'people'}</span>
+              </div>
+              <CardGrid>{members.slice(0, shown).map(card)}</CardGrid>
+            </div>
+          )
+        }) : visible.length > 0 && <CardGrid>{visible.slice(0, shown).map(card)}</CardGrid>}
+        {more && <Button variant="outline" onClick={() => setShown((n) => n + PAGE)}>Show more</Button>}
+        {assignments.data && groups.length > 0 && visible.length === 0 && <EmptyState title={phase === 'ended' ? 'No ended assignments yet' : phase === 'soon' ? 'Nothing starting soon' : 'No active assignments match'} />}
         {assignments.data && groups.length === 0 && <EmptyState title={assignments.data.length === 0 ? 'No assignments' : 'No assignment matches'} />}
       </section>
 
