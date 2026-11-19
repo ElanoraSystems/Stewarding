@@ -73,8 +73,9 @@ def record(kind: str, date_from: date | None = None, date_to: date | None = None
            item_id: int | None = None, movement: str | None = None, frequency: str | None = None, status: str | None = None,
            food_group: str | None = None, equipment_kind: str | None = None, template_id: int | None = None,
            q: str | None = None, txn_type: str | None = None, date_by: Literal["invoice", "received"] = "invoice",
+           layout: Literal["auto", "lines"] = "auto",
            user: User = Depends(require("report.view")), db: Session = Depends(get_db)):
-    f = Filters(location_id, equipment_id, employee_id, supplier_id, item_id, movement, frequency, status, food_group, equipment_kind, template_id, q, txn_type, date_by)
+    f = Filters(location_id, equipment_id, employee_id, supplier_id, item_id, movement, frequency, status, food_group, equipment_kind, template_id, q, txn_type, date_by, layout)
     doc = _record(db, user, kind, date_from, date_to, f)
     return {**doc, "groups": [{**g, "row_count": len(g["rows"]), "rows": g["rows"][:PREVIEW_ROWS]} for g in doc["groups"]]}
 
@@ -86,8 +87,9 @@ def export_record(kind: str, fmt: Literal["csv", "xlsx", "pdf"] = "pdf", date_fr
                   movement: str | None = None, frequency: str | None = None, status: str | None = None, food_group: str | None = None,
                   equipment_kind: str | None = None, template_id: int | None = None,
                   q: str | None = None, txn_type: str | None = None, date_by: Literal["invoice", "received"] = "invoice",
+                  layout: Literal["auto", "lines"] = "auto",
                   user: User = Depends(require("report.export")), db: Session = Depends(get_db)):
-    f = Filters(location_id, equipment_id, employee_id, supplier_id, item_id, movement, frequency, status, food_group, equipment_kind, template_id, q, txn_type, date_by)
+    f = Filters(location_id, equipment_id, employee_id, supplier_id, item_id, movement, frequency, status, food_group, equipment_kind, template_id, q, txn_type, date_by, layout)
     doc = _record(db, user, kind, date_from, date_to, f)
     rows = sum(len(g["rows"]) for g in doc["groups"])
     if fmt == "pdf" and rows > MAX_PDF_ROWS:

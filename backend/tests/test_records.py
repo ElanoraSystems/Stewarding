@@ -31,7 +31,7 @@ def seed_readings(client, login):
 
 def test_monitoring_record_lists_who_what_when_and_the_corrective_action(client, login, db, clock):
     seed_readings(client, login)
-    doc = monitoring(client, login(MGR), location_id=loc_id(db, "MK")).json()
+    doc = monitoring(client, login(MGR), location_id=loc_id(db, "MK"), layout="lines").json()  # one line per reading, as the option still offers
     assert doc["title"] == "Monitoring Record" and doc["locations"] == ["Main Kitchen"] and doc["prepared_by"] == "Maya Manager" and doc["prepared_position"] == "Back of House Manager"
     group = next(g for g in doc["groups"] if "DW-MK-1" in g["title"])
     assert group["title"] == "Main Kitchen - Main Kitchen Dishwasher 1 (DW-MK-1)"

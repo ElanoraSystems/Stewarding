@@ -52,6 +52,7 @@ export function ReportsPage() {
     date_from: range[0], date_to: range[1], location_id: locationId, employee_id: extra.employee, frequency: extra.frequency,
     equipment_id: point, equipment_kind: kindFilter, template_id: checklist, supplier_id: extra.supplier,
     movement: extra.movement, item_id: extra.item, status: extra.status, food_group: extra.foodGroup,
+    layout: extra.layout === 'lines' ? 'lines' : '',
   }
   const record = key === 'stock_cost' && extra.costView === 'category' ? 'stock_cost_category' : key  // one report, shown by item or by category
   const preview = useApi<RecordDoc>(def.summary ? null : `/reports/records/${record}${qs(params)}`)
@@ -172,6 +173,14 @@ export function ReportsPage() {
                     <Select value={extra.status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
                       <option value="">All</option>
                       {def.statuses.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                    </Select>
+                  </Field>
+                )}
+                {has('readingLayout') && (
+                  <Field label="Layout">
+                    <Select value={extra.layout ?? ''} onChange={(e) => setFilter('layout', e.target.value)}>
+                      <option value="">One row per check (a column for each measurement)</option>
+                      <option value="lines">One line per reading</option>
                     </Select>
                   </Field>
                 )}

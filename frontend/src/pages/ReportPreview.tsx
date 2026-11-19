@@ -24,6 +24,10 @@ export interface RecordDoc {
 
 const PREVIEW_ROWS = 25
 
+// how a reading stands against its limit: shaded like the downloads
+const TONE_CLASS: Record<string, string> = { ok: 'bg-ok/10', warn: 'bg-warn/20', bad: 'bg-danger/15 font-medium text-danger' }
+const toneOf = (row: Record<string, Cell>, key: string): string | undefined => ((row as unknown as { _tone?: Record<string, string> })._tone ?? {})[key]
+
 function Mark({ cell }: { cell: Cell }) {
   if (cell === null || typeof cell !== 'object') return <>{cell ?? '-'}</>
   const who = [cell.by, cell.ver].filter(Boolean).join('/')
@@ -58,7 +62,7 @@ export function ReportPreview({ doc }: { doc: RecordDoc }) {
                 <thead><tr>{group.columns.map(([key, label]) => <Th key={key} className={chart && key !== "task" ? "whitespace-pre-line px-1 text-center" : undefined}>{label}</Th>)}</tr></thead>
                 <tbody>
                   {group.rows.slice(0, PREVIEW_ROWS).map((row, i) => (
-                    <tr key={i}>{group.columns.map(([key]) => <Td key={key} className={chart && key !== 'task' ? 'px-1' : undefined}><Mark cell={row[key]} /></Td>)}</tr>
+                    <tr key={i}>{group.columns.map(([key]) => <Td key={key} className={[chart && key !== 'task' ? 'px-1' : '', TONE_CLASS[toneOf(row, key) ?? ''] ?? ''].filter(Boolean).join(' ') || undefined}><Mark cell={row[key]} /></Td>)}</tr>
                   ))}
                 </tbody>
               </Table>

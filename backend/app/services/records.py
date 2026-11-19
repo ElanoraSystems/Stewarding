@@ -48,6 +48,7 @@ class Filters:
     q: str | None = None  # receipts: words to find on the document
     txn_type: str | None = None  # movements: one exact kind of movement
     date_by: str = "invoice"  # receipts and movements: date deliveries by their invoice date or the day they were received
+    layout: str = "auto"  # monitoring: auto puts one visit on one row with a column for each measurement; lines keeps one line per reading
 
 
 def _local(dt: datetime | None, tz: str) -> str:
@@ -84,8 +85,78 @@ def _locations(db: Session, scope: set[int] | None, location_id: int | None) -> 
 READING_STATUS = {"passed": lambda r: r.passed, "failed": lambda r: not r.passed, "awaiting": lambda r: not r.reviewed_at and not r.rejected_at}
 
 
+VISIT_GAP = timedelta(minutes=5)
+
+
+def _visits(readings: list[TemperatureReading]) -> list[list[TemperatureReading]]:
+    """Readings taken in one visit: the same person, within a few minutes, each check once. A repeat of a check (a retest) starts a new visit."""
+    visits: list[list[TemperatureReading]] = []
+    for r in readings:
+        if visits and r.recorded_by == visits[-1][-1].recorded_by and r.recorded_at - visits[-1][-1].recorded_at <= VISIT_GAP \
+                and all(x.schedule_id != r.schedule_id for x in visits[-1]):
+            visits[-1].append(r)
+        else:
+            visits.append([r])
+    return visits
+
+
+def _tone(r: TemperatureReading) -> str:
+    """How a reading should look in a grid: outside its limit, inside but close to it (the amber zone), or fine."""
+    return "bad" if not r.passed else "warn" if getattr(r, "warning", False) else "ok"
+
+
+def _grid_rows(db: Session, eq: Equipment, readings: list[TemperatureReading], actions: dict, names: dict, tz: str) -> tuple[list[tuple[str, str]], list[dict], list[tuple[str, str]]]:
+    """One row per visit, one column per check: the oil's TPM, temperature and condition side by side instead of on three lines."""
+    checks: dict[int, TemperatureReading] = {}
+    for r in readings:
+        checks.setdefault(r.schedule_id, r)
+    label = {sid: r.stage[:1].upper() + r.stage[1:].replace("_", " ") + (f" ({r.unit})" if r.unit and r.value_type == "number" else "") for sid, r in checks.items()}
+    visits = _visits(readings)
+    any_reference = any(r.reference for r in readings)
+    rows = []
+    for visit in visits:
+        first = visit[0]
+        when = _local(first.recorded_at, tz)
+        row: dict = {"date": when[:11], "time": when[12:]}
+        tones = {}
+        for r in visit:
+            row[f"c{r.schedule_id}"] = describe(r)
+            tones[f"c{r.schedule_id}"] = _tone(r)
+        failed = any(not r.passed for r in visit)
+        row["result"] = "FAIL" if failed else "Pass"
+        tones["result"] = "bad" if failed else "ok"
+        row["reference"] = next((r.reference for r in visit if r.reference), "")
+        row["recorded_by"] = names.get(first.recorded_by, "")
+        rejected = next((r for r in visit if r.rejected_at), None)
+        if rejected:
+            row["approved_by"] = f"Rejected by {names.get(rejected.rejected_by, '')}: {rejected.reject_reason}"
+        elif all(r.reviewed_at for r in visit):
+            last = max(visit, key=lambda r: r.reviewed_at)
+            row["approved_by"] = f"{names.get(last.reviewed_by, '')} {_local(last.reviewed_at, tz)}".strip()
+        else:
+            row["approved_by"] = "Awaiting approval"
+        taken = []
+        for r in visit:
+            a = actions.get(r.id)
+            if a:
+                taken.append(f"{a.action} ({names.get(a.taken_by, '')}, {a.status.replace('_', ' ')})" if a.action else a.status.replace("_", " "))
+        row["corrective_action"] = "; ".join(dict.fromkeys(taken))  # two readings failing together share one action
+        row["_tone"] = tones
+        rows.append(row)
+    columns = [("date", "Date"), ("time", "Time")] + [(f"c{sid}", label[sid]) for sid in checks] + [("result", "Result")]
+    columns += [("reference", "Item / batch")] if any_reference else []
+    columns += [("recorded_by", "Recorded by"), ("approved_by", "Approved by"), ("corrective_action", "Corrective action")]
+    ranges = []
+    for sid, r in checks.items():
+        if r.value_type == "number":
+            values = [x.value for x in readings if x.schedule_id == sid and x.value is not None]
+            if values:
+                ranges.append((f"{label[sid]}: lowest to highest", f"{min(values).normalize():f} to {max(values).normalize():f}"))
+    return columns, rows, ranges
+
+
 def _monitoring_groups(db: Session, locations: list[Location], day_from: date, day_to: date, equipment_id: int | None,
-                       status: str | None = None, kind: str | None = None) -> list[dict]:
+                       status: str | None = None, kind: str | None = None, layout: str = "auto") -> list[dict]:
     """One table per monitoring point, including points with nothing recorded in the period."""
     names = _names(db)
     groups = []
@@ -110,6 +181,17 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
             time_out = dict(db.execute(select(TemperatureReading.start_reading_id, func.min(TemperatureReading.recorded_at)).where(
                 TemperatureReading.start_reading_id.in_([r.id for r in readings if r.schedule_id in lead]))
                 .group_by(TemperatureReading.start_reading_id)).all()) if lead else {}
+            visits = _visits(readings)
+            if layout != "lines" and not lead and any(len(v) > 1 for v in visits):  # a log that measures several things per visit reads best with one row per visit
+                grid_columns, grid_rows, ranges = _grid_rows(db, eq, readings, actions, names, loc.timezone)
+                failed_visits = sum(1 for v in visits if any(not r.passed for r in v))
+                groups.append({
+                    "title": f"{loc.name} - {eq.name} ({eq.code})", "layout": "grid",
+                    "meta": [("Location", loc.name), ("Monitoring point", f"{eq.name} ({eq.code})"), ("Type", eq.kind), ("Layout", "One row per check, one column per measurement")],
+                    "columns": grid_columns, "rows": grid_rows,
+                    "totals": [("Checks recorded", len(visits)), ("Passed", len(visits) - failed_visits), ("Failed", failed_visits),
+                               ("Awaiting approval", sum(1 for v in visits if not all(r.reviewed_at for r in v) and not any(r.rejected_at for r in v)))] + ranges})
+                continue
             rows = []
             for r in readings:
                 a = actions.get(r.id)
@@ -700,7 +782,7 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
         raise ValueError("Unknown food group")
     locations = _locations(db, scope, f.location_id)
     if kind == "monitoring":
-        groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id, f.status, f.equipment_kind)
+        groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id, f.status, f.equipment_kind, f.layout)
     elif kind == "lots":
         groups = _lot_groups(db, locations, f, day_from, day_to)
     elif kind == "approvals":
