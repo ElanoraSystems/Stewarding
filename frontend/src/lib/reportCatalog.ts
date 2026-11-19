@@ -1,4 +1,4 @@
-export type ExtraFilter = 'employee' | 'frequency' | 'monitoringPoint' | 'supplier' | 'movement' | 'item' | 'status' | 'foodGroup' | 'monitoringType' | 'checklist' | 'costView'
+export type ExtraFilter = 'employee' | 'frequency' | 'monitoringPoint' | 'supplier' | 'movement' | 'item' | 'status' | 'foodGroup' | 'monitoringType' | 'checklist' | 'costView' | 'readingLayout'
 
 export interface ReportDef {
   key: string
@@ -18,7 +18,7 @@ export const REPORTS: ReportDef[] = [
     statuses: [['approved', 'Approved'], ['rejected', 'Rejected']] },
   { key: 'checklists', title: 'Checklist record', section: 'Checklists', filters: ['checklist', 'frequency', 'employee', 'status'],
     statuses: [['pending', 'Not done'], ['completed', 'Done'], ['pending_verification', 'Awaiting approval'], ['verified', 'Approved'], ['failed', 'Rejected'], ['waived', 'Waived']] },
-  { key: 'monitoring', title: 'Monitoring record', section: 'Food safety', filters: ['monitoringType', 'monitoringPoint', 'status'],
+  { key: 'monitoring', title: 'Monitoring record', section: 'Food safety', filters: ['monitoringType', 'monitoringPoint', 'status', 'readingLayout'],
     statuses: [['failed', 'Failed'], ['passed', 'Passed'], ['awaiting', 'Awaiting approval']] },
   { key: 'lots', title: 'Lot register', section: 'Food safety', filters: ['supplier', 'foodGroup', 'status'],
     statuses: [['active', 'Active'], ['on_hold', 'On hold'], ['used_up', 'Used up'], ['discarded', 'Discarded']] },

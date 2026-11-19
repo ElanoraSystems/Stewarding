@@ -126,6 +126,9 @@ def _weights(group: dict) -> list[float]:
     return out
 
 
+TONE_BG = {"ok": "#e7f5ec", "warn": "#fdf1cf", "bad": "#fbdcdc"}  # within the limit, close to it, outside it
+TONE_FILL = {"ok": "E7F5EC", "warn": "FDF1CF", "bad": "FBDCDC"}
+
 SYMBOLS = {"ok": "\u2713", "pending": "\u2713?", "fail": "\u2717", "waived": "W", "na": "-"}
 COLORS = {"ok": "#15803d", "pending": "#b45309", "fail": "#b91c1c"}
 
@@ -258,6 +261,10 @@ def record_to_xlsx(doc: dict) -> bytes:
             for cell, (_, fmt) in zip(sheet[sheet.max_row], cells):
                 if fmt:
                     cell.number_format = fmt
+            for i, (key, _) in enumerate(group["columns"]):
+                tone = (row.get("_tone") or {}).get(key)
+                if tone in TONE_FILL:
+                    sheet.cell(row=sheet.max_row, column=i + 1).fill = PatternFill("solid", fgColor=TONE_FILL[tone])
             if group.get("layout") == "chart":
                 for cell in sheet[sheet.max_row]:
                     state = next((s for s, sym in SYMBOLS.items() if isinstance(cell.value, str) and cell.value.startswith(sym) and s != "na"), None)
@@ -382,6 +389,11 @@ def _data_table(st: dict, columns: list, rows: list[dict], widths: list[float], 
              ("TOPPADDING", (0, 0), (-1, -1), 3.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5), ("LEFTPADDING", (0, 0), (-1, -1), 5),
              ("RIGHTPADDING", (0, 0), (-1, -1), 5), ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ZEBRA]),
              ("LINEBELOW", (0, 1), (-1, -1), 0.3, RULE), ("LINEBELOW", (0, -1), (-1, -1), 0.8, BRAND)]
+    for i, row in enumerate(rows, 1):  # a reading's cell is tinted by how it stands against its limit
+        for j, (key, _) in enumerate(columns):
+            tone = (row.get("_tone") or {}).get(key)
+            if tone in TONE_BG:
+                style.append(("BACKGROUND", (j, i), (j, i), colors.HexColor(TONE_BG[tone])))
     if chart:
         style += [("INNERGRID", (0, 0), (-1, -1), 0.3, RULE), ("BOX", (0, 0), (-1, -1), 0.5, RULE)]
     if not rows:

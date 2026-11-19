@@ -141,9 +141,13 @@ def test_the_record_shows_written_answers(client, login, db, clock):
     steward = login(STEWARD)
     noon = {s["stage"]: s for s in point["schedules"] if str(s["time_of_day"]).startswith("12:00")}
     client.post("/api/monitoring/readings/batch", json={"equipment_id": point["id"], "readings": answers(noon)}, headers=steward)
-    doc = client.get("/api/reports/records/monitoring?date_from=2026-03-02&date_to=2026-03-02", headers=login(MGR)).json()
+    doc = client.get("/api/reports/records/monitoring?date_from=2026-03-02&date_to=2026-03-02&layout=lines", headers=login(MGR)).json()
     rows = {r["check"]: r for g in doc["groups"] for r in g["rows"]}
     assert rows["Product"]["value"] == "Chicken thigh" and rows["Method"]["value"] == "Grill" and rows["Core temperature"]["value"] == "82 °C"
+    grid = client.get("/api/reports/records/monitoring?date_from=2026-03-02&date_to=2026-03-02", headers=login(MGR)).json()["groups"]
+    grid = next(g for g in grid if g["rows"])
+    by_label = {label: grid["rows"][0][key] for key, label in grid["columns"] if key.startswith("c")}
+    assert by_label["Product"] == "Chicken thigh" and by_label["Method"] == "Grill" and by_label["Core temperature (°C)"] == "82 °C"  # the same answers, one row
 
 
 def test_a_form_field_can_carry_an_amber_warning_level(client, login, db):
