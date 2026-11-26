@@ -81,6 +81,7 @@ MODULES = [
     ("roster", "Shift & Duty Roster", "roster.view"),
     ("checklists", "Checklists", "checklist.view"),
     ("monitoring", "Monitoring", "temp.view"),
+    ("calibration", "Probe Calibration", "temp.view"),
     ("equipment", "Monitoring Setup", "equipment.view"),
     ("inventory", "Inventory", "inventory.module"),
     ("stock-movements", "Stock Movements & Transfers", "stock.transfer"),

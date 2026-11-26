@@ -5,12 +5,12 @@ from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..models import (AbsenceRecord, AttendanceRecord, ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
-                      CountRound, EquipmentSchedule, Location, Notification, RoundCount, Role, Shift, ShiftAssignment, TemperatureReading, User)
+                      CountRound, EquipmentSchedule, Location, Notification, Probe, RoundCount, Role, Shift, ShiftAssignment, TemperatureReading, User)
 from ..permissions import MANAGER, STEWARD, SUPERVISOR
 from . import summary
 from .checklists import OPEN, alerts_for, is_closed, overdue_after
 from .inventory import shortage_rows
-from . import approvers
+from . import approvers, calibration
 from .notify import notify, recipients
 from .settings import get_setting
 from .visibility import norm_title
@@ -159,6 +159,22 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
             created += notify(db, approvers.audience(db, eq, who) if eq else who, "monitoring_overdue",
                               f"{label + ' check' if label else 'Check'} overdue: {title}", key=f"checkover:{check['schedule_id']}:{slot}",
                               priority="critical" if level == "ccp" else "high", location_id=location.id, link="/monitoring")  # a notice only: it closes itself when the check is recorded, so nothing to approve
+    return created
+
+
+def probe_alerts(db: Session, now: datetime) -> int:
+    """Tells supervisors and managers which probes are due for a calibration check soon, overdue, or never checked."""
+    created = 0
+    for probe in db.scalars(select(Probe).where(Probe.active.is_(True))):
+        state = calibration.status_of(db, probe, now)
+        if state["status"] not in ("due_soon", "overdue", "never"):
+            continue
+        last = calibration.latest(db, probe.id)
+        stamp = last.id if last else 0  # one reminder per check cycle, not one a day
+        who = recipients(db, probe.location_id, SUPERVISOR, MANAGER, category="monitoring")
+        words = {"due_soon": ("Probe calibration due soon", "normal"), "overdue": ("Probe calibration overdue", "high"), "never": ("Probe never calibrated", "high")}[state["status"]]
+        created += notify(db, who, f"probe_{state['status']}", f"{words[0]}: {probe.name} ({probe.code})", key=f"probe_{state['status']}:{probe.id}:{stamp}",
+                          priority=words[1], location_id=probe.location_id, link="/calibration")
     return created
 
 
@@ -316,6 +332,7 @@ def run_alerts(db: Session, now: datetime) -> dict[str, int]:
         totals["summary"] += daily_summary(db, location, now)
     totals["checkouts"] = missed_checkouts(db, now)
     totals["corrective"] = corrective_alerts(db, now)
+    totals["probes"] = probe_alerts(db, now)
     totals["low_stock"] = low_stock(db, now)
     totals["closed"] = close_stale_alerts(db, now)
     totals["rounds"] = round_reminders(db, now)

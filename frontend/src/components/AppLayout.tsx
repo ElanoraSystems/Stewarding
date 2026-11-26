@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, Bell, CalendarDays, ChartColumn, ClipboardCheck, Clock, GraduationCap, LayoutDashboard, LogIn, Package,
+  ArrowLeftRight, Bell, CalendarDays, ChartColumn, ClipboardCheck, Clock, Gauge, GraduationCap, LayoutDashboard, LogIn, Package,
   Menu, Moon, PanelLeftClose, PanelLeftOpen, QrCode, ScrollText, Settings, Sun, Thermometer, TriangleAlert, Users, Wrench, X,
   type LucideIcon,
 } from 'lucide-react'
@@ -27,6 +27,7 @@ const ICONS: Record<string, LucideIcon> = {
   roster: CalendarDays,
   checklists: ClipboardCheck,
   monitoring: Thermometer,
+  calibration: Gauge,
   equipment: Wrench,
   inventory: Package,
   'stock-movements': ArrowLeftRight,
@@ -43,7 +44,7 @@ const GROUPS: { title: string; keys: string[] }[] = [
   { title: 'Overview', keys: ['dashboard', 'tasks'] },
   { title: 'People', keys: ['check-in', 'my-schedule', 'employees', 'attendance', 'roster', 'training'] },
   { title: 'Daily operations', keys: ['checklists'] },
-  { title: 'Food safety', keys: ['monitoring', 'traceability'] },
+  { title: 'Food safety', keys: ['monitoring', 'calibration', 'traceability'] },
   { title: 'Stock', keys: ['inventory', 'stock-movements', 'breakage'] },
   { title: 'Insights and admin', keys: ['reports', 'settings', 'audit'] },
 ]

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..models import (ApprovalRecord, ChecklistInstance, ChecklistTask, ChecklistTemplate, CorrectiveAction, Employee, Equipment,
                       EquipmentSchedule, FoodItem, InventoryCategory, InventoryItem, Location, Lot, Receipt, ReceiptLine, StockTransaction,
-                      Notification, Supplier, TemperatureReading)
+                      Notification, Probe, ProbeCalibration, Supplier, TemperatureReading)
 from . import metrics
 from .traceability import CONDITIONS, GROUPS
 from .receipt_search import apply_search
@@ -21,11 +21,11 @@ from .settings import get_setting
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
          "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements",
-         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register", "approvals": "Approvals and Rejections"}
+         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register", "approvals": "Approvals and Rejections", "calibration": "Probe Calibration Record"}
 STATUS_FILTERS = {"monitoring": ("passed", "failed", "awaiting"),
                   "checklists": ("pending", "completed", "pending_verification", "verified", "failed", "waived"),
                   "attendance": ("present", "late", "absent", "leave", "week_off"),
-                  "lots": ("active", "used_up", "discarded", "on_hold"), "receipts": ("posted", "void"), "approvals": ("approved", "rejected")}
+                  "calibration": ("passed", "failed"), "lots": ("active", "used_up", "discarded", "on_hold"), "receipts": ("posted", "void"), "approvals": ("approved", "rejected")}
 MAX_DAYS = 731
 CHART_DAYS = 31
 MOVEMENTS = {"receipts": ("receipt",), "issues": ("issue",), "returns": ("return",), "transfers": ("transfer_in", "transfer_out"),
@@ -153,6 +153,32 @@ def _grid_rows(db: Session, eq: Equipment, readings: list[TemperatureReading], a
             if values:
                 ranges.append((f"{label[sid]}: lowest to highest", f"{min(values).normalize():f} to {max(values).normalize():f}"))
     return columns, rows, ranges
+
+
+METHOD_LABEL = {"ice_point": "Ice point (0 °C)", "boiling_point": "Boiling point (100 °C)", "reference": "Other reference"}
+
+
+def _calibration_groups(db: Session, locations: list[Location], day_from: date, day_to: date, status: str | None) -> list[dict]:
+    """One table per location: every probe check in the period, a failure tinted red."""
+    names = _names(db)
+    groups = []
+    for loc in locations:
+        start, end = _bounds(day_from, day_to, loc.timezone)
+        rows = []
+        for c, probe in db.execute(select(ProbeCalibration, Probe).join(Probe, Probe.id == ProbeCalibration.probe_id).where(
+                Probe.location_id == loc.id, ProbeCalibration.calibrated_at >= start, ProbeCalibration.calibrated_at < end).order_by(ProbeCalibration.calibrated_at)):
+            if (status == "passed" and not c.passed) or (status == "failed" and c.passed):
+                continue
+            rows.append({"when": _local(c.calibrated_at, loc.timezone), "probe": f"{probe.name} ({probe.code})", "method": METHOD_LABEL[c.method],
+                         "reference": f"{c.reference_c.normalize():f} °C", "reading": f"{c.reading_c.normalize():f} °C", "deviation": f"{c.reading_c - c.reference_c:+.2f} °C",
+                         "result": "Passed" if c.passed else "Failed", "by": names.get(c.calibrated_by, ""), "comment": c.comment or "",
+                         "_tone": {"result": "ok" if c.passed else "bad"}})
+        failed = sum(1 for r in rows if r["result"] == "Failed")
+        groups.append({"title": f"{loc.name} - Probe calibration", "meta": [("Location", loc.name), ("Tolerance", "within 1 °C of the reference")],
+                       "columns": [("when", "Date and time"), ("probe", "Probe"), ("method", "Method"), ("reference", "Reference"), ("reading", "Probe read"),
+                                   ("deviation", "Difference"), ("result", "Result"), ("by", "Checked by"), ("comment", "Action taken")],
+                       "rows": rows, "totals": [("Checks", len(rows)), ("Passed", len(rows) - failed), ("Failed", failed)]})
+    return groups
 
 
 def _monitoring_groups(db: Session, locations: list[Location], day_from: date, day_to: date, equipment_id: int | None,
@@ -789,6 +815,8 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
     locations = _locations(db, scope, f.location_id)
     if kind == "monitoring":
         groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id, f.status, f.equipment_kind, f.layout)
+    elif kind == "calibration":
+        groups = _calibration_groups(db, locations, day_from, day_to, f.status)
     elif kind == "lots":
         groups = _lot_groups(db, locations, f, day_from, day_to)
     elif kind == "approvals":
