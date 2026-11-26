@@ -67,11 +67,28 @@ def _place_by_position(db: Session, user: User, emp: Employee, where: Position) 
     if allowed is not None:
         query = query.where(Location.id.in_(allowed))
     places = list(db.scalars(query))
-    rostered = [r["location_id"] for r in rostered_today(db, emp, timeutil.utc_now()) if not r["week_off"]]
-    places.sort(key=lambda p: p.id not in rostered)
+    now = timeutil.utc_now()
+    timezones = {p.id: p.timezone for p in places}
+    gap: dict[int, int] = {}  # how far each rostered place's shift is from now; someone on a split day goes to the shift that is on or next
+    for r in rostered_today(db, emp, now):
+        if not r["week_off"] and r["location_id"] in timezones:
+            gap[r["location_id"]] = min(gap.get(r["location_id"], 1440), _minutes_from_shift(r["start"], r["end"], now, timezones[r["location_id"]]))
+    places.sort(key=lambda p: gap.get(p.id, 1441))  # rostered places first, the nearest shift first, then by name
     if not places:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to a location")
+    if len(places) > 1 and places[0].id not in gap:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose a location to check in at")  # not rostered and several to pick from: someone who works at more than one place says where
     return places[0], _enforce_geofence(db, where, "check in")
+
+
+def _minutes_from_shift(start: str, end: str, now: datetime, tz: str) -> int:
+    """0 while the shift is on, else minutes to its start or since its end, round the clock."""
+    clock = timeutil.to_local(now, tz)
+    cur = clock.hour * 60 + clock.minute
+    s, e = int(start[:2]) * 60 + int(start[3:5]), int(end[:2]) * 60 + int(end[3:5])
+    inside = (s <= cur < e) if s < e else (cur >= s or cur < e)
+    around = lambda a, b: min((a - b) % 1440, (b - a) % 1440)
+    return 0 if inside else min(around(cur, s), around(cur, e))
 
 
 def _enforce_geofence(db: Session, where: Position, action: str) -> float | None:
@@ -437,7 +454,8 @@ def my_status(user: User = Depends(require("attendance.self")), db: Session = De
     out = {"checked_in": record is not None, "server_time": iso(now), "employee": emp.full_name,
            "employee_code": emp.employee_code, "record": None, "incomplete_task_count": 0,
            "face_required": bool(get_setting(db, "attendance.face_required")), "face_enrolled": emp.face_descriptor is not None,
-           "rostered_today": rostered_today(db, emp, now), "geofence": work_area(db) is not None}
+           "rostered_today": rostered_today(db, emp, now), "geofence": work_area(db) is not None,
+           "last_location_id": db.scalar(select(AttendanceRecord.location_id).where(AttendanceRecord.employee_id == emp.id).order_by(AttendanceRecord.check_in_at.desc()).limit(1))}
     if record:
         out["record"] = _serialize(record, now)
         out["incomplete_task_count"] = len(incomplete_tasks(db, user, record))

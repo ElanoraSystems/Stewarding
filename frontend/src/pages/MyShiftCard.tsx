@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
+import { Select } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/table'
 import { api, ApiError } from '@/lib/api'
@@ -31,6 +32,7 @@ interface ShiftStatus {
   face_required: boolean
   face_enrolled: boolean
   rostered_today: { location_id: number; location_name: string; shift: string; start: string; end: string; week_off: boolean }[]
+  last_location_id?: number | null
 }
 
 interface Challenge {
@@ -63,7 +65,8 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
   const locationId = picked ?? working[0]?.location_id ?? null
   const locked = new Set(working.map((r) => r.location_id)).size === 1 && !elsewhere
   const { me } = useAuth()
-  const byLocation = me?.by_location !== false
+  const [mustChoose, setMustChoose] = useState(false)  // the server could not tell where this person works today, so they pick
+  const byLocation = me?.by_location !== false || mustChoose
   // one area for the whole organization: the position is sent whenever it is set, whichever location is chosen
   const fencedFor = (_id: number | null) => Boolean(me?.geofence)
   const placeFor = (id: number | null) => (byLocation ? { location_id: id } : {})
@@ -143,6 +146,12 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
         return { ok: true, message: 'Match found!' }
       }
       const message = err instanceof Error ? err.message : 'Could not verify your face'
+      if (message.startsWith('Choose a location')) {
+        setFaceFor(null)
+        setMustChoose(true)
+        toast('error', 'Choose where you are checking in, then check in again')
+        return { ok: true, message: 'Match found!' }
+      }
       if (isLocationError(message)) {
         // the face matched; only the position is wrong, so leave the camera and say so
         setFaceFor(null)
@@ -163,7 +172,10 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
       checkedIn(done)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Check-in failed'
-      if (isLocationError(message)) setTrouble({ kind: 'location', detail: message, retry: () => { setTrouble(null); void checkIn() } })
+      if (message.startsWith('Choose a location')) {
+        setMustChoose(true)
+        toast('error', 'Choose where you are checking in, then check in again')
+      } else if (isLocationError(message)) setTrouble({ kind: 'location', detail: message, retry: () => { setTrouble(null); void checkIn() } })
       else toast('error', message)
     } finally {
       setBusy(false)
@@ -248,7 +260,14 @@ export function MyShiftCard({ onChange }: { onChange?: () => void }) {
                 <button type="button" className="min-h-11 text-sm font-medium text-brand-deep hover:underline" onClick={() => setElsewhere(true)}>Working somewhere else?</button>
               </div>
             ) : (
-              <Field label="Where are you working?"><LocationSelect className="h-12 w-full text-base" value={locationId} preferred={working.map((r) => r.location_id)} onChange={setPicked} /></Field>
+              <Field label="Where are you working?">
+                {mustChoose && picked === null ? (  // the server could not tell, so nothing is pre-selected for them
+                  <Select aria-label="Location" className="h-12 w-full text-base" value="" onChange={(e) => setPicked(Number(e.target.value))}>
+                    <option value="" disabled>Choose where you are</option>
+                    {[...(me?.locations ?? [])].sort((a, b) => Number(b.id === data.last_location_id) - Number(a.id === data.last_location_id)).map((l) => <option key={l.id} value={l.id}>{l.name}{l.id === data.last_location_id ? ' (where you were last)' : ''}</option>)}
+                  </Select>
+                ) : <LocationSelect className="h-12 w-full text-base" value={locationId} preferred={working.map((r) => r.location_id)} onChange={setPicked} />}
+              </Field>
             )}
             <div className="flex flex-col items-center py-2">
               <div className="relative h-44 w-44">

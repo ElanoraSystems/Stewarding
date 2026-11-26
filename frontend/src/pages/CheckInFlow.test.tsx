@@ -3,9 +3,9 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MyShiftCard } from '@/pages/MyShiftCard'
 
-const mocks = vi.hoisted(() => ({ status: {} as Record<string, unknown>, api: vi.fn(), position: vi.fn() }))
+const mocks = vi.hoisted(() => ({ status: {} as Record<string, unknown>, api: vi.fn(), position: vi.fn(), byLocation: true }))
 vi.mock('@/lib/auth', () => ({
-  useAuth: () => ({ me: { permissions: [], geofence: true, locations: [{ id: 1, name: 'Main Kitchen', timezone: 'Asia/Kuwait' }] } }),
+  useAuth: () => ({ me: { permissions: [], geofence: true, by_location: mocks.byLocation, locations: [{ id: 1, name: 'Main Kitchen', timezone: 'Asia/Kuwait' }, { id: 2, name: 'Back Burner', timezone: 'Asia/Kuwait' }] } }),
 }))
 vi.mock('@/lib/toast', () => ({ useRun: () => async () => true, useToast: () => () => undefined }))
 vi.mock('@/lib/useApi', () => ({ useApi: () => ({ loading: false, reload: () => undefined, data: mocks.status }) }))
@@ -23,6 +23,7 @@ describe('check in and out flow', () => {
     mocks.status = { ...base }
     mocks.api.mockReset()
     mocks.position.mockReset()
+    mocks.byLocation = true
   })
 
   it('welcomes the person with the time and place once checked in', async () => {
@@ -33,6 +34,23 @@ describe('check in and out flow', () => {
     expect(await screen.findByText('You are checked in')).toBeTruthy()
     expect(screen.getByText('On time')).toBeTruthy()
     expect(screen.getByText(/at Main Kitchen/)).toBeTruthy()
+  })
+
+  it('asks the person to choose where they are when the server cannot tell, instead of guessing', async () => {
+    mocks.byLocation = false
+    mocks.status = { ...base, rostered_today: [] }
+    mocks.position.mockResolvedValue({ latitude: 1, longitude: 1, accuracy: 5 })
+    mocks.api.mockRejectedValueOnce(new Error('Choose a location to check in at'))
+    render(<MyShiftCard />)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Check in' }))
+    const picker = await screen.findByRole('combobox', { name: 'Location' })
+    expect((picker as HTMLSelectElement).value).toBe('')  // nothing pre-selected
+    expect((screen.getByRole('button', { name: 'Check in' }) as HTMLButtonElement).disabled).toBe(true)
+    mocks.api.mockResolvedValue({ check_in_at: '2026-10-31T04:58:00Z', late_minutes: 0 })
+    await user.selectOptions(picker, 'Back Burner')
+    await user.click(screen.getByRole('button', { name: 'Check in' }))
+    expect(mocks.api).toHaveBeenLastCalledWith('/attendance/check-in', expect.objectContaining({ body: expect.objectContaining({ location_id: 2 }) }))
   })
 
   it('shows the lateness on the welcome screen', async () => {
