@@ -37,12 +37,47 @@ def effective_status(inst: ChecklistInstance, now: datetime) -> str:
     return inst.status
 
 
-def _due_at(task: ChecklistTask, shift: Shift | None, day, tz: str) -> datetime:
+def day_end_at(day: date, tz: str, hour: int) -> datetime:
+    """When a task with neither a time nor a shift is due: `hour` o'clock the next morning, so a night shift is not late; 0 means 23:59 the same day."""
+    return timeutil.local_to_utc(day + timedelta(days=1), time(hour), tz) if hour else timeutil.local_to_utc(day, time(23, 59), tz)
+
+
+def _due_at(task: ChecklistTask, shift: Shift | None, day, tz: str, day_end_hour: int) -> datetime:
     if task.deadline_time:
         return timeutil.local_to_utc(day, task.deadline_time, tz)
     if shift:
         return timeutil.shift_end_utc(day, shift.start_time, shift.end_time, tz)
-    return timeutil.local_to_utc(day, time(23, 59), tz)
+    return day_end_at(day, tz, day_end_hour)
+
+
+def apply_day_end(db: Session, now: datetime, apply: bool) -> dict:
+    """Moves tasks with neither a time nor a shift to the current day-end rule, and re-judges the late tags they carry. Counts only unless `apply`."""
+    hour, grace = get_setting(db, "checklist.day_end_hour"), timedelta(minutes=get_setting(db, "checklist.grace_minutes"))
+    out = {"tasks": 0, "reopened": 0, "late_cleared": 0, "late_changed": 0}
+    rows = db.execute(select(ChecklistInstance, Location.timezone).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
+                      .join(Location, Location.id == ChecklistInstance.location_id)
+                      .where(ChecklistInstance.shift_key == 0, ChecklistTask.deadline_time.is_(None)))
+    for inst, tz in rows:
+        due = day_end_at(inst.local_date, tz, hour)
+        if inst.due_at == due:
+            continue
+        out["tasks"] += 1
+        if inst.status == "overdue" and now < due + grace:
+            out["reopened"] += 1
+            if apply:
+                inst.status = "not_started"
+        if inst.late_minutes and inst.completed_at:
+            if inst.completed_at < due + grace:
+                out["late_cleared"] += 1
+                if apply:
+                    inst.late_minutes = inst.late_reason = None
+            else:
+                out["late_changed"] += 1
+                if apply:
+                    inst.late_minutes = int((inst.completed_at - due).total_seconds() // 60)
+        if apply:
+            inst.due_at = due
+    return out
 
 
 def generate_for_location(db: Session, location: Location, now: datetime) -> int:
@@ -52,6 +87,7 @@ def generate_for_location(db: Session, location: Location, now: datetime) -> int
     if is_closed(db, location.id, today):
         return 0
     weekday = str(today.weekday())
+    day_end = get_setting(db, "checklist.day_end_hour")
     shifts = {s.id: s for s in db.scalars(select(Shift).where(Shift.active.is_(True), Shift.kind == "work"))}
     rows = db.execute(
         select(ChecklistTask, ChecklistTemplate)
@@ -78,7 +114,7 @@ def generate_for_location(db: Session, location: Location, now: datetime) -> int
                 with db.begin_nested():
                     db.add(ChecklistInstance(
                         task_id=task.id, location_id=location.id, local_date=today, shift_key=shift_key,
-                        due_at=_due_at(task, shifts.get(shift_key), today, tz),
+                        due_at=_due_at(task, shifts.get(shift_key), today, tz, day_end),
                         assigned_employee_id=task.assigned_employee_id))
                 created += 1
             except IntegrityError:
