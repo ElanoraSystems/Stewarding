@@ -24,7 +24,13 @@ def checkout_overdue(db: Session, rec: AttendanceRecord, now: datetime) -> bool:
     if shift:
         ends = timeutil.shift_end_utc(rec.local_date, shift.start_time, shift.end_time, db.get(Location, rec.location_id).timezone)
         return now > max(ends, rec.check_in_at) + timedelta(hours=get_setting(db, "attendance.missed_checkout_after_shift_hours"))
-    return now - rec.check_in_at > timedelta(hours=get_setting(db, "attendance.missed_checkout_hours"))
+    return now - rec.check_in_at > timedelta(hours=max(get_setting(db, "attendance.missed_checkout_hours"), _longest_shift_hours(db)))
+
+
+def _longest_shift_hours(db: Session) -> float:
+    """With no shift on the record the person could be on any of them, so wait for the longest shift plus the usual grace before calling a check-out missed."""
+    longest = max((timeutil.shift_minutes(s.start_time, s.end_time) for s in db.scalars(select(Shift).where(Shift.active.is_(True), Shift.kind == "work"))), default=0)
+    return longest / 60 + get_setting(db, "attendance.missed_checkout_after_shift_hours") if longest else 0
 
 
 def _minutes(now: datetime, since: datetime | None) -> int:
