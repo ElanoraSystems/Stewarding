@@ -238,6 +238,20 @@ def generate_now(body: GenerateIn, user: User = Depends(require("checklist.confi
     return {"created": created}
 
 
+class DayEndIn(BaseModel):
+    apply: bool = False
+
+
+@router.post("/day-end")
+def apply_day_end(body: DayEndIn, user: User = Depends(require("settings.manage")), db: Session = Depends(get_db)):
+    """Brings existing tasks with no time and no shift in line with Settings > Working day ends at. Without `apply` it only counts."""
+    out = engine.apply_day_end(db, timeutil.utc_now(), body.apply)
+    if body.apply:
+        audit(db, user, "checklist_day_end_applied", "checklist", None, after=out)
+        db.commit()
+    return {**out, "applied": body.apply}
+
+
 def _lead(db: Session) -> int:
     """Minutes before its due time that a task opens for doing; 0 means a task can be done any time on its day."""
     return get_setting(db, "checklist.open_before_minutes")

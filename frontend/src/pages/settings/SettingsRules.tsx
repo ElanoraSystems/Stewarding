@@ -14,9 +14,31 @@ interface Loaded {
   limits: Record<string, [number, number]>
 }
 
+interface DayEnd { tasks: number; reopened: number; late_cleared: number; late_changed: number; applied: boolean }
+
+/** Brings existing tasks into line with the "day ends" hour: counts first, and changes nothing until confirmed. */
+function DayEndTool({ moved, setMoved, saved }: { moved: DayEnd | null; setMoved: (d: DayEnd | null) => void; saved: boolean }) {
+  const run = useRun()
+  const check = (apply: boolean) => run(async () => setMoved(await api<DayEnd>('/checklists/day-end', { body: { apply } })), apply ? 'Existing tasks updated' : undefined)
+  return (
+    <Card>
+      <CardContent className="space-y-3 pt-6">
+        <p className="text-sm font-medium">Apply the day-end hour to existing tasks</p>
+        <p className="text-sm text-ink-muted">Moves tasks that have no time and no shift to the hour above, and clears the Late tag from those finished before it. Save the setting first.</p>
+        {moved && <p role="status" className="text-sm">{moved.applied ? 'Done: ' : 'This would change '}{moved.tasks} {moved.tasks === 1 ? 'task' : 'tasks'}; {moved.reopened} no longer overdue; Late tag cleared on {moved.late_cleared}, adjusted on {moved.late_changed}.</p>}
+        <span className="flex gap-2">
+          <Button variant="outline" disabled={!saved} onClick={() => check(false)}>Check what would change</Button>
+          <Button disabled={!saved || !moved || moved.applied || moved.tasks === 0} onClick={() => check(true)}>Apply to existing tasks</Button>
+        </span>
+      </CardContent>
+    </Card>
+  )
+}
+
 /** The rules of one topic: switches and numbers with their units, saved together from a bar that shows what changed. */
 export function SettingsRules({ section }: { section: RulesSection }) {
   const run = useRun()
+  const [moved, setMoved] = useState<DayEnd | null>(null)
   const { data, reload } = useApi<Loaded>('/settings')
   const [draft, setDraft] = useState<Record<string, string>>({})
   if (!data) return <Skeleton className="h-64 w-full" />
@@ -35,6 +57,7 @@ export function SettingsRules({ section }: { section: RulesSection }) {
     const values = Object.fromEntries(changed.map((d) => [d.key, Number(value(d.key))]))
     if (await run(() => api('/settings', { method: 'PUT', body: { values } }), 'Settings saved')) {
       setDraft({})
+      setMoved(null)
       reload()
     }
   }
@@ -86,6 +109,8 @@ export function SettingsRules({ section }: { section: RulesSection }) {
           </CardContent>
         </Card>
       )}
+
+      {section === 'approvals' && <DayEndTool moved={moved} setMoved={setMoved} saved={!changed.some((d) => d.key === 'checklist.day_end_hour')} />}
 
       {changed.length > 0 && (
         <div role="region" aria-label="Unsaved changes" className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-lg">
