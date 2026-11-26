@@ -23,6 +23,7 @@ import { RosterPage } from '@/pages/RosterPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { TasksPage } from '@/pages/TasksPage'
 import { StockMovementsPage } from '@/pages/StockMovementsPage'
+import { CalibrationPage } from '@/pages/CalibrationPage'
 import { MonitoringPage } from '@/pages/MonitoringPage'
 import { TrainingCoursePage } from '@/pages/training/TrainingCoursePage'
 import { TrainingPage } from '@/pages/training/TrainingPage'
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="daily-checklists" element={<Navigate to="/checklists" replace />} />
         <Route path="weekly-checklists" element={<Navigate to="/checklists" replace />} />
         <Route path="monitoring" element={<RequireModule module="monitoring"><MonitoringPage /></RequireModule>} />
+        <Route path="calibration" element={<RequireModule module="calibration"><CalibrationPage /></RequireModule>} />
         <Route path="temperature" element={<Navigate to="/monitoring" replace />} />
         <Route path="equipment" element={<Navigate to="/settings/monitoring" replace />} />
         <Route path="inventory" element={<RequireModule module="inventory"><InventoryPage /></RequireModule>} />

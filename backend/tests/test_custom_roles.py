@@ -194,7 +194,7 @@ def test_the_head_chef_role_approves_monitoring_and_sees_nothing_of_stock_staff_
                 "/api/reports/catalog", "/api/roles", "/api/settings", "/api/breakage"):
         assert client.get(url, headers=chef).status_code == 403, url
     modules = {m["key"] for m in client.get("/api/auth/me", headers=chef).json()["modules"]}
-    assert modules == {"dashboard", "checklists", "monitoring", "training", "tasks"}
+    assert modules == {"dashboard", "checklists", "monitoring", "calibration", "training", "tasks"}
 
 
 def role_id(client, h, name):

@@ -20,6 +20,8 @@ export const REPORTS: ReportDef[] = [
     statuses: [['pending', 'Not done'], ['completed', 'Done'], ['pending_verification', 'Awaiting approval'], ['verified', 'Approved'], ['failed', 'Rejected'], ['waived', 'Waived']] },
   { key: 'monitoring', title: 'Monitoring record', section: 'Food safety', filters: ['monitoringType', 'monitoringPoint', 'status', 'readingLayout'],
     statuses: [['failed', 'Failed'], ['passed', 'Passed'], ['awaiting', 'Awaiting approval']] },
+  { key: 'calibration', title: 'Probe calibration record', section: 'Food safety', filters: ['status'],
+    statuses: [['passed', 'Passed'], ['failed', 'Failed']] },
   { key: 'lots', title: 'Lot register', section: 'Food safety', filters: ['supplier', 'foodGroup', 'status'],
     statuses: [['active', 'Active'], ['on_hold', 'On hold'], ['used_up', 'Used up'], ['discarded', 'Discarded']] },
   // receipts and stock movements are downloaded from the Receiving and Transactions lists, with the filters shown there
