@@ -3,14 +3,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import Notification, Probe, ProbeCalibration, User
+from ..models import Notification, Probe, ProbeCalibration, TemperatureReading, User
 from ..pagination import row
 from ..permissions import MANAGER, SUPERVISOR
 from ..services import calibration as rules
@@ -62,9 +62,17 @@ def _probe(db: Session, user: User, probe_id: int) -> Probe:
     return probe
 
 
+def _since_last_pass(db: Session, probe: Probe) -> int:
+    """Readings taken with this probe since its last good check: the ones to review when it turns out to be out."""
+    good = db.scalar(select(func.max(ProbeCalibration.calibrated_at)).where(ProbeCalibration.probe_id == probe.id, ProbeCalibration.passed.is_(True)))
+    stmt = select(func.count()).select_from(TemperatureReading).where(TemperatureReading.probe_id == probe.id, TemperatureReading.rejected_at.is_(None))
+    return db.scalar(stmt.where(TemperatureReading.recorded_at > good) if good else stmt) or 0
+
+
 def _view(db: Session, probe: Probe, now, names: dict) -> dict:
     last = rules.latest(db, probe.id)
     out = {**row(probe, *PROBE_FIELDS), **rules.status_of(db, probe, now, last), "last": None}
+    out["readings_to_review"] = _since_last_pass(db, probe) if out["status"] == "failed" else 0
     out["due_at"] = out["due_at"].isoformat() + "Z" if out["due_at"] else None
     if last:
         out["last"] = {**row(last, *CALIBRATION_FIELDS), "by": names.get(last.calibrated_by, "")}
@@ -143,9 +151,11 @@ def calibrate(probe_id: int, body: CalibrationIn, user: User = Depends(require("
         db.execute(update(Notification).where(Notification.dedupe_key.like(f"probe_%:{probe.id}:%"), Notification.resolved_at.is_(None))
                    .values(resolved_at=now, read_at=now))
     else:
+        taken = _since_last_pass(db, probe)
         notify(db, recipients(db, probe.location_id, SUPERVISOR, MANAGER, category="monitoring"), "probe_failed",
                f"Probe failed calibration: {probe.name} ({probe.code})", key=f"probe_fail:{entry.id}", priority="critical",
                location_id=probe.location_id, link="/calibration", requires_ack=True,
-               body=f"Read {body.reading_c.normalize():f} °C against {reference.normalize():f} °C. Do not use it for readings until it passes. {note}")
+               body=f"Read {body.reading_c.normalize():f} °C against {reference.normalize():f} °C. Do not use it for readings until it passes."
+                    + (f" {taken} reading{'s' if taken != 1 else ''} taken with it since its last good check need reviewing." if taken else "") + f" {note}")
     db.commit()
     return _view(db, probe, now, user_names(db))

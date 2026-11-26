@@ -92,3 +92,77 @@ def test_the_calibration_record_lists_checks_and_tints_failures(client, login, d
     assert group["rows"][1]["_tone"] == {"result": "bad"} and group["rows"][1]["deviation"] == "+3.00 °C"
     only = client.get(url + "&status=failed", headers=login(MGR)).json()
     assert [r["result"] for g in only["groups"] for r in g["rows"]] == ["Failed"]
+
+
+def probe_check(client, m, db, code="SN-P-1"):
+    from .test_monitoring_general import check, point
+    eq = point(client, m, db, code=code)
+    return eq, check(client, m, eq, source="independent_probe").json()
+
+
+def reading(client, h, eq, sched, value=300, **extra):
+    from .test_monitoring_general import record
+    return record(client, h, eq, sched, value, **extra)
+
+
+def test_a_reading_names_the_probe_and_only_a_probe_in_calibration_is_accepted(client, login, db, clock):
+    clock.set(2026, 3, 2, 8, 0)
+    m, steward = login(MGR), login(STEWARD)
+    eq, sched = probe_check(client, m, db)
+    probe = make(client, m, db).json()
+    assert reading(client, steward, eq, sched, probe_id=probe["id"]).status_code == 400  # never calibrated
+    calibrate(client, login(SUP), probe, reading=0.2)
+    clock.advance(hours=1)
+    ok = reading(client, steward, eq, sched, probe_id=probe["id"])
+    assert ok.status_code == 201 and ok.json()["probe"] == "TH-MK-1" and ok.json()["probe_id"] == probe["id"]
+    clock.advance(days=31)  # its check is now overdue
+    late = reading(client, steward, eq, sched, probe_id=probe["id"])
+    assert late.status_code == 400 and "overdue" in late.json()["detail"]
+    calibrate(client, login(SUP), probe, reading=3.0, comment="Taken out of use")
+    failed = reading(client, steward, eq, sched, probe_id=probe["id"])
+    assert failed.status_code == 400 and "failed its last calibration" in failed.json()["detail"]
+
+
+def test_a_probe_from_another_place_or_switched_off_is_refused(client, login, db, clock):
+    clock.set(2026, 3, 2, 4, 0)
+    m, steward = login(MGR), login(STEWARD)
+    eq, sched = probe_check(client, m, db)
+    elsewhere = make(client, m, db, code="TH-BQ-1", location_id=loc_id(db, "BQ")).json()
+    calibrate(client, login(SUP), elsewhere, reading=0.0)
+    assert reading(client, steward, eq, sched, probe_id=elsewhere["id"]).status_code == 400
+    mine = make(client, m, db).json()
+    client.put(f"/api/calibration/probes/{mine['id']}", json={"active": False}, headers=m)
+    assert reading(client, steward, eq, sched, probe_id=mine["id"]).status_code == 400
+    assert reading(client, steward, eq, sched, probe_id=99999).status_code == 400
+
+
+def test_when_settings_require_a_probe_a_thermometer_check_must_name_one(client, login, db, clock):
+    clock.set(2026, 3, 2, 4, 0)
+    m, steward = login(MGR), login(STEWARD)
+    eq, sched = probe_check(client, m, db)
+    client.put("/api/settings", json={"values": {"calibration.require_probe": 1}}, headers=m)
+    assert reading(client, steward, eq, sched).status_code == 201  # the place has no probes yet, so none can be demanded
+    probe = make(client, m, db).json()
+    calibrate(client, login(SUP), probe, reading=0.0)
+    clock.advance(days=1)
+    refused = reading(client, steward, eq, sched)
+    assert refused.status_code == 400 and "Choose the probe" in refused.json()["detail"]
+    assert reading(client, steward, eq, sched, probe_id=probe["id"]).status_code == 201
+
+
+def test_a_failed_check_counts_the_readings_taken_with_the_probe_since_its_last_good_one(client, login, db, clock):
+    clock.set(2026, 3, 2, 8, 0)
+    m, steward, sup = login(MGR), login(STEWARD), login(SUP)
+    eq, sched = probe_check(client, m, db)
+    probe = make(client, m, db).json()
+    calibrate(client, sup, probe, reading=0.0)
+    clock.advance(hours=1)
+    assert reading(client, steward, eq, sched, probe_id=probe["id"]).status_code == 201
+    clock.advance(days=5)
+    failed = calibrate(client, sup, probe, reading=3.0, comment="Replaced the probe").json()
+    assert failed["status"] == "failed" and failed["readings_to_review"] == 1
+    alert = db.scalar(select(Notification).where(Notification.kind == "probe_failed"))
+    assert "1 reading taken with it since its last good check" in alert.body
+    doc = client.get("/api/reports/records/monitoring?date_from=2026-03-02&date_to=2026-03-02&layout=lines", headers=m).json()
+    group = next(g for g in doc["groups"] if "SN-P-1" in g["title"] and g["rows"])
+    assert ("probe", "Probe") in [tuple(c) for c in group["columns"]] and group["rows"][0]["probe"] == "TH-MK-1"
