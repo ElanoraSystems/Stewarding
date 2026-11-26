@@ -13,6 +13,7 @@ import { currentPosition } from '@/lib/geo'
 import { label } from '@/lib/format'
 import { cycleOf } from '@/lib/monitoring'
 import { useRun } from '@/lib/toast'
+import { qs, useApi } from '@/lib/useApi'
 import { useLookup } from '@/lib/useLookups'
 
 export interface Schedule {
@@ -125,6 +126,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [blobs, setBlobs] = useState<Record<number, Blob>>({})
+  const [probeId, setProbeId] = useState('')  // the thermometer in use is kept between checks
 
   useEffect(() => {
     if (!prefill) return
@@ -152,6 +154,11 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const needsReference = cycle.some((s) => s.require_reference && !s.trace_lots)
   const timeInCheck = cycle.find((s) => s.phase === 'start')
   const needsLots = !prefill?.startReadingId && !prefill?.retestOf && cycle.some((s) => s.trace_lots)
+  const usesProbe = cycle.some((s) => s.source === 'independent_probe' && s.value_type === 'number')
+  const found = useApi<{ id: number; code: string; name: string; status: string }[]>(usesProbe && selected ? `/calibration/probes${qs({ location_id: selected.location_id })}` : null).data
+  const probes = Array.isArray(found) ? found : []
+  const inDate = (p: { status: string }) => p.status === 'ok' || p.status === 'due_soon'
+  const chosenProbe = probes.find((p) => String(p.id) === probeId && inDate(p))  // only one that is in calibration is ever sent
   const alreadyDone = !prefill?.retestOf && cycle.length > 0 && cycle.every((s) => doneSchedules?.has(s.id))
 
   function availableCycles(list: Schedule[]): Schedule[] {
@@ -193,9 +200,9 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       const evidence = file ? await uploadFile(file) : null
       const where = me?.geofence ? await currentPosition() : {}  // logs are made inside the organization's work area, so the server needs the position
       const common = { ...where, comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null, lot_ids: lots.map((l) => l.id) }
-      const body = { equipment_id: Number(equipmentId), start_reading_id: prefill?.startReadingId ?? null }
+      const body = { equipment_id: Number(equipmentId), start_reading_id: prefill?.startReadingId ?? null, probe_id: chosenProbe?.id ?? null }
       if (prefill?.retestOf) {
-        await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), ...answerOf(schedule, values[Number(scheduleId)]), retest_of_id: prefill.retestOf, ...common } })
+        await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), ...answerOf(schedule, values[Number(scheduleId)]), retest_of_id: prefill.retestOf, probe_id: chosenProbe?.id ?? null, ...common } })
       } else {
         const readings = []
         for (const s of cycle.filter((c) => (values[c.id] ?? '') !== '')) {
@@ -298,6 +305,14 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
             {results[i] && !['text', 'date', 'time', 'signature', 'image'].includes(s.value_type) && <Badge tone={results[i] === 'pass' ? 'ok' : results[i] === 'warn' ? 'warn' : 'critical'}>{results[i] === 'pass' ? (s.value_type === 'number' ? 'Within limits' : 'OK') : results[i] === 'warn' ? 'Approaching the limit' : s.value_type === 'number' ? 'Out of range' : 'Fails'}</Badge>}
           </div>
         ))}
+        {usesProbe && probes.length > 0 && (
+          <Field label="Thermometer used">
+            <Select value={chosenProbe ? probeId : ''} onChange={(e) => setProbeId(e.target.value)}>
+              <option value="">Choose the thermometer</option>
+              {probes.map((p) => <option key={p.id} value={p.id} disabled={!inDate(p)}>{p.name} ({p.code}){inDate(p) ? '' : p.status === 'overdue' ? ' - check overdue' : p.status === 'failed' ? ' - failed, do not use' : ' - never checked'}</option>)}
+            </Select>
+          </Field>
+        )}
         {needsReference && (
           <div className="space-y-1.5">
             <p className="text-sm font-medium">{cycle.find((s) => s.reference_label)?.reference_label ?? 'Batch, lot or product'}</p>

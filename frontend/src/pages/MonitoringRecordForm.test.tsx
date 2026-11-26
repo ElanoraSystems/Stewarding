@@ -44,7 +44,7 @@ describe('MonitoringRecordForm check choice', () => {
       await user.selectOptions(screen.getByLabelText('Monitoring point'), '1')
       await user.type(screen.getByLabelText('Temperature'), '3')
       await user.click(screen.getByRole('button', { name: 'Record check' }))
-      const body = (mocks.api.mock.calls[0] as unknown as [string, { body: Record<string, unknown> }])[1].body
+      const body = (mocks.api.mock.calls.find((c) => c[0] === '/monitoring/readings/batch') as unknown as [string, { body: Record<string, unknown> }])[1].body  // the first call is the list of thermometers
       expect(body.latitude).toBe(geofence ? 29.376 : undefined)
       unmount()
     }
@@ -92,5 +92,22 @@ describe('MonitoringRecordForm check choice', () => {
     const call = mocks.api.mock.calls.find((c) => String(c[0]).includes('/readings/batch')) as unknown as [string, { body: { readings: { reference: string; lot_ids: number[] }[] } }]
     expect(call[1].body.readings[0]).toMatchObject({ reference: 'Chicken thighs', lot_ids: [] })
   })
-})
 
+  it('offers the thermometers in calibration, refuses the others, and sends the one chosen', async () => {
+    const user = userEvent.setup()
+    mocks.geofence = false
+    mocks.api.mockClear()
+    mocks.api.mockImplementation(async (path: string) => (path.startsWith('/calibration/probes')
+      ? [{ id: 7, code: 'TH-1', name: 'Kitchen probe', status: 'ok' }, { id: 8, code: 'TH-2', name: 'Old probe', status: 'overdue' }] : {}))
+    render(<MonitoringRecordForm equipment={[chiller([check(1, 'morning_temperature', '08:00:00')])]} prefill={null} onSaved={() => {}} onClearRetest={() => {}} />)
+    await user.selectOptions(screen.getByLabelText('Monitoring point'), '1')
+    const picker = await screen.findByLabelText('Thermometer used')
+    expect((screen.getByRole('option', { name: /Old probe.*overdue/ }) as HTMLOptionElement).disabled).toBe(true)
+    await user.selectOptions(picker, '7')
+    await user.type(screen.getByLabelText('Temperature'), '3')
+    await user.click(screen.getByRole('button', { name: /^Save|Record/ }))
+    const sent = mocks.api.mock.calls.find((c) => c[0] === '/monitoring/readings/batch')![1] as { body: { probe_id: number } }
+    expect(sent.body.probe_id).toBe(7)
+    mocks.api.mockImplementation(async () => ({}))
+  })
+})

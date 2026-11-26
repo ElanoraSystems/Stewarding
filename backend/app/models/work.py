@@ -175,6 +175,7 @@ class TemperatureReading(Base):
     recorded_by: Mapped[int] = mapped_column(ForeignKey("user.id"))
     comment: Mapped[str | None] = mapped_column(Text)
     evidence_path: Mapped[str | None] = mapped_column(String(300))
+    probe_id: Mapped[int | None] = mapped_column(ForeignKey("probe.id"), index=True)  # the thermometer used, when the check is made with one
     retest_of_id: Mapped[int | None] = mapped_column(ForeignKey("temperature_reading.id"))
     start_reading_id: Mapped[int | None] = mapped_column(ForeignKey("temperature_reading.id"), index=True)  # the time-in reading a finish closes
     expected_minutes: Mapped[int | None] = mapped_column(Integer)  # a time in only: how long this item takes before its time out is due, set when it was logged

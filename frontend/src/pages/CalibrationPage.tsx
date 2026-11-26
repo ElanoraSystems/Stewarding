@@ -16,7 +16,7 @@ import { qs, useApi } from '@/lib/useApi'
 
 type Status = 'never' | 'failed' | 'overdue' | 'due_soon' | 'ok'
 interface Check { id: number; calibrated_at: string; by: string; method: string; reference_c: number; reading_c: number; passed: boolean; comment: string | null; deviation?: number }
-interface Probe { id: number; code: string; name: string; kind: string; serial_number: string | null; active: boolean; status: Status; due_at: string | null; days_left: number | null; last: Check | null }
+interface Probe { readings_to_review?: number; id: number; code: string; name: string; kind: string; serial_number: string | null; active: boolean; status: Status; due_at: string | null; days_left: number | null; last: Check | null }
 
 const METHODS = [['ice_point', 'Ice water (0 °C)'], ['boiling_point', 'Boiling water (100 °C)'], ['reference', 'Another reference thermometer']] as const
 const KINDS = [['probe', 'Probe thermometer'], ['infrared', 'Infrared thermometer'], ['data_logger', 'Data logger']] as const
@@ -73,6 +73,7 @@ export function CalibrationPage() {
                   </p>
                   {p.due_at && p.status !== 'failed' && <p className="text-ink-muted">{p.status === 'overdue' ? `Was due ${fmtDate(p.due_at.slice(0, 10))}` : `Next check due ${fmtDate(p.due_at.slice(0, 10))}`}</p>}
                   {p.last && !p.last.passed && p.last.comment && <p className="mt-1 text-danger">Action taken: {p.last.comment}</p>}
+                  {(p.readings_to_review ?? 0) > 0 && <p className="mt-1 text-danger">{p.readings_to_review} reading{p.readings_to_review === 1 ? '' : 's'} taken with it since its last good check need reviewing.</p>}
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)}>History</Button>

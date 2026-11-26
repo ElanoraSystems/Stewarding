@@ -44,6 +44,23 @@ def status_of(db: Session, probe: Probe, now: datetime, last: ProbeCalibration |
     return {"status": status, "due_at": due, "days_left": int(left // 1)}
 
 
+def probe_for_reading(db: Session, eq, sched, probe_id: int | None, now: datetime) -> Probe | None:
+    """The probe a reading was made with. A probe in calibration only; and when Settings require one, a check made with a thermometer must name it."""
+    needs = sched.source == "independent_probe" and sched.value_type == "number"
+    if probe_id is None:
+        if needs and get_setting(db, "calibration.require_probe") and db.scalar(select(Probe.id).where(Probe.location_id == eq.location_id, Probe.active.is_(True)).limit(1)):
+            raise ValueError("Choose the probe you used")
+        return None
+    probe = db.get(Probe, probe_id)
+    if not probe or not probe.active or probe.location_id != eq.location_id:
+        raise ValueError("Unknown probe for this location")
+    state = status_of(db, probe, now)["status"]
+    if not usable(state):
+        words = {"never": "has never been calibrated", "failed": "failed its last calibration check", "overdue": "is overdue for a calibration check"}[state]
+        raise ValueError(f"{probe.name} ({probe.code}) {words}. Check it before using it")
+    return probe
+
+
 def usable(status: str) -> bool:
     """A probe may be used for readings only while its calibration is current."""
     return status in ("ok", "due_soon")

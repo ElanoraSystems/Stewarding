@@ -34,6 +34,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'temp.repeat_failure_count', section: 'monitoring-rules', kind: 'number', label: 'Repeat-failure alert at', unit: 'failures' },
   { key: 'temp.repeat_failure_days', section: 'monitoring-rules', kind: 'number', label: 'Repeat-failure window', unit: 'days' },
 
+  { key: 'calibration.require_probe', section: 'monitoring-rules', kind: 'toggle', label: 'A check made with a thermometer must name the probe used' },
   { key: 'calibration.interval_days', section: 'monitoring-rules', kind: 'number', label: 'A probe must be calibrated again after', unit: 'days' },
   { key: 'scan.monitoring_required', section: 'qr-codes', kind: 'toggle', label: 'Scan the location QR code (or the monitoring point\'s own) to record monitoring checks' },
   { key: 'scan.checklists_required', section: 'qr-codes', kind: 'toggle', label: 'Scan the QR code of the location to complete its checklist tasks' },

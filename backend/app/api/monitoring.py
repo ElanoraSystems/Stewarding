@@ -10,11 +10,11 @@ from .. import timeutil
 from ..audit import audit
 from ..db import get_db
 from ..deps import check_location, require, scoped_locations
-from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, EquipmentSchedule, FoodItem, Location, Lot, Notification, ReadingLot,
+from ..models import (ApprovalRecord, CorrectiveAction, Employee, Equipment, EquipmentSchedule, FoodItem, Location, Lot, Notification, Probe, ReadingLot,
                       TemperatureReading, User)
 from ..pagination import paginate, row
 from ..permissions import MANAGER, SUPERVISOR
-from ..services import approvers
+from ..services import approvers, calibration
 from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 READING_FIELDS = ("id", "equipment_id", "schedule_id", "location_id", "recorded_at", "stage", "source", "parameter", "unit",
                   "value_type", "value", "reference", "min_limit", "max_limit", "passed", "warning", "recorded_by", "comment", "evidence_path", "retest_of_id",
-                  "reviewed_by", "reviewed_at", "start_reading_id", "rejected_by", "rejected_at", "reject_reason")
+                  "reviewed_by", "reviewed_at", "start_reading_id", "rejected_by", "rejected_at", "reject_reason", "probe_id")
 ACTION_FIELDS = ("id", "reading_id", "action", "taken_by", "taken_at", "retest_due_at", "status", "resolved_at",
                  "escalated_at")
 
@@ -48,6 +48,7 @@ class ReadingIn(BaseModel):
     corrective_action: str | None = Field(default=None, max_length=1000)
     retest_of_id: int | None = None
     start_reading_id: int | None = None
+    probe_id: int | None = None  # the thermometer used; it must be in calibration
     ready_after_minutes: int | None = Field(default=None, ge=30, le=20160)  # a time in: this item's own time before the time out is due
     latitude: float | None = Field(default=None, ge=-90, le=90)  # where it was recorded; checked against the work area when one is set
     longitude: float | None = Field(default=None, ge=-180, le=180)
@@ -78,6 +79,7 @@ class BatchItem(BaseModel):
 class BatchIn(BaseModel):
     equipment_id: int
     start_reading_id: int | None = None
+    probe_id: int | None = None  # one thermometer for the whole visit
     readings: list[BatchItem] = Field(min_length=1, max_length=20)
     latitude: float | None = Field(default=None, ge=-90, le=90)  # where it was recorded; checked against the work area when one is set
     longitude: float | None = Field(default=None, ge=-180, le=180)
@@ -157,6 +159,7 @@ def _serialize_readings(db: Session, readings: list[TemperatureReading], names: 
 def _serialize_reading(db: Session, reading: TemperatureReading, names: dict[int, str],
                        actions: dict[int, CorrectiveAction] | None = None, lots: list[dict] | None = None) -> dict:
     out = row(reading, *READING_FIELDS)
+    out["probe"] = db.scalar(select(Probe.code).where(Probe.id == reading.probe_id)) if reading.probe_id else None
     out["lots"] = lots if lots is not None else _lots_of(db, [reading.id])[reading.id]
     out["recorded_by_name"] = names.get(reading.recorded_by)
     out["reviewed_by_name"] = names.get(reading.reviewed_by)
@@ -254,6 +257,11 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     if body.evidence_path and not is_valid_evidence(body.evidence_path):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown evidence file")
 
+    try:
+        probe = calibration.probe_for_reading(db, eq, sched, body.probe_id, timeutil.utc_now())
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{sched.stage}: {exc}") from None
+
     original_action = None
     if body.retest_of_id is not None:
         original = db.get(TemperatureReading, body.retest_of_id)
@@ -272,7 +280,7 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
         equipment_id=eq.id, schedule_id=sched.id, location_id=eq.location_id, recorded_at=now, stage=sched.stage,
         source=sched.source, parameter=sched.parameter, unit=sched.unit, value_type=sched.value_type, value=value,
         answer=answer, reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed, warning=warns(sched, value, passed),
-        recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, retest_of_id=body.retest_of_id,
+        recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, probe_id=probe.id if probe else None, retest_of_id=body.retest_of_id,
         start_reading_id=start.id if start else None, expected_minutes=body.ready_after_minutes if sched.phase == "start" else None)
     db.add(reading)
     db.flush()
@@ -327,7 +335,7 @@ def record_readings(body: BatchIn, user: User = Depends(require("temp.record")),
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A check appears twice")
     enforce_work_area(db, body.latitude, body.longitude, body.accuracy, "record monitoring logs")  # not from home
     _require_whole_cycle(db, user, body)
-    readings = [_record(db, user, ReadingIn(equipment_id=body.equipment_id, start_reading_id=body.start_reading_id, **r.model_dump())) for r in body.readings]
+    readings = [_record(db, user, ReadingIn(equipment_id=body.equipment_id, start_reading_id=body.start_reading_id, probe_id=body.probe_id, **r.model_dump())) for r in body.readings]
     db.commit()
     names = _names(db, {user.id})
     return _serialize_readings(db, readings, names)

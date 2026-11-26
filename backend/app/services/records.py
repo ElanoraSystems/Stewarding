@@ -218,6 +218,7 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                     "totals": [("Checks recorded", len(visits)), ("Passed", len(visits) - failed_visits), ("Failed", failed_visits),
                                ("Awaiting approval", sum(1 for v in visits if not all(r.reviewed_at for r in v) and not any(r.rejected_at for r in v)))] + ranges})
                 continue
+            probes = dict(db.execute(select(Probe.id, Probe.code).where(Probe.id.in_({r.probe_id for r in readings if r.probe_id}))).all())
             rows = []
             for r in readings:
                 a = actions.get(r.id)
@@ -232,12 +233,14 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                     "recorded_by": names.get(r.recorded_by, ""),
                     "approved_by": f"Rejected by {names.get(r.rejected_by, '')}: {r.reject_reason}" if r.rejected_at
                     else f"{names.get(r.reviewed_by, '')} {_local(r.reviewed_at, loc.timezone)}".strip() if r.reviewed_at else "Awaiting approval",
-                    "corrective_action": taken})
+                    "corrective_action": taken, "probe": probes.get(r.probe_id, "")})
             failed = sum(1 for r in readings if not r.passed)
             columns = [("date", "Date"), ("time", "Time in" if lead else "Time")] + ([("time_out", "Time out")] if lead else []) + [
                 ("check", "Check"), ("measure", "Measure"), ("value", "Value"), ("limits", "Limits"), ("result", "Result"),
                 ("reference", "Item / batch"), ("recorded_by", "Recorded by"), ("approved_by", "Approved by"),
                 ("corrective_action", "Corrective action")]
+            if probes:  # only logs that name a thermometer carry the column
+                columns.insert(-3, ("probe", "Probe"))
             groups.append({
                 "title": f"{loc.name} - {eq.name} ({eq.code}){' - ' + LEVEL_LABEL[eq.control_level] if eq.control_level in LEVEL_LABEL else ''}",
                 "meta": [("Location", loc.name), ("Monitoring point", f"{eq.name} ({eq.code})"), ("Type", eq.kind), *([("Control level", LEVEL_NAME[eq.control_level])] if eq.control_level in LEVEL_NAME else [])],
