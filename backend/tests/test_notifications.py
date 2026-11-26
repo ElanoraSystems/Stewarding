@@ -158,3 +158,12 @@ def test_staff_on_the_roster_for_an_outlet_today_get_its_reminders(client, login
     assert rostered in mk_crew(db)
     clock.advance(days=1)  # tomorrow is another weekday
     assert rostered not in mk_crew(db)
+
+
+def test_the_list_can_show_only_what_needs_action_and_counts_it(client, login, db):
+    give(db, STEWARD, key="plain")
+    give(db, STEWARD, key="alert", kind="task_escalated", requires_ack=True, priority="critical")
+    mine = client.get("/api/notifications", headers=login(STEWARD)).json()
+    assert mine["action_needed"] == 1 and mine["total"] == 2
+    only = client.get("/api/notifications?needs_action=true", headers=login(STEWARD)).json()
+    assert only["total"] == 1 and only["items"][0]["kind"] == "task_escalated"

@@ -64,3 +64,58 @@ def test_the_checklist_record_shows_who_was_late_and_why_and_hides_the_columns_w
     row = next(r for r in group["rows"] if r["task"] == "Separate and remove waste")
     assert row["late"] == "30 min" and row["late_reason"] == "Waiting for the delivery"
     assert next(r for r in group["rows"] if r["task"] == "Clean drains and remove debris")["late"] == ""
+    assert row["_tone"] == {"late": "warn", "late_reason": "warn"}  # amber on screen, in the PDF and in the Excel
+    assert "_tone" not in next(r for r in group["rows"] if r["task"] == "Clean drains and remove debris")
+
+
+def test_late_time_reads_like_the_app():
+    from app.services.records import _late_text
+    assert [_late_text(m) for m in (None, 0, 45, 60, 65, 130)] == ["", "", "45 min", "1 h 00 min", "1 h 05 min", "2 h 10 min"]
+
+
+from datetime import date, timedelta
+
+
+def no_deadlines(db):
+    from app.models import ChecklistTask
+    db.query(ChecklistTask).update({"deadline_time": None, "shift_id": None})
+    db.commit()
+
+
+def test_a_task_with_no_time_and_no_shift_is_due_at_six_the_next_morning_so_the_night_crew_is_not_late(client, login, db, clock):
+    from app.models import ChecklistInstance
+    no_deadlines(db)
+    generate(client, login, db)
+    due = {i.due_at.isoformat() for i in db.query(ChecklistInstance).filter(ChecklistInstance.local_date == date(2026, 3, 2))}
+    assert len(due) == 1 and next(iter(due)).endswith("02:00:00")  # 06:00 in Dubai the next morning
+    steward = login(STEWARD)
+    clock.set(2026, 3, 2, 22, 30)  # 02:30 in Dubai on the 3rd: past midnight, before the day ends
+    task = find(client, steward, "Clean drains")
+    assert task["effective_status"] != "overdue"
+    assert complete(client, steward, task).status_code == 200  # no reason asked, nothing late
+    clock.set(2026, 3, 3, 2, 30)  # 06:30 in Dubai: past the day end and the grace
+    other = find(client, steward, "Separate and remove waste")
+    assert complete(client, steward, other).status_code == 400  # late now, so a reason is asked
+
+
+def test_the_day_end_can_be_applied_to_existing_tasks_and_counts_first(client, login, db, clock):
+    from app.models import ChecklistInstance
+    no_deadlines(db)
+    generate(client, login, db)
+    from .test_checklists import MGR
+    steward, mgr = login(STEWARD), login(MGR)
+    inst = db.query(ChecklistInstance).first()
+    old = inst.due_at - timedelta(hours=6, minutes=1)  # the old rule: 23:59 in Dubai the same day
+    inst.due_at, inst.status = old, "overdue"
+    inst.completed_by, inst.completed_at, inst.late_minutes, inst.late_reason = 1, old + timedelta(hours=2), 120, "Night crew"
+    db.commit()
+    assert client.post("/api/checklists/day-end", json={"apply": True}, headers=steward).status_code == 403
+    peek = client.post("/api/checklists/day-end", json={}, headers=mgr).json()
+    assert peek["applied"] is False and peek["late_cleared"] == 1 and peek["reopened"] == 1
+    db.refresh(inst)
+    assert inst.late_minutes == 120  # counting changed nothing
+    done = client.post("/api/checklists/day-end", json={"apply": True}, headers=mgr).json()
+    assert done["applied"] is True and done["late_cleared"] == 1
+    db.refresh(inst)
+    assert inst.late_minutes is None and inst.late_reason is None and inst.due_at.hour == 2
+    assert client.post("/api/checklists/day-end", json={"apply": True}, headers=mgr).json()["tasks"] == 0  # nothing left to move
