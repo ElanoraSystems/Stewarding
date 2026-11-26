@@ -129,6 +129,7 @@ class AttendanceRecord(Base):
     employee_id: Mapped[int] = mapped_column(ForeignKey("employee.id"), index=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("location.id"), index=True)
     shift_id: Mapped[int | None] = mapped_column(ForeignKey("shift.id"))
+    shift_inferred: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())  # worked out from the check-in time because nobody rostered this person
     local_date: Mapped[date] = mapped_column(Date, index=True)
     check_in_at: Mapped[datetime] = ts()
     check_out_at: Mapped[datetime | None] = mapped_column(DateTime)

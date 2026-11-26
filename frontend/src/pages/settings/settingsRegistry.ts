@@ -24,6 +24,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'attendance.missed_checkout_after_shift_hours', section: 'attendance', kind: 'number', label: 'Not checked out: alert this long after the shift ends', unit: 'hours' },
   { key: 'attendance.missed_checkout_hours', section: 'attendance', kind: 'number', label: 'Missed check-out after (only when there is no shift)', unit: 'hours' },
   { key: 'attendance.max_accuracy_m', section: 'attendance', kind: 'number', label: 'Largest location error accepted', unit: 'metres' },
+  { key: 'attendance.infer_shift_minutes', section: 'attendance', kind: 'number', label: 'Someone nobody rostered is put on the shift starting within this long of their check-in (0 = never)', unit: 'minutes' },
   { key: 'attendance.snapshot_days', section: 'attendance', kind: 'number', label: 'Keep face snapshots for (0 = keep them)', unit: 'days' },
   { key: 'attendance.face_match_max', section: 'attendance', kind: 'number', label: 'Face match limit (lower is stricter)', unit: '10 to 80' },
 
