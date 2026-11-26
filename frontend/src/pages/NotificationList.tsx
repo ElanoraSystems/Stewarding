@@ -71,7 +71,7 @@ function Group({ group, ...p }: { group: Note[] } & Props) {
         <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex min-w-0 flex-1 basis-56 items-center gap-2 text-left">
           <ChevronRight className={cn('size-4 shrink-0 text-ink-muted transition-transform', open && 'rotate-90')} aria-hidden />
           <span className="min-w-0">
-            <span className={cn('block', group.some((n) => !n.read_at) && 'font-semibold')}>{KIND_TITLE[first.kind] ?? first.title}</span>
+            <span className={cn('block', group.some((n) => !n.read_at) && 'font-semibold')}>{KIND_TITLE[first.kind] ?? 'Alerts'}</span>
             <span className="block text-xs text-ink-muted">{first.location_id ? `${p.places.get(first.location_id) ?? ''} · ` : ''}{new Date(first.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · {group.length} alerts</span>
           </span>
         </button>

@@ -67,11 +67,28 @@ def _place_by_position(db: Session, user: User, emp: Employee, where: Position) 
     if allowed is not None:
         query = query.where(Location.id.in_(allowed))
     places = list(db.scalars(query))
-    rostered = [r["location_id"] for r in rostered_today(db, emp, timeutil.utc_now()) if not r["week_off"]]
-    places.sort(key=lambda p: p.id not in rostered)
+    now = timeutil.utc_now()
+    timezones = {p.id: p.timezone for p in places}
+    gap: dict[int, int] = {}  # how far each rostered place's shift is from now; someone on a split day goes to the shift that is on or next
+    for r in rostered_today(db, emp, now):
+        if not r["week_off"] and r["location_id"] in timezones:
+            gap[r["location_id"]] = min(gap.get(r["location_id"], 1440), _minutes_from_shift(r["start"], r["end"], now, timezones[r["location_id"]]))
+    places.sort(key=lambda p: gap.get(p.id, 1441))  # rostered places first, the nearest shift first, then by name
     if not places:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to a location")
+    if len(places) > 1 and places[0].id not in gap:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose a location to check in at")  # not rostered and several to pick from: someone who works at more than one place says where
     return places[0], _enforce_geofence(db, where, "check in")
+
+
+def _minutes_from_shift(start: str, end: str, now: datetime, tz: str) -> int:
+    """0 while the shift is on, else minutes to its start or since its end, round the clock."""
+    clock = timeutil.to_local(now, tz)
+    cur = clock.hour * 60 + clock.minute
+    s, e = int(start[:2]) * 60 + int(start[3:5]), int(end[:2]) * 60 + int(end[3:5])
+    inside = (s <= cur < e) if s < e else (cur >= s or cur < e)
+    around = lambda a, b: min((a - b) % 1440, (b - a) % 1440)
+    return 0 if inside else min(around(cur, s), around(cur, e))
 
 
 def _enforce_geofence(db: Session, where: Position, action: str) -> float | None:
@@ -139,6 +156,24 @@ def _write_snapshot(data: bytes | None) -> str | None:
     return name
 
 
+REPEATS = 3  # earlier punches that must all match this one, to the centimetre and the accuracy figure, before it is flagged
+
+
+def _same_place(geo: dict, where: Position) -> bool:
+    return (round(geo["latitude"], 6), round(geo["longitude"], 6), geo.get("accuracy")) == (round(where.latitude, 6), round(where.longitude, 6), where.accuracy)
+
+
+def _recent_punches(db: Session, emp: Employee, count: int) -> list[tuple[dict, datetime]]:
+    """The positions of this person's latest punches, newest first."""
+    out: list[tuple[dict, datetime]] = []
+    for rec in db.scalars(select(AttendanceRecord).where(AttendanceRecord.employee_id == emp.id).order_by(AttendanceRecord.id.desc()).limit(count)):
+        if rec.check_out_geo:
+            out.append((rec.check_out_geo, rec.check_out_at))
+        if rec.check_in_geo:
+            out.append((rec.check_in_geo, rec.check_in_at))
+    return out[:count]
+
+
 def _geo_evidence(db: Session, emp: Employee, where: Position, distance: float | None, now: datetime) -> dict | None:
     """The position kept with a punch, with a flag for each sign that it may not be real."""
     if where.latitude is None or where.longitude is None:
@@ -146,19 +181,17 @@ def _geo_evidence(db: Session, emp: Employee, where: Position, distance: float |
     flags = []
     if not where.accuracy:
         flags.append("No accuracy reported")
-    last = db.scalar(select(AttendanceRecord).where(AttendanceRecord.employee_id == emp.id).order_by(AttendanceRecord.id.desc()))
-    earlier = None
-    if last:
-        earlier = ((last.check_out_geo, last.check_out_at) if last.check_out_geo else (last.check_in_geo, last.check_in_at))
-    if earlier and earlier[0]:
-        geo, when = earlier
-        if (round(geo["latitude"], 6), round(geo["longitude"], 6)) == (round(where.latitude, 6), round(where.longitude, 6)):
-            flags.append("Same position as the last punch")
-        else:
+    recent = _recent_punches(db, emp, REPEATS)
+    if recent:
+        geo, when = recent[0]
+        if not _same_place(geo, where):
             km = distance_m(geo["latitude"], geo["longitude"], where.latitude, where.longitude) / 1000
             hours = max((now - when).total_seconds() / 3600, 1 / 60)
             if km > 2 and km / hours > 150:
                 flags.append("Impossible travel since the last punch")
+    # one repeat is normal (a phone keeps its last Wi-Fi position, and people check out where they checked in); a run of exact repeats is not
+    if len(recent) == REPEATS and all(_same_place(geo, where) for geo, _ in recent):
+        flags.append(f"Exactly the same position and accuracy as the last {REPEATS} punches")
     return {"latitude": where.latitude, "longitude": where.longitude, "accuracy": where.accuracy,
             "distance": None if distance is None else round(distance), "flags": flags}
 
@@ -437,7 +470,8 @@ def my_status(user: User = Depends(require("attendance.self")), db: Session = De
     out = {"checked_in": record is not None, "server_time": iso(now), "employee": emp.full_name,
            "employee_code": emp.employee_code, "record": None, "incomplete_task_count": 0,
            "face_required": bool(get_setting(db, "attendance.face_required")), "face_enrolled": emp.face_descriptor is not None,
-           "rostered_today": rostered_today(db, emp, now), "geofence": work_area(db) is not None}
+           "rostered_today": rostered_today(db, emp, now), "geofence": work_area(db) is not None,
+           "last_location_id": db.scalar(select(AttendanceRecord.location_id).where(AttendanceRecord.employee_id == emp.id).order_by(AttendanceRecord.check_in_at.desc()).limit(1))}
     if record:
         out["record"] = _serialize(record, now)
         out["incomplete_task_count"] = len(incomplete_tasks(db, user, record))

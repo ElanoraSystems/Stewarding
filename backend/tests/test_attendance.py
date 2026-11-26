@@ -230,12 +230,29 @@ def test_the_position_is_kept_and_suspicious_punches_are_flagged(client, login, 
     first = check_in(client, h, db, latitude=29.37601, longitude=47.97751, accuracy=12)
     assert first.status_code == 201 and first.json()["geo_flags"] == []
     out = client.post("/api/attendance/check-out", json={"latitude": 29.37601, "longitude": 47.97751, "accuracy": 12, "exception_reason": "Tasks done elsewhere"}, headers=h)
-    assert out.json()["geo_flags"] == ["Same position as the last punch"]
+    assert out.json()["geo_flags"] == []  # checking out where you checked in is normal
     clock.advance(minutes=30)
     jump = check_in(client, h, db, latitude=29.37602, longitude=47.97752)
     assert jump.json()["geo_flags"] == ["No accuracy reported"]
     saved = db.scalar(select(AttendanceRecord).where(AttendanceRecord.id == first.json()["id"]))
     assert saved.check_in_geo["accuracy"] == 12 and saved.check_in_geo["distance"] < 30
+
+
+def test_only_a_run_of_exact_repeats_is_flagged(client, login, db, clock):
+    fence(db)
+    h = login(STEWARD)
+    same = {"latitude": 29.37601, "longitude": 47.97751, "accuracy": 12}
+    flags = []
+    for day in range(3):  # three days at the same desk: in and out each day with exactly the same fix
+        clock.set(2026, 3, 2 + day, 2, 0)
+        flags.append(check_in(client, h, db, **same).json()["geo_flags"])
+        clock.set(2026, 3, 2 + day, 10, 0)
+        flags.append(client.post("/api/attendance/check-out", json={**same, "exception_reason": "Tasks done elsewhere"}, headers=h).json()["geo_flags"])
+    assert flags[:3] == [[], [], []]  # the first repeats are normal
+    assert flags[3] == ["Exactly the same position and accuracy as the last 3 punches"]
+    clock.set(2026, 3, 5, 2, 0)
+    moved = check_in(client, h, db, latitude=29.37602, longitude=47.97752, accuracy=15)  # a normal fix is a little different each time
+    assert moved.json()["geo_flags"] == []
 
 
 def test_a_vague_position_is_refused_and_the_limit_is_a_setting(client, login, db, clock):
