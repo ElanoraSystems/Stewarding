@@ -38,7 +38,7 @@ def _mine(db: Session, user: User, notification_id: int) -> Notification:
 
 
 @router.get("")
-def list_notifications(unread: bool = False, priority: str | None = None, page: int = 1, size: int = 25,
+def list_notifications(unread: bool = False, needs_action: bool = False, priority: str | None = None, page: int = 1, size: int = 25,
                        user: User = Depends(require("notification.view")), db: Session = Depends(get_db)):
     # an alert whose cause has gone and that has been seen (closed alerts are marked read) leaves the list instead of piling up
     stmt = select(Notification).where(Notification.user_id == user.id, or_(Notification.resolved_at.is_(None), Notification.read_at.is_(None)))
@@ -46,12 +46,16 @@ def list_notifications(unread: bool = False, priority: str | None = None, page: 
         stmt = stmt.where(Notification.read_at.is_(None))
     if priority:
         stmt = stmt.where(Notification.priority == priority)
+    waiting = (Notification.requires_ack.is_(True)) & Notification.acknowledged_at.is_(None) & Notification.resolved_at.is_(None)
+    if needs_action:
+        stmt = stmt.where(waiting)
     pinned = case((Notification.requires_ack.is_(True) & Notification.acknowledged_at.is_(None)
                    & Notification.resolved_at.is_(None), 0), else_=1)
     total, rows = paginate(db, stmt.order_by(pinned, Notification.created_at.desc(), Notification.id.desc()), page, size)
     unread_count = db.scalar(select(func.count()).select_from(Notification).where(
         Notification.user_id == user.id, Notification.read_at.is_(None)))
-    return {"total": total, "unread": unread_count, "items": [_serialize(r[0]) for r in rows]}
+    action_needed = db.scalar(select(func.count()).select_from(Notification).where(Notification.user_id == user.id, waiting))
+    return {"total": total, "unread": unread_count, "action_needed": action_needed, "items": [_serialize(r[0]) for r in rows]}
 
 
 @router.get("/unread-count")

@@ -492,7 +492,8 @@ def _checklist_groups(db: Session, locations: list[Location], day_from: date, da
                 "completed_by": names.get(inst.completed_by, ""), "completed_at": _local(inst.completed_at, loc.timezone),
                 "reading": "" if inst.reading is None else f"{inst.reading.normalize():f}",
                 "comment": inst.comment or inst.waive_reason or "",
-                "late": "" if not inst.late_minutes else f"{inst.late_minutes} min", "late_reason": inst.late_reason or "",
+                "late": _late_text(inst.late_minutes), "late_reason": inst.late_reason or "",
+                **({"_tone": {"late": "warn", "late_reason": "warn"}} if inst.late_minutes else {}),  # amber, in the preview, the PDF and the Excel
                 "verified_by": names.get(inst.verified_by, ""), "verified_at": _local(inst.verified_at, loc.timezone)})
         for title, rows in rows_by_template.items():
             counts = {s: sum(1 for r in rows if r["status"] == s) for s in ("verified", "pending verification", "completed", "failed")}
@@ -666,6 +667,11 @@ def _attendance_sheet_groups(db: Session, now: datetime, scope, f: Filters, day_
                         ("late", "Late (min)"), ("worked", "Worked"), ("overtime", "Overtime"), ("note", "Note")],
             "rows": rows, "totals": totals})
     return groups
+
+
+def _late_text(minutes: int | None) -> str:
+    """The same wording as the app: "45 min", "1 h 05 min"."""
+    return "" if not minutes else f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d} min"
 
 
 def _hm(minutes: int | None) -> str:
