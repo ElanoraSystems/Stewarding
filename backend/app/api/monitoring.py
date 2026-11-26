@@ -22,7 +22,7 @@ from ..services.traceability import usable
 from ..services.approvals import record_decision
 from ..services.work_area import enforce_work_area
 from ..services.visibility import hidden_points
-from ..services.monitoring import (CLOSED_ACTIONS, warns, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
+from ..services.monitoring import (CLOSED_ACTIONS, LEVEL_LABEL, warns, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
@@ -343,7 +343,7 @@ def _open_failure(db: Session, user: User, eq: Equipment, reading: TemperatureRe
     answered = {"yes_no": "Answered No", "choice": f"Answered {reading.answer}"}
     limits = answered[reading.value_type] if reading.value_type in answered else f"Limits {reading.min_limit or '-'} to {reading.max_limit or '-'} {reading.unit or ''}".strip()
     notify(db, approvers.audience(db, eq, recipients(db, eq.location_id, SUPERVISOR, MANAGER, category="monitoring")), "monitoring_failed",
-           f"Failed check: {eq.name} ({reading.stage}) {describe(reading)}",
+           f"Failed {LEVEL_LABEL.get(eq.control_level, '') + ' ' if LEVEL_LABEL.get(eq.control_level) else ''}check: {eq.name} ({reading.stage}) {describe(reading)}",
            key=f"temp_fail:{reading.id}", body=f"{limits}. Corrective action and retest required.",
            priority="critical", location_id=eq.location_id, link="/monitoring", requires_ack=True)
     if failure_count(db, eq.id, now) >= get_setting(db, "temp.repeat_failure_count"):

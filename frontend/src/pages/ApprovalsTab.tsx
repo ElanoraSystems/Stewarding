@@ -9,7 +9,7 @@ import { fmtDateTime, fmtLate } from '@/lib/format'
 import { useToast } from '@/lib/toast'
 
 export interface TaskWaiting { id: number; description: string; checklist: string; location_id: number; local_date: string; done_by: string; done_at: string; comment: string | null; has_photo: boolean; late_minutes?: number | null; late_reason?: string | null }
-export interface ReadingWaiting { id: number; equipment: string; stage: string; value: string; passed: boolean; location_id: number; done_by: string; done_at: string; comment: string | null }
+export interface ReadingWaiting { id: number; equipment: string; stage: string; value: string; passed: boolean; location_id: number; done_by: string; done_at: string; comment: string | null; control?: string }
 export interface Waiting { tasks: TaskWaiting[]; readings: ReadingWaiting[]; count: number }
 
 type Kind = 'tasks' | 'readings'
@@ -83,7 +83,7 @@ export function ApprovalsTab({ data, loading, reload }: { data: Waiting | null; 
         note: [t.late_minutes ? `Why it was late: ${t.late_reason ?? ''}` : '', t.comment].filter(Boolean).join('\n') || null }))}
       {section('readings', 'Monitoring logs', data.readings, (r) => ({
         name: `${r.equipment} - ${r.stage}: ${r.value}`, detail: 'Monitoring log', place: r.location_id, by: r.done_by, at: r.done_at, note: r.comment,
-        tag: <Badge tone={r.passed ? 'ok' : 'critical'}>{r.passed ? 'Pass' : 'Fail'}</Badge>,
+        tag: <>{r.control === 'ccp' && <Badge tone="critical">CCP</Badge>}{r.control === 'oprp' && <Badge tone="warn">OPRP</Badge>}<Badge tone={r.passed ? 'ok' : 'critical'}>{r.passed ? 'Pass' : 'Fail'}</Badge></>,
       }))}
       <DecisionDialog open={deciding !== null} initial={deciding?.initial} title={`Approve or reject ${deciding?.ids.length ?? 0} ${deciding?.kind === 'tasks' ? 'task' : 'log'}${deciding?.ids.length === 1 ? '' : 's'}`}
         onClose={() => setDeciding(null)} onDecide={decide} />

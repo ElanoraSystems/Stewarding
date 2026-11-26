@@ -46,6 +46,7 @@ interface Props {
   onWho: () => void
   onApprovers: () => void
   onPointActive: () => void
+  onLevel: (level: string) => void
   onDeletePoint: () => void
   onEditCheck: (schedule: Schedule | null) => void
   onCheckActive: (schedule: Schedule) => void
@@ -53,7 +54,7 @@ interface Props {
 }
 
 /** One monitoring point: a single line while closed, its checks and actions when opened. */
-export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onStatus, onRename, onWho, onApprovers, onPointActive, onDeletePoint, onEditCheck, onCheckActive, onDeleteCheck }: Props) {
+export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onStatus, onRename, onWho, onApprovers, onPointActive, onLevel, onDeletePoint, onEditCheck, onCheckActive, onDeleteCheck }: Props) {
   const body = useId()
   const limited = eq.visible_to && eq.visible_to.length > 0
   return (
@@ -68,6 +69,8 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
           <span className="mt-0.5 block text-sm text-ink-muted">{summary(eq)}</span>
         </span>
         <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {eq.control_level === 'ccp' && <span title="Critical control point: a missed or failed check is raised as critical and shown first"><Badge tone="critical">CCP</Badge></span>}
+          {eq.control_level === 'oprp' && <span title="Operational prerequisite programme"><Badge tone="warn">OPRP</Badge></span>}
           {!eq.active && <StatusBadge status="inactive" />}
           {eq.active && eq.status !== 'operational' && <StatusBadge status={eq.status} />}
           {eq.needs_attention && <Badge tone="warn">{eq.recent_failures} recent failures</Badge>}
@@ -88,6 +91,11 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
                   <option value="operational">Operational</option>
                   <option value="attention">Needs attention</option>
                   <option value="out_of_service">Out of service</option>
+                </Select>
+                <Select aria-label={`Control level of ${eq.name}`} className="w-auto" value={eq.control_level ?? 'prp'} onChange={(e) => onLevel(e.target.value)}>
+                  <option value="prp">PRP</option>
+                  <option value="oprp">Operational PRP (OPRP)</option>
+                  <option value="ccp">Critical control point (CCP)</option>
                 </Select>
                 <Button size="sm" variant="outline" onClick={onWho}>Who records it</Button>
                 <Button size="sm" variant="outline" onClick={onApprovers}>Who reviews it</Button>

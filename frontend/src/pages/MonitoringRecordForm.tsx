@@ -57,6 +57,7 @@ export interface EquipmentItem {
   visible_to: string[] | null
   approvers?: number[] | null
   approver_names?: string[]
+  control_level?: 'prp' | 'oprp' | 'ccp'
   schedules: Schedule[]
   needs_attention: boolean
   recent_failures: number

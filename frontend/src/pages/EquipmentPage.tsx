@@ -69,6 +69,10 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
     if (await run(() => api(`/equipment/${eq.id}`, { method: 'PUT', body: { active: !eq.active } }), eq.active ? 'Made inactive' : 'Made active')) reload()
   }
 
+  async function setLevel(eq: EquipmentItem, control_level: string) {
+    if (await run(() => api(`/equipment/${eq.id}`, { method: 'PUT', body: { control_level } }), 'Control level updated')) reload()
+  }
+
   async function setCheckActive(s: Schedule) {
     if (await run(() => api(`/equipment/schedules/${s.id}/active`, { method: 'PUT', body: { active: !s.active } }), s.active ? 'Made inactive' : 'Made active')) reload()
   }
@@ -137,7 +141,7 @@ export function EquipmentPage({ embedded = false }: { embedded?: boolean }) {
             <MonitoringPointRow key={eq.id} point={eq} canManage={canManage} open={openIds.has(eq.id) || find.trim() !== ''}
               onToggle={() => setOpenIds((ids) => { const next = new Set(ids); if (!next.delete(eq.id)) next.add(eq.id); return next })}
               onStatus={(status) => setStatus(eq, status)} onRename={() => setRenaming({ id: eq.id, name: eq.name })} onWho={() => setLimiting(eq)} onApprovers={() => setApproving(eq)}
-              onPointActive={() => setPointActive(eq)} onDeletePoint={() => setDeleting({ kind: 'point', id: eq.id, name: eq.name })}
+              onPointActive={() => setPointActive(eq)} onLevel={(level) => setLevel(eq, level)} onDeletePoint={() => setDeleting({ kind: 'point', id: eq.id, name: eq.name })}
               onEditCheck={(schedule) => setEditing({ equipmentId: eq.id, schedule })} onCheckActive={setCheckActive}
               onDeleteCheck={(s) => setDeleting({ kind: 'check', id: s.id, name: s.stage })} />
           ))}

@@ -116,6 +116,7 @@ class Equipment(Base):
     maintenance_notes: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     visible_to: Mapped[list | None] = mapped_column(JSON)  # job titles that record this log; none means everyone who can record
+    control_level: Mapped[str] = mapped_column(String(10), default="prp", server_default="prp")  # prp | oprp (operational PRP) | ccp (critical control point): a higher level outranks the rest
     approvers: Mapped[list | None] = mapped_column(JSON)  # user ids who review this log's readings, any one of them; none means everyone with the permission
 
 
