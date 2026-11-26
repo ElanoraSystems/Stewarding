@@ -35,6 +35,8 @@ interface Record {
   open: boolean
   missed_checkout: boolean
   geo_flags: string[]
+  shift_id?: number | null
+  shift_inferred?: boolean
   snapshot_in?: boolean
   snapshot_out?: boolean
 }
@@ -60,6 +62,7 @@ export function AttendancePage() {
   const [removing, setRemoving] = useState<Record | null>(null)
   const [field, setField] = useState('check_out_at')
   const [value, setValue] = useState('')
+  const [shiftId, setShiftId] = useState('')
   const [reason, setReason] = useState('')
   const [adding, setAdding] = useState(false)
   const [markingOff, setMarkingOff] = useState(false)
@@ -69,12 +72,14 @@ export function AttendancePage() {
     ? `/attendance${qs({ location_id: locationId, date_from: from, date_to: to, page, size: SIZE })}`
     : `/attendance/mine${qs({ page, size: SIZE })}`
   const { data, loading, reload } = useApi<Listing>(path)
+  const shifts = useApi<{ id: number; name: string; start_time: string; end_time: string; kind: string; active: boolean }[]>(correcting ? '/roster/shifts' : null).data
   const byLocation = me?.by_location !== false
   const locationNames = new Map(me?.locations.map((l) => [l.id, l.name]))
 
   function startCorrection(r: Record) {
     setCorrecting(r)
     setField(r.check_out_at ? 'check_out_at' : 'check_in_at')
+    setShiftId(r.shift_id ? String(r.shift_id) : '')
     setValue('')
     setReason('')
   }
@@ -84,6 +89,8 @@ export function AttendancePage() {
     if (!correcting) return
     const ok = field === 'day_off'
       ? await run(() => api(`/attendance/${correcting.id}/day-off`, { body: { reason } }), 'Changed to a day off')
+      : field === 'shift'
+      ? await run(() => api(`/attendance/${correcting.id}/shift`, { body: { shift_id: shiftId ? Number(shiftId) : null, reason } }), 'Shift changed')
       : await run(() => api(`/attendance/${correcting.id}/correct`, { body: { field, new_value: new Date(value).toISOString(), reason } }), 'Attendance corrected')
     if (ok) {
       setCorrecting(null)
@@ -104,6 +111,7 @@ export function AttendancePage() {
   const flags = (r: Record) => (
     <>
       {r.late_minutes > 0 && <Badge tone="warn">Late {r.late_minutes}m</Badge>}
+      {r.shift_inferred && <Badge title="Nobody rostered this person, so the shift was worked out from the check-in time. Lateness is not counted; correct the shift if it is wrong.">Shift inferred</Badge>}
       {r.missed_checkout && <Badge tone="critical">Missed checkout</Badge>}
       {canView && r.snapshot_in && <FaceSnapshotButton recordId={r.id} which="in" who={r.employee_name} />}
       {canView && r.snapshot_out && <FaceSnapshotButton recordId={r.id} which="out" who={r.employee_name} />}
@@ -225,10 +233,13 @@ export function AttendancePage() {
               <Select value={field} onChange={(e) => setField(e.target.value)}>
                 <option value="check_in_at">Check-in time</option>
                 <option value="check_out_at">Check-out time</option>
+                <option value="shift">Shift</option>
                 {canMarkOff && <option value="day_off">Change this to a day off</option>}
               </Select>
             </Field>
-            {field === 'day_off'
+            {field === 'shift'
+              ? <Field label="Shift worked"><Select value={shiftId} onChange={(e) => setShiftId(e.target.value)}><option value="">No shift</option>{(shifts ?? []).filter((s) => s.kind === 'work' && s.active).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)} to {s.end_time.slice(0, 5)})</option>)}</Select></Field>
+              : field === 'day_off'
               ? <p className="text-sm text-ink-muted">The check-in and check-out are removed and the day is recorded as a day off. They stay in the audit log with your reason.</p>
               : <Field label="New time (your local time)"><Input required type="datetime-local" value={value} onChange={(e) => setValue(e.target.value)} /></Field>}
             <Field label="Reason"><Input required minLength={5} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>

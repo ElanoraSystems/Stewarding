@@ -39,7 +39,7 @@ CHALLENGE_TTL_S = 300  # long enough to type an exception reason after the check
 CHALLENGE_MIN_S = 3  # three turns and a straight look cannot honestly be done faster
 MAX_SNAPSHOT_BYTES = 150_000
 FIELDS = ("id", "employee_id", "location_id", "shift_id", "local_date", "check_in_at", "check_out_at",
-          "late_minutes", "payable_minutes", "overtime_minutes", "exception_reason")
+          "late_minutes", "payable_minutes", "overtime_minutes", "exception_reason", "shift_inferred")
 
 
 class Position(BaseModel):
@@ -255,6 +255,29 @@ def _pick_shift(db: Session, emp: Employee, location: Location, now: datetime) -
     return min(found, key=lambda f: abs((now - timeutil.local_to_utc(f[1], f[0].start_time, location.timezone)).total_seconds()))
 
 
+AMBIGUOUS_MINUTES = 15  # two shifts starting this close to the check-in are too alike to choose between
+
+
+def _infer_shift(db: Session, location: Location, now: datetime) -> tuple[Shift, date] | None:
+    """For someone nobody rostered: the work shift whose start is nearest to the check-in, if it is within the window set in Settings and clearly nearer than the next.
+
+    Returns the shift and the day it started on; none when there is no clear match, so the record simply has no shift."""
+    window = get_setting(db, "attendance.infer_shift_minutes")
+    if not window:
+        return None
+    today = timeutil.local_date(now, location.timezone)
+    gaps: dict[int, tuple[float, Shift, date]] = {}
+    for shift in db.scalars(select(Shift).where(Shift.active.is_(True), Shift.kind == "work")):
+        for day in (today - timedelta(days=1), today, today + timedelta(days=1)):
+            gap = abs((now - timeutil.local_to_utc(day, shift.start_time, location.timezone)).total_seconds()) / 60
+            if shift.id not in gaps or gap < gaps[shift.id][0]:
+                gaps[shift.id] = (gap, shift, day)
+    near = sorted(g for g in gaps.values() if g[0] <= window)
+    if not near or (len(near) > 1 and near[1][0] - near[0][0] < AMBIGUOUS_MINUTES):
+        return None
+    return near[0][1], near[0][2]
+
+
 def rostered_today(db: Session, emp: Employee, now: datetime) -> list[dict]:
     """Where and when the employee is rostered today, or marked off, at each location, earliest shift first.
 
@@ -376,12 +399,15 @@ def check_in(body: CheckInIn, user: User = Depends(require("attendance.self")), 
     face = _verify_face(db, emp, body, "check in")
     now = timeutil.utc_now()
     shift, day = _pick_shift(db, emp, location, now)
+    inferred = False
+    if shift is None and (guess := _infer_shift(db, location, now)):
+        (shift, day), inferred = guess, True  # nobody rostered them, so the nearest shift is used for overtime and the check-out alert
     late = 0
-    if shift:
+    if shift and not inferred:  # a guessed shift is not a commitment, so nobody is late for it
         minutes_after_start = int((now - timeutil.local_to_utc(day, shift.start_time, location.timezone))
                                   .total_seconds() // 60)
         late = minutes_after_start if minutes_after_start > shift.grace_minutes else 0
-    record = AttendanceRecord(employee_id=emp.id, location_id=location.id, shift_id=shift.id if shift else None,
+    record = AttendanceRecord(employee_id=emp.id, location_id=location.id, shift_id=shift.id if shift else None, shift_inferred=inferred,
                               local_date=day, check_in_at=now, late_minutes=late, open_flag=1,
                               check_in_geo=_geo_evidence(db, emp, body, away, now), check_in_face=face,
                               check_in_snapshot=_write_snapshot(photo))
@@ -587,6 +613,36 @@ def correct(attendance_id: int, body: CorrectionIn, user: User = Depends(require
     _recompute(record, shift)
     audit(db, user, "attendance.correct", "attendance_record", record.id,
           {body.field: iso(old_value)}, {body.field: iso(new_value), "reason": body.reason})
+    db.commit()
+    return _serialize(record, timeutil.utc_now())
+
+
+class ShiftSetIn(BaseModel):
+    shift_id: int | None = None  # none means no shift
+    reason: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/{attendance_id}/shift")
+def set_shift(attendance_id: int, body: ShiftSetIn, user: User = Depends(require("attendance.correct")), db: Session = Depends(get_db)):
+    """Puts a record on the right shift, for example when the one worked out from the check-in time was wrong. Lateness and overtime follow."""
+    record = db.get(AttendanceRecord, attendance_id)
+    if not record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attendance record not found")
+    check_location(user, db, record.location_id)
+    shift = db.get(Shift, body.shift_id) if body.shift_id is not None else None
+    if body.shift_id is not None and (not shift or shift.kind != "work" or not shift.active):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a working shift")
+    before = db.get(Shift, record.shift_id).name if record.shift_id else None
+    db.add(AttendanceCorrection(attendance_id=record.id, corrected_by=user.id, field="shift", old_value=before, new_value=shift.name if shift else None, reason=body.reason))
+    record.shift_id, record.shift_inferred = shift.id if shift else None, False
+    tz = db.get(Location, record.location_id).timezone
+    late = 0
+    if shift:
+        minutes_after_start = int((record.check_in_at - timeutil.local_to_utc(record.local_date, shift.start_time, tz)).total_seconds() // 60)
+        late = minutes_after_start if minutes_after_start > shift.grace_minutes else 0
+    record.late_minutes = late
+    _recompute(record, shift)
+    audit(db, user, "attendance.shift", "attendance_record", record.id, {"shift": before}, {"shift": shift.name if shift else None, "reason": body.reason})
     db.commit()
     return _serialize(record, timeutil.utc_now())
 
