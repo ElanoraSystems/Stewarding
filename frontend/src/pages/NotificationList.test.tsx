@@ -14,6 +14,14 @@ describe('NotificationList', () => {
     expect(groups.map((g) => g.length)).toEqual([2, 1, 1])
   })
 
+  it('titles a group by what the alerts have in common, never by one person, and leaves unknown kinds alone', () => {
+    const who = (id: number, name: string) => note(id, { kind: 'missed_checkout', title: `${name} has not checked out`, requires_ack: false, action_needed: false })
+    render(<MemoryRouter><NotificationList {...props([who(1, 'Jafrudin Shekh'), who(2, 'Simon Wanderi')])} /></MemoryRouter>)
+    expect(screen.getByText('Not checked out')).toBeTruthy()
+    expect(screen.queryByText('Jafrudin Shekh has not checked out')).toBeNull()  // names appear only when the group is opened
+    expect(groupNotes([note(3, { kind: 'something_new' }), note(4, { kind: 'something_new' })]).map((g) => g.length)).toEqual([1, 1])
+  })
+
   it('warns with one Acknowledge button, never Approve and Reject, and acknowledges a whole group', async () => {
     const user = userEvent.setup()
     const p = props([note(1), note(2), note(3)])
