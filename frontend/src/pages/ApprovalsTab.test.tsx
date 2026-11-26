@@ -73,6 +73,17 @@ describe('ApprovalsTab', () => {
     expect(screen.getByText(/Short staffed/)).toBeTruthy()
   })
 
+  it('puts a failed visit first, then a CCP, and labels the level', () => {
+    const read = (id: number, equipment: string, passed: boolean, control: string) => ({ id, equipment, stage: 'Temp', value: '3 °C', passed, location_id: 2, done_by: 'Maya', done_at: `2026-11-01T0${id}:00:00Z`, comment: null, control })
+    const data: Waiting = { tasks: [], count: 3, readings: [read(1, 'Plain fridge', true, 'prp'), read(2, 'Chiller CCP', true, 'ccp'), read(3, 'Failed oprp', false, 'oprp')] }
+    render(<ApprovalsTab data={data} loading={false} reload={() => {}} />)
+    const rows = within(screen.getByRole('region', { name: 'Monitoring logs' })).getAllByRole('listitem').map((li) => li.textContent ?? '')
+    expect(rows[0]).toContain('Failed oprp')
+    expect(rows[1]).toContain('Chiller CCP')
+    expect(rows[1]).toContain('CCP')
+    expect(rows[2]).toContain('Plain fridge')
+  })
+
   it('says so when nothing is waiting', () => {
     render(<ApprovalsTab data={{ tasks: [], readings: [], count: 0 }} loading={false} reload={() => {}} />)
     expect(screen.getByText('Nothing is waiting for your approval')).toBeTruthy()

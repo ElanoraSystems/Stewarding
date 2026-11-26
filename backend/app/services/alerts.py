@@ -14,7 +14,7 @@ from . import approvers
 from .notify import notify, recipients
 from .settings import get_setting
 from .visibility import norm_title
-from .monitoring import describe, due_checks, pending_entries
+from .monitoring import LEVEL_LABEL, describe, due_checks, pending_entries
 
 SUMMARY_HOUR = time(8, 0)
 
@@ -154,9 +154,11 @@ def monitoring_alerts(db: Session, location: Location, now: datetime) -> int:
         elif check["status"] == "overdue":
             eq = next((e for e in equipment if e.id == check["equipment_id"]), None)
             who = recipients(db, location.id, SUPERVISOR, MANAGER, category="monitoring")
+            level = eq.control_level if eq else "prp"
+            label = LEVEL_LABEL.get(level, "")
             created += notify(db, approvers.audience(db, eq, who) if eq else who, "monitoring_overdue",
-                              f"Check overdue: {title}", key=f"checkover:{check['schedule_id']}:{slot}",
-                              priority="high", location_id=location.id, link="/monitoring")  # a notice only: it closes itself when the check is recorded, so nothing to approve
+                              f"{label + ' check' if label else 'Check'} overdue: {title}", key=f"checkover:{check['schedule_id']}:{slot}",
+                              priority="critical" if level == "ccp" else "high", location_id=location.id, link="/monitoring")  # a notice only: it closes itself when the check is recorded, so nothing to approve
     return created
 
 

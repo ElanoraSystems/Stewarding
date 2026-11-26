@@ -59,5 +59,5 @@ def waiting_for_approval(user: User = Depends(current_user), db: Session = Depen
                 continue  # someone else is chosen to review this log
             readings.append({"id": reading.id, "equipment": eq.name, "stage": reading.stage, "value": describe(reading), "passed": reading.passed,
                              "location_id": reading.location_id, "done_by": names.get(reading.recorded_by, ""), "done_at": reading.recorded_at.isoformat() + "Z",
-                             "comment": reading.comment})
+                             "comment": reading.comment, "control": eq.control_level})
     return {"tasks": tasks, "readings": readings, "count": len(tasks) + len(readings)}

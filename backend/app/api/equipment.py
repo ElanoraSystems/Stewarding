@@ -24,7 +24,7 @@ from .. import timeutil
 router = APIRouter(prefix="/api/equipment", tags=["monitoring points"])
 
 EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer", "model", "serial_number",
-                    "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active", "visible_to", "approvers")
+                    "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active", "visible_to", "approvers", "control_level")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
                    "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "warn_min", "warn_max", "max_open_minutes", "options",
                    "fail_options", "max_length", "required", "reference_label", "phase", "trace_lots", "active")
@@ -44,6 +44,7 @@ class EquipmentIn(BaseModel):
     maintenance_notes: str | None = None
     visible_to: list[str] | None = None  # job titles that record this log; empty or none means all
     approvers: list[int] | None = None  # people who review its readings, any one of them; empty or none means everyone who may
+    control_level: str = Field(default="prp", pattern="^(prp|oprp|ccp)$")  # PRP, operational PRP or critical control point
 
 
 class EquipmentUpdate(BaseModel):
@@ -58,6 +59,7 @@ class EquipmentUpdate(BaseModel):
     active: bool | None = None
     visible_to: list[str] | None = None
     approvers: list[int] | None = None
+    control_level: str | None = Field(default=None, pattern="^(prp|oprp|ccp)$")
 
 
 class ScheduleIn(BaseModel):
@@ -427,6 +429,7 @@ class FormIn(BaseModel):
     fields: list[FieldIn] = Field(min_length=1, max_length=20)
     frequency: FrequencyIn
     supervisor_id: int | None = None
+    control_level: str = Field(default="prp", pattern="^(prp|oprp|ccp)$")
 
     @field_validator("name")
     @classmethod
@@ -479,7 +482,7 @@ def create_form(body: FormIn, user: User = Depends(require("equipment.manage")),
     made = []
     for location in locations:
         eq = Equipment(code=_next_code(db, "FM", location.code), name=body.name, kind=body.kind, location_id=location.id,
-                       supervisor_id=body.supervisor_id)
+                       supervisor_id=body.supervisor_id, control_level=body.control_level)
         db.add(eq)
         db.flush()
         db.add_all(EquipmentSchedule(equipment_id=eq.id, **values) for values in schedules)

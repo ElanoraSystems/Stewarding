@@ -29,6 +29,10 @@ def warns(sched, value: Decimal | None, passed: bool) -> bool:
     return (sched.warn_max is not None and value >= sched.warn_max) or (sched.warn_min is not None and value <= sched.warn_min)
 
 
+LEVEL_LABEL = {"ccp": "CCP", "oprp": "OPRP"}  # a plain PRP carries no label
+LEVEL_NAME = {"ccp": "Critical control point (CCP)", "oprp": "Operational PRP (OPRP)"}
+
+
 def describe(reading) -> str:
     """A reading as people say it: the written or chosen answer, 'Yes' or 'No', or the number with its unit."""
     if reading.value_type in ("text", "choice", "date", "time", "signature", "image"):

@@ -43,6 +43,7 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
   const [dayOfMonth, setDayOfMonth] = useState('1')
   const [interval, setInterval] = useState('120')
   const [start, setStart] = useState('06:00')
+  const [level, setLevel] = useState('prp')
   const [problem, setProblem] = useState<string | null>(null)
 
   const setField = (i: number, next: FieldSpec) => setFields((all) => all.map((f, n) => (n === i ? next : f)))
@@ -85,7 +86,7 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
     const frequency = mode === 'on_demand' ? { mode, times: [] }
       : mode === 'interval' ? { mode, interval_minutes: Number(interval), start: `${start}:00` }
       : { mode, times: times.map((t) => `${t}:00`), weekdays: mode === 'weekly' ? weekdays : null, day_of_month: mode === 'monthly' ? Number(dayOfMonth) : null }
-    const body = { name, kind, location_ids: locations, fields: fields.map(fieldPayload), frequency }
+    const body = { name, kind, location_ids: locations, fields: fields.map(fieldPayload), frequency, control_level: level }
     if (await run(() => api('/equipment/forms', { body }), locations.length > 1 ? 'Form created at each location' : 'Form created')) onCreated()
   }
 
@@ -134,6 +135,13 @@ export function FormBuilderModal({ initialLocation, onClose, onCreated }: FormBu
           <Field label="Kind of log">
             <Select value={kind} onChange={(e) => setKind(e.target.value)}>
               {[...new Set([...types, 'Other'])].map((t) => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </Field>
+          <Field label="Food safety control (a CCP is raised as critical and shown first when missed or failed)">
+            <Select value={level} onChange={(e) => setLevel(e.target.value)}>
+              <option value="prp">PRP: a prerequisite programme</option>
+              <option value="oprp">OPRP: an operational prerequisite programme</option>
+              <option value="ccp">CCP: a critical control point</option>
             </Select>
           </Field>
           <fieldset>

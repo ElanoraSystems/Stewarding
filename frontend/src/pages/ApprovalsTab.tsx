@@ -10,7 +10,7 @@ import { fmtDate, fmtDateTime, fmtLate } from '@/lib/format'
 import { useToast } from '@/lib/toast'
 
 export interface TaskWaiting { id: number; description: string; checklist: string; location_id: number; local_date: string; done_by: string; done_at: string; comment: string | null; has_photo: boolean; late_minutes?: number | null; late_reason?: string | null }
-export interface ReadingWaiting { id: number; equipment: string; stage: string; value: string; passed: boolean; location_id: number; done_by: string; done_at: string; comment: string | null }
+export interface ReadingWaiting { id: number; equipment: string; stage: string; value: string; passed: boolean; location_id: number; done_by: string; done_at: string; comment: string | null; control?: string }
 export interface Waiting { tasks: TaskWaiting[]; readings: ReadingWaiting[]; count: number }
 
 type Kind = 'tasks' | 'readings'
@@ -19,13 +19,15 @@ const SAME_VISIT_MS = 5 * 60 * 1000
 
 /** Readings by one person on one point within five minutes are one visit; visits with a failure come first. */
 function visits(rows: ReadingWaiting[]) {
-  const out: { equipment: string; by: string; last: number; readings: ReadingWaiting[] }[] = []
+  const out: { equipment: string; by: string; last: number; control: string; readings: ReadingWaiting[] }[] = []
   for (const r of [...rows].sort((a, b) => a.done_at.localeCompare(b.done_at))) {
     const at = Date.parse(r.done_at)
     const v = out.find((x) => x.equipment === r.equipment && x.by === r.done_by && x.readings[0].location_id === r.location_id && at - x.last <= SAME_VISIT_MS)
-    if (v) { v.readings.push(r); v.last = at } else out.push({ equipment: r.equipment, by: r.done_by, last: at, readings: [r] })
+    if (v) { v.readings.push(r); v.last = at } else out.push({ equipment: r.equipment, by: r.done_by, last: at, control: r.control ?? 'prp', readings: [r] })
   }
-  return out.sort((a, b) => Number(b.readings.some((r) => !r.passed)) - Number(a.readings.some((r) => !r.passed)))
+  const level = { ccp: 2, oprp: 1, prp: 0 } as Record<string, number>
+  const urgency = (v: (typeof out)[number]) => Number(v.readings.some((r) => !r.passed)) * 3 + (level[v.control] ?? 0)  // a failure first, then a CCP, then an OPRP
+  return out.sort((a, b) => urgency(b) - urgency(a))
 }
 
 /** A group that folds away: one tick, one title and one pair of buttons for everything inside. */
@@ -144,6 +146,7 @@ export function ApprovalsTab({ data, loading, reload }: { data: Waiting | null; 
                   <input type="checkbox" aria-label={`Select ${v.equipment}`} checked={allPicked('readings', ids)} onChange={() => toggleMany('readings', ids)} />
                   <div className="min-w-0 flex-1 basis-64">
                     <p className="flex flex-wrap items-center gap-2 font-medium">{v.equipment}
+                      {v.control === 'ccp' && <Badge tone="critical">CCP</Badge>}{v.control === 'oprp' && <Badge tone="warn">OPRP</Badge>}
                       {failed > 0 && <Badge tone="critical">{failed} failed</Badge>}
                     </p>
                     <p className="mt-0.5 text-xs text-ink-muted">{v.by} · {places.get(v.readings[0].location_id) ?? ''} · {fmtDateTime(v.readings[0].done_at)}</p>

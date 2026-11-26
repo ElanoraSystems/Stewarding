@@ -15,7 +15,7 @@ from . import metrics
 from .traceability import CONDITIONS, GROUPS
 from .receipt_search import apply_search
 from .costing import MEASURES, category_rows, cost_report
-from .monitoring import describe
+from .monitoring import LEVEL_LABEL, LEVEL_NAME, describe
 from .reference import user_names
 from .settings import get_setting
 
@@ -186,8 +186,8 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                 grid_columns, grid_rows, ranges = _grid_rows(db, eq, readings, actions, names, loc.timezone)
                 failed_visits = sum(1 for v in visits if any(not r.passed for r in v))
                 groups.append({
-                    "title": f"{loc.name} - {eq.name} ({eq.code})", "layout": "grid",
-                    "meta": [("Location", loc.name), ("Monitoring point", f"{eq.name} ({eq.code})"), ("Type", eq.kind), ("Layout", "One row per check, one column per measurement")],
+                    "title": f"{loc.name} - {eq.name} ({eq.code}){' - ' + LEVEL_LABEL[eq.control_level] if eq.control_level in LEVEL_LABEL else ''}", "layout": "grid",
+                    "meta": [("Location", loc.name), ("Monitoring point", f"{eq.name} ({eq.code})"), ("Type", eq.kind), *([("Control level", LEVEL_NAME[eq.control_level])] if eq.control_level in LEVEL_NAME else []), ("Layout", "One row per check, one column per measurement")],
                     "columns": grid_columns, "rows": grid_rows,
                     "totals": [("Checks recorded", len(visits)), ("Passed", len(visits) - failed_visits), ("Failed", failed_visits),
                                ("Awaiting approval", sum(1 for v in visits if not all(r.reviewed_at for r in v) and not any(r.rejected_at for r in v)))] + ranges})
@@ -213,8 +213,8 @@ def _monitoring_groups(db: Session, locations: list[Location], day_from: date, d
                 ("reference", "Item / batch"), ("recorded_by", "Recorded by"), ("approved_by", "Approved by"),
                 ("corrective_action", "Corrective action")]
             groups.append({
-                "title": f"{loc.name} - {eq.name} ({eq.code})",
-                "meta": [("Location", loc.name), ("Monitoring point", f"{eq.name} ({eq.code})"), ("Type", eq.kind)],
+                "title": f"{loc.name} - {eq.name} ({eq.code}){' - ' + LEVEL_LABEL[eq.control_level] if eq.control_level in LEVEL_LABEL else ''}",
+                "meta": [("Location", loc.name), ("Monitoring point", f"{eq.name} ({eq.code})"), ("Type", eq.kind), *([("Control level", LEVEL_NAME[eq.control_level])] if eq.control_level in LEVEL_NAME else [])],
                 "columns": columns, "rows": rows,
                 "totals": [("Checks recorded", len(readings)), ("Passed", len(readings) - failed), ("Failed", failed),
                            ("Awaiting approval", sum(1 for r in readings if not r.reviewed_at and not r.rejected_at))]
