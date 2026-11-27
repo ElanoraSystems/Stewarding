@@ -41,10 +41,11 @@ TEMPLATES = [
     {"key": "reheating", "name": "Reheating", "prefix": "RH", "type": "Reheating", "checks": [
         {"stage": "Core temperature after reheating", **TEMP, **at(12), **LOTS, "min_value": 75, "max_value": 120,
          "source": "independent_probe"}]},
-    {"key": "cooling", "name": "Cooling", "prefix": "CL", "type": "Cooling", "checks": [
+    {"key": "cooling", "name": "Cooling", "prefix": "CL", "type": "Cooling", "level": "ccp", "checks": [  # cooked food: from 60 °C to 21 °C within 2 hours, then to 5 °C within 4 more hours (6 in all)
         {"stage": "Time in", **TEMP, **at(14), **LOTS, **START, "min_value": 60, "max_value": 100, "source": "independent_probe"},
-        {"stage": "Time out", **TEMP, "timing": "checkpoint", **FINISH, "min_value": -5, "max_value": 10, "source": "independent_probe"}]},
-    {"key": "hot_holding", "name": "Hot holding", "prefix": "HH", "type": "Hot holding", "checks": [
+        {"stage": "Within 2 hours", **TEMP, "timing": "checkpoint", **FINISH, "min_value": -5, "max_value": 21, "source": "independent_probe", "max_open_minutes": 120},
+        {"stage": "Within 6 hours", **TEMP, "timing": "checkpoint", **FINISH, "min_value": -5, "max_value": 5, "source": "independent_probe", "max_open_minutes": 360}]},
+    {"key": "hot_holding", "name": "Hot holding", "prefix": "HH", "type": "Hot holding", "level": "ccp", "checks": [  # 63 °C or above, checked every 2 hours while the food is held
         {"stage": "Holding temperature", **TEMP, "timing": "interval", "interval_minutes": 120, "time_of_day": time(11, 0),
          "min_value": 63, "max_value": 100, "source": "independent_probe"}]},
     {"key": "sanitiser", "name": "Sanitiser concentration", "prefix": "SN", "type": "Sanitising", "checks": [

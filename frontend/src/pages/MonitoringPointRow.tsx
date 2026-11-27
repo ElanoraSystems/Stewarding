@@ -118,7 +118,7 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
                       {!s.active && <Badge>Inactive</Badge>}
                       {s.require_reference && <Badge>{s.reference_label ?? 'Reference'}</Badge>}
                       {s.trace_lots && <Badge>Food lots</Badge>}
-                      {s.phase && <Badge>{s.phase === 'start' ? (s.max_open_minutes ? `Time in, out within ${s.max_open_minutes / 60} h` : 'Time in') : 'Time out'}</Badge>}
+                      {s.phase && <Badge>{s.phase === 'start' ? (s.max_open_minutes ? `Time in, out within ${s.max_open_minutes / 60} h` : 'Time in') : (s.max_open_minutes ? `Time out, within ${s.max_open_minutes / 60} h of the time in` : 'Time out')}</Badge>}
                     </p>
                     <p className="mt-0.5 text-sm text-ink-muted">{when(s)}</p>
                   </div>

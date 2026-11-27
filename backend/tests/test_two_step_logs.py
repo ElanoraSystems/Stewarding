@@ -20,8 +20,16 @@ def start(client, h, point):
 
 
 def finish(client, h, point, start_id, **over):
-    readings = [{"schedule_id": c["id"], "value": 1 if c["value_type"] == "yes_no" else 3} for c in checks(point, "finish")]
-    return client.post("/api/monitoring/readings/batch", headers=h, json={"equipment_id": point["id"], "start_reading_id": start_id, "readings": readings, **over})
+    """Records the time out; a cooling log's stages (each with its own deadline) are recorded one after the other, and the last answer is returned."""
+    stages: dict = {}
+    for c in checks(point, "finish"):
+        stages.setdefault(c["max_open_minutes"] or 0, []).append(c)
+    for _, group in sorted(stages.items()):
+        readings = [{"schedule_id": c["id"], "value": 1 if c["value_type"] == "yes_no" else 3} for c in group]
+        done = client.post("/api/monitoring/readings/batch", headers=h, json={"equipment_id": point["id"], "start_reading_id": start_id, "readings": readings, **over})
+        if done.status_code != 201:
+            return done
+    return done
 
 
 def test_defrosting_and_cooling_are_two_step_and_cooking_is_not(client, login, db, clock):

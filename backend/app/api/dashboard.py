@@ -9,9 +9,9 @@ from .. import timeutil
 from ..db import get_db
 from ..deps import check_location, permissions_of, require, role_names, scoped_locations
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Equipment,
-                      InventoryTransfer, Location, TemperatureReading, User)
+                      InventoryTransfer, Location, Probe, TemperatureReading, User)
 from ..permissions import STEWARD
-from ..services import compliance, metrics
+from ..services import calibration, compliance, metrics
 from ..services.checklists import OPEN, effective_status, overdue_after
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
@@ -243,23 +243,34 @@ def _supervisor_extras(db: Session, user: User, now: datetime, location_id: int 
     }
 
 
+def _my_locations(db: Session, user: User) -> set[int]:
+    """Where this person works; someone tied to no outlet works at every location."""
+    scope = scoped_locations(user, db)
+    return set(db.scalars(select(Location.id))) if scope is None else scope
+
+
+def _my_instances(db: Session, user: User, loc: Location, now: datetime, hidden: set[int]):
+    """Today's checklist tasks at one location that are this person's: given to them, or to nobody with a role they hold."""
+    emp = user.employee
+    return db.execute(select(ChecklistInstance, ChecklistTask).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
+                      .where(ChecklistInstance.location_id == loc.id, ChecklistInstance.local_date == timeutil.local_date(now, loc.timezone),
+                             or_(ChecklistInstance.assigned_employee_id == (emp.id if emp else -1),
+                                 and_(ChecklistInstance.assigned_employee_id.is_(None),
+                                      or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role.in_(role_names(user))))))
+                      .where(ChecklistTask.template_id.not_in(hidden or {0}))
+                      .order_by(ChecklistInstance.due_at)).all()
+
+
 def _steward_view(db: Session, user: User, now: datetime, chosen: list[str] | None = None) -> dict:
     emp = user.employee
-    scope = scoped_locations(user, db) or set()
+    scope = _my_locations(db, user)
     open_rec = db.scalar(select(AttendanceRecord).where(AttendanceRecord.employee_id == emp.id,
                                                         AttendanceRecord.open_flag == 1)) if emp else None
     tasks: Counter = Counter()
     task_rows = []
     hidden = hidden_templates(db, user)  # checklists this role does not see are left out of its counts too
     for loc in db.scalars(select(Location).where(Location.id.in_(scope), Location.active.is_(True))):
-        day = timeutil.local_date(now, loc.timezone)
-        rows = db.execute(select(ChecklistInstance, ChecklistTask).join(ChecklistTask, ChecklistTask.id == ChecklistInstance.task_id)
-                          .where(ChecklistInstance.location_id == loc.id, ChecklistInstance.local_date == day,
-                                 or_(ChecklistInstance.assigned_employee_id == (emp.id if emp else -1),
-                                     and_(ChecklistInstance.assigned_employee_id.is_(None),
-                                          or_(ChecklistTask.assigned_role.is_(None), ChecklistTask.assigned_role.in_(role_names(user))))))
-                          .where(ChecklistTask.template_id.not_in(hidden or {0}))
-                          .order_by(ChecklistInstance.due_at)).all()
+        rows = _my_instances(db, user, loc, now, hidden)
         for inst, task in rows:
             state = effective_status(inst, overdue_after(db, now))
             tasks[state] += 1
@@ -337,3 +348,69 @@ def compliance_view(location_id: int | None = None, days: int = Query(COMPLIANCE
                                            checklists="checklists" in shown, monitoring="monitoring" in shown)
     return {"range": {"date_from": start.isoformat(), "date_to": end.isoformat()}, "sections": [p for p in shown if p in ("checklists", "monitoring")],
             "outlets": outlets}
+
+
+SOON_MINUTES = 30  # a task or check due within this long reads "Due now"
+
+
+def _chip(due: datetime | None, now: datetime, late: bool) -> str:
+    if late:
+        return "overdue"
+    return "due_now" if due and due <= now + timedelta(minutes=SOON_MINUTES) else "due_soon"
+
+
+@router.get("/my-work")
+def my_work(user: User = Depends(require("dashboard.view")), db: Session = Depends(get_db)):
+    """One list of what is due or overdue for this person: their checklist tasks, the monitoring checks they may record and, if they
+    record readings, probes needing a calibration check. `next` is the earliest check that has not opened yet, for the empty state."""
+    now = timeutil.utc_now()
+    chosen = None if user.role.tier == "manager" else user.role.dashboard
+    wants = lambda part: chosen is None or part in chosen  # noqa: E731
+    scope = _my_locations(db, user)
+    locations = {loc.id: loc for loc in db.scalars(select(Location).where(Location.id.in_(scope), Location.active.is_(True)))}
+    iso = lambda d: d.isoformat() + "Z" if d else None  # noqa: E731
+    items: list[dict] = []
+    next_up: dict | None = None
+    if wants("checklists"):
+        hidden, late_after = hidden_templates(db, user), overdue_after(db, now)
+        for loc in locations.values():
+            for inst, task in _my_instances(db, user, loc, now, hidden):
+                if inst.status not in OPEN:
+                    continue  # finished, waiting for a supervisor, or waived: nothing left for this person to do
+                late = effective_status(inst, late_after) == "overdue"
+                items.append({"kind": "task", "key": f"task-{inst.id}", "title": task.description, "location_id": loc.id, "location": loc.name,
+                              "due_at": iso(inst.due_at), "state": _chip(inst.due_at, now, late),
+                              "late_minutes": max(1, int((now - inst.due_at).total_seconds() // 60)) if late and inst.due_at else None})
+    if wants("monitoring"):
+        equipment = [eq for eq in db.scalars(select(Equipment).where(Equipment.location_id.in_(locations), Equipment.active.is_(True))) if may_record(user, eq)]
+        merged: dict[tuple, dict] = {}  # stages of one point due at the same time are one job, as on the monitoring page
+        for c in due_checks(db, equipment, now):
+            if c["status"] == "done":
+                continue
+            if c["status"] == "upcoming" and not c["open"]:
+                if next_up is None or c["slot_at"] < next_up["due_at"]:
+                    next_up = {"title": f"{c['equipment']} ({c['stage'].replace('_', ' ')})", "due_at": c["slot_at"], "location_id": c["location_id"]}
+                continue
+            key = (c["equipment_id"], c["slot_at"])
+            if key in merged:
+                merged[key]["title"] += f" and {c['stage'].replace('_', ' ')}"
+                continue
+            slot = datetime.fromisoformat(c["slot_at"].rstrip("Z"))
+            merged[key] = {"kind": "check", "key": f"check-{c['equipment_id']}-{c['slot_at']}", "title": f"{c['equipment']}: {c['stage'].replace('_', ' ')}",
+                           "location_id": c["location_id"], "location": locations[c["location_id"]].name, "due_at": c["slot_at"],
+                           "state": _chip(slot, now, c["status"] == "overdue"), "equipment_id": c["equipment_id"], "late_minutes": None}
+        items += merged.values()
+    if "temp.record" in permissions_of(user):
+        for probe in db.scalars(select(Probe).where(Probe.location_id.in_(locations), Probe.active.is_(True)).order_by(Probe.code)):
+            st = calibration.status_of(db, probe, now)
+            if st["status"] == "ok":
+                continue
+            late = st["status"] in ("never", "failed", "overdue")
+            items.append({"kind": "calibration", "key": f"probe-{probe.id}", "title": f"Check probe {probe.name} ({probe.code})",
+                          "location_id": probe.location_id, "location": locations[probe.location_id].name,
+                          "due_at": iso(st["due_at"]) if st["status"] in ("overdue", "due_soon") else None,  # a failed or never-checked probe is due now, whatever its next date says
+                          "state": "overdue" if late else "due_soon", "late_minutes": None,
+                          "note": {"never": "Never checked", "failed": "Failed its last check"}.get(st["status"])})
+    # overdue first, then by due time (a probe never checked has no time and goes to the top of the overdue ones)
+    items.sort(key=lambda i: (i["state"] != "overdue", i["due_at"] or ""))
+    return {"items": items, "next": next_up}
