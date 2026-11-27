@@ -443,7 +443,7 @@ def _approval_groups(db: Session, locations: list[Location], day_from: date, day
                 if not inst or inst.location_id != loc.id:
                     continue
                 task = db.get(ChecklistTask, inst.task_id)
-                kind, what = "Checklist task", f"{task.description} ({inst.local_date.strftime('%d %b %Y')})"
+                kind, what = "Checklist task", f"{inst.task_text or task.description} ({inst.local_date.strftime('%d %b %Y')})"
             elif rec.subject_type == "reading":
                 reading = db.get(TemperatureReading, rec.subject_id)
                 if not reading or reading.location_id != loc.id:
@@ -492,7 +492,7 @@ def _checklist_groups(db: Session, locations: list[Location], day_from: date, da
             stmt = stmt.where((ChecklistInstance.assigned_employee_id == employee_id) | (ChecklistInstance.completed_by == (emp_user or -1)))
         for inst, task, template in db.execute(stmt):
             rows_by_template.setdefault(f"{template.name} ({template.frequency})", []).append({
-                "date": inst.local_date.strftime("%d %b %Y"), "task": task.description, "status": inst.status.replace("_", " "),
+                "date": inst.local_date.strftime("%d %b %Y"), "task": inst.task_text or task.description, "status": inst.status.replace("_", " "),
                 "completed_by": names.get(inst.completed_by, ""), "completed_at": _local(inst.completed_at, loc.timezone),
                 "reading": "" if inst.reading is None else f"{inst.reading.normalize():f}",
                 "comment": inst.comment or inst.waive_reason or "",
@@ -546,10 +546,10 @@ def _chart_groups(db: Session, now: datetime, scope, f: Filters, day_from: date,
             if f.template_id is not None and tpl.id != f.template_id:
                 continue
             title = f"{tpl.name} ({tpl.frequency})"
-            row = by_template.setdefault(title, {}).setdefault((task.id, task.description), {})
+            row = by_template.setdefault(title, {}).setdefault((task.id, inst.task_text or task.description), {})
             row.setdefault(inst.local_date, []).append((inst, state))
             if state in ("failed", "overdue", "waived"):
-                exceptions.append({"date": inst.local_date.strftime("%d %b %Y"), "task": task.description,
+                exceptions.append({"date": inst.local_date.strftime("%d %b %Y"), "task": inst.task_text or task.description,
                                    "status": {"failed": "Rejected", "overdue": "Not done", "waived": "Waived"}[state],
                                    "completed_by": names.get(inst.completed_by, ""), "approved_by": names.get(inst.verified_by, ""),
                                    "reason": inst.comment or inst.waive_reason or ""})

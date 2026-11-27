@@ -17,6 +17,7 @@ from ..pagination import row
 from ..services import approvers
 from ..services.settings import get_setting
 from ..services.visibility import clean_titles
+from ..services.change_history import history
 from ..services.monitoring import failure_count
 from ..services.monitoring_templates import BY_KEY, TEMPLATES, at_set_times, default_times, starts_up, when_needed, with_times
 from .. import timeutil
@@ -230,6 +231,14 @@ def update_equipment(equipment_id: int, body: EquipmentUpdate, user: User = Depe
 
 def _schedule_snapshot(s: EquipmentSchedule) -> dict:
     return {k: str(v) if v is not None else None for k, v in schedule_out(s).items()}
+
+
+@router.get("/{equipment_id}/history")
+def equipment_history(equipment_id: int, user: User = Depends(require("equipment.manage")), db: Session = Depends(get_db)):
+    """Who changed this monitoring point and its checks, when, and from what to what: read from the audit log, newest first."""
+    eq = _get(db, user, equipment_id)
+    check_ids = set(db.scalars(select(EquipmentSchedule.id).where(EquipmentSchedule.equipment_id == eq.id)))
+    return history(db, [("equipment", {eq.id}), ("equipment_schedule", check_ids)])
 
 
 @router.post("/{equipment_id}/schedules", status_code=201)

@@ -18,6 +18,7 @@ from ..services import approvers, checklists as engine
 from ..services.checklists import DONE, OPEN, effective_status, overdue_after
 from ..services.alerts import close_stale_alerts
 from ..services.approvals import record_decision
+from ..services.change_history import history
 from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
@@ -184,6 +185,14 @@ def _check_task_refs(db: Session, body: "TaskIn") -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown employee")
 
 
+@router.get("/templates/{template_id}/history")
+def template_history(template_id: int, user: User = Depends(require("checklist.configure")), db: Session = Depends(get_db)):
+    """Who changed this checklist and its tasks, when, and from what to what: read from the audit log, newest first."""
+    template = _template_or_404(db, template_id)
+    task_ids = set(db.scalars(select(ChecklistTask.id).where(ChecklistTask.template_id == template.id)))
+    return history(db, [("checklist_template", {template.id}), ("checklist_task", task_ids)])
+
+
 @router.post("/templates/{template_id}/tasks", status_code=201)
 def create_task(template_id: int, body: TaskIn, user: User = Depends(require("checklist.configure")),
                 db: Session = Depends(get_db)):
@@ -271,7 +280,7 @@ def _serialize(inst: ChecklistInstance, task: ChecklistTask, template: Checklist
               "assigned_employee_id", "completed_at", "completed_by", "evidence_path", "reading", "comment",
               "verified_by", "verified_at", "waive_reason", "late_minutes", "late_reason")
     out["effective_status"] = effective_status(inst, now)
-    out.update({"description": task.description, "instructions": task.instructions, "priority": task.priority,
+    out.update({"description": inst.task_text or task.description, "instructions": inst.task_instructions if inst.task_text else task.instructions, "priority": task.priority,
                 "requires_photo": task.requires_photo, "requires_reading": task.requires_reading,
                 "requires_verification": task.requires_verification, "category": template.category,
                 "frequency": template.frequency, "template_name": template.name,
@@ -395,6 +404,7 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
     inst.status = "pending_verification" if needs_approval else "completed"
     inst.completed_at = now
     inst.completed_by = user.id
+    inst.task_text, inst.task_instructions = task.description, task.instructions  # the record keeps what the person ticked
     inst.reading, inst.comment, inst.evidence_path = body.reading, body.comment, body.evidence_path
     db.add(TaskCompletion(instance_id=inst.id, user_id=user.id, status=inst.status, comment=body.comment,
                           evidence_path=body.evidence_path))

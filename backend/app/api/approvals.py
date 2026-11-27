@@ -42,7 +42,7 @@ def waiting_for_approval(user: User = Depends(current_user), db: Session = Depen
                 break
             if not approvers.may_decide(user, template.approvers):
                 continue  # someone else is chosen to approve this checklist
-            tasks.append({"id": inst.id, "description": task.description, "checklist": template.name, "location_id": inst.location_id,
+            tasks.append({"id": inst.id, "description": inst.task_text or task.description, "checklist": template.name, "location_id": inst.location_id,
                           "local_date": inst.local_date.isoformat(), "done_by": names.get(inst.completed_by, ""), "done_at": inst.completed_at.isoformat() + "Z",
                           "comment": inst.comment, "has_photo": bool(inst.evidence_path), "late_minutes": inst.late_minutes, "late_reason": inst.late_reason})
     if "temp.review" in perms:
