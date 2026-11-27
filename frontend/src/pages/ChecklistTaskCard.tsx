@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/select'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { api, uploadFile } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { currentPosition } from '@/lib/geo'
 import { fmtLate, fmtTime } from '@/lib/format'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -81,7 +82,7 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
   async function complete() {
     const ok = await run(async () => {
       const evidence = file ? await uploadFile(file) : null
-      await api(`${base}/complete`, { body: { comment: comment || null, reading: reading === '' ? null : Number(reading), evidence_path: evidence, late_reason: status === 'overdue' ? lateReason.trim() : null } })
+      await api(`${base}/complete`, { body: { ...(me?.geofence ? await currentPosition() : {}), comment: comment || null, reading: reading === '' ? null : Number(reading), evidence_path: evidence, late_reason: status === 'overdue' ? lateReason.trim() : null } })
     }, 'Task submitted')
     if (ok) {
       setDialog(null)

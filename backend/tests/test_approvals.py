@@ -99,3 +99,21 @@ def test_readings_of_a_switched_off_point_stay_out_of_the_pending_list(client, l
     assert len(pending()) == 1
     assert client.put(f"/api/equipment/{eq['id']}", json={"active": False}, headers=login(MGR)).status_code == 200
     assert pending() == []
+
+
+def test_a_task_can_only_be_completed_inside_the_work_area(client, login, db, clock):
+    from app.models import Organization
+    generate(client, login, db)
+    steward = login(STEWARD)
+    first, second, third = [t for t in client.get("/api/checklists/instances", headers=steward).json()["items"] if t["status"] in ("not_started", "in_progress", "overdue")][:3]
+    done = lambda task, **where: client.post(f"/api/checklists/instances/{task['id']}/complete", json={"late_reason": "Shift changed", **where}, headers=steward)  # noqa: E731
+    assert done(first).status_code == 200  # no area set: no position needed
+    org = db.get(Organization, 1) or Organization(id=1)
+    org.latitude, org.longitude, org.geofence_radius_m = 29.3759, 47.9774, 100
+    db.add(org)
+    db.commit()
+    assert done(second).status_code == 400  # no position sent
+    far = done(second, latitude=29.3859, longitude=47.9774)  # about 1.1 km away, "at home"
+    assert far.status_code == 403 and "complete checklist tasks only within 100 m" in far.json()["detail"]
+    assert done(second, latitude=29.3760, longitude=47.9775).status_code == 200  # about 15 m away
+    assert done(third, latitude=29.3760, longitude=47.9775).status_code == 200
