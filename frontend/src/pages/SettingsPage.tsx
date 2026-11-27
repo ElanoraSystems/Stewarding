@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { SectionTabs, type TabGroup } from '@/components/SectionTabs'
+import { SettingsHaccp } from '@/pages/settings/SettingsHaccp'
 import { SettingsInventoryLists } from '@/pages/settings/SettingsInventoryLists'
 import { SettingsItems } from '@/pages/settings/SettingsItems'
 import { SettingsLocations } from '@/pages/settings/SettingsLocations'
@@ -34,6 +35,7 @@ const PAGES: Record<SectionKey, ComponentType> = {
   shifts: SettingsShifts,
   closures: SettingsClosures,
   monitoring: SettingsMonitoring,
+  haccp: SettingsHaccp,
   items: SettingsItems,
   inventory: SettingsInventoryLists,
   suppliers: SettingsSuppliers,
