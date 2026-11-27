@@ -88,7 +88,7 @@ def sec_checklists(c: Ctx) -> dict:
         stats = metrics.checklist_stats(c.db, w, c.now, c.employee_id)
         counts.update(stats["counts"])
         tz = w.loc.timezone
-        rows += [{"location": w.loc.name, "date": inst.local_date.isoformat(), "task": task.description,
+        rows += [{"location": w.loc.name, "date": inst.local_date.isoformat(), "task": inst.task_text or task.description,
                   "category": tpl.category, "status": state, "due": local(inst.due_at, tz),
                   "completed_at": local(inst.completed_at, tz), "completed_by": c.names_by_user.get(inst.completed_by),
                   "late": f"{inst.late_minutes} min" if inst.late_minutes else "", "late_reason": inst.late_reason or "",

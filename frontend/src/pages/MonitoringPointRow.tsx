@@ -3,6 +3,7 @@ import { useId, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ActionMenu } from '@/components/ui/action-menu'
+import { ChangeHistoryModal } from '@/pages/ChangeHistoryModal'
 import { Select } from '@/components/ui/select'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { cn } from '@/lib/utils'
@@ -58,6 +59,7 @@ interface Props {
 export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onStatus, onRename, onWho, onApprovers, onPointActive, onLevel, onDeletePoint, onEditCheck, onCheckActive, onDeleteCheck }: Props) {
   const body = useId()
   const limited = eq.visible_to && eq.visible_to.length > 0
+  const [history, setHistory] = useState(false)
   const [trendOf, setTrendOf] = useState<number | null>(null)  // the check whose readings-over-time chart is open
   return (
     <section aria-label={eq.name} className={cn('overflow-hidden rounded-2xl border bg-surface', eq.needs_attention ? 'border-warn/60' : 'border-border', !eq.active && 'opacity-75')}>
@@ -103,6 +105,7 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
                 <Button size="sm" variant="outline" onClick={onApprovers}>Who reviews it</Button>
                 <ActionMenu label={`More for ${eq.name}`} text="More" actions={[
                   { label: 'Rename', onClick: onRename },
+                  { label: 'Change history', onClick: () => setHistory(true) },
                   { label: eq.active ? 'Make inactive' : 'Make active', onClick: onPointActive },
                   { label: 'Delete', onClick: onDeletePoint, tone: 'danger' },
                 ]} />
@@ -145,6 +148,7 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
           </div>
         </div>
       </div>
+      {history && <ChangeHistoryModal title={`Change history: ${eq.name}`} path={`/equipment/${eq.id}/history`} onClose={() => setHistory(false)} />}
     </section>
   )
 }

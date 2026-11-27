@@ -65,6 +65,8 @@ class ChecklistInstance(Base):
     waive_reason: Mapped[str | None] = mapped_column(Text)
     late_minutes: Mapped[int | None] = mapped_column(Integer)  # how long after its deadline it was completed, when it was overdue then
     late_reason: Mapped[str | None] = mapped_column(Text)  # why it was late, required when completing an overdue task
+    task_text: Mapped[str | None] = mapped_column(String(300))  # the task's wording when it was ticked, so a later edit does not rewrite the record; empty until then
+    task_instructions: Mapped[str | None] = mapped_column(Text)
 
 
 class ClosedDay(Base):
