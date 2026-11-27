@@ -5,6 +5,7 @@ import { greeting, HeroCard } from '@/components/HeroCard'
 import { LocationSelect } from '@/components/LocationSelect'
 import { BarList, ColumnChart, TrendLine } from '@/components/charts'
 import { KpiCard } from '@/components/KpiCard'
+import { CompliancePanel } from '@/pages/CompliancePanel'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -184,6 +185,8 @@ export function ManagerDashboard() {
           </KpiGroup>)}
         </div>
       )}
+
+      {data && (show('checklists') || show('monitoring')) && <CompliancePanel locationId={locationId} />}
 
       {data && (
         <section aria-label="Charts" className="grid gap-4 lg:grid-cols-2">

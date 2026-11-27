@@ -389,6 +389,32 @@ def list_readings(equipment_id: int | None = None, location_id: int | None = Non
     return {"total": total, "items": _serialize_readings(db, readings, names)}
 
 
+TREND_MAX_DAYS = 90
+TREND_MAX_READINGS = 400
+
+
+@router.get("/trend")
+def trend(equipment_id: int, schedule_id: int, days: int = Query(14, ge=1, le=TREND_MAX_DAYS),
+          user: User = Depends(require("temp.view")), db: Session = Depends(get_db)):
+    """The readings of one number check over the last `days` days, oldest first, with the check's limits and amber levels, for a trend line."""
+    eq = _equipment_for(db, user, equipment_id)
+    sched = db.get(EquipmentSchedule, schedule_id)
+    if not sched or sched.equipment_id != eq.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check not found")
+    if sched.value_type != "number":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only a check that records a number has a trend")
+    since = timeutil.utc_now() - timedelta(days=days)
+    rows = db.execute(select(TemperatureReading.id, TemperatureReading.recorded_at, TemperatureReading.value, TemperatureReading.passed,
+                             TemperatureReading.warning).where(
+        TemperatureReading.schedule_id == schedule_id, TemperatureReading.rejected_at.is_(None), TemperatureReading.value.is_not(None),
+        TemperatureReading.recorded_at >= since).order_by(TemperatureReading.recorded_at.desc()).limit(TREND_MAX_READINGS + 1)).all()
+    limits = {k: (float(v) if (v := getattr(sched, k)) is not None else None) for k in ("min_value", "max_value", "warn_min", "warn_max")}
+    return {"equipment": eq.name, "control_level": eq.control_level, "check": sched.stage, "parameter": sched.parameter, "unit": sched.unit,
+            "days": days, **limits, "truncated": len(rows) > TREND_MAX_READINGS,
+            "points": [{"id": r.id, "recorded_at": r.recorded_at.isoformat() + "Z", "value": float(r.value), "passed": r.passed, "warning": r.warning}
+                       for r in reversed(rows[:TREND_MAX_READINGS])]}
+
+
 def _may_decide_reading(db: Session, user: User, reading: TemperatureReading) -> bool:
     """True when nobody is named to review this log, or the person is one of those named (or a manager)."""
     eq = db.get(Equipment, reading.equipment_id)

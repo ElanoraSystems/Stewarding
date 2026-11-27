@@ -1,7 +1,7 @@
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -11,7 +11,7 @@ from ..deps import check_location, permissions_of, require, role_names, scoped_l
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Equipment,
                       InventoryTransfer, Location, TemperatureReading, User)
 from ..permissions import STEWARD
-from ..services import metrics
+from ..services import compliance, metrics
 from ..services.checklists import OPEN, effective_status, overdue_after
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
@@ -308,3 +308,32 @@ def dashboard(location_id: int | None = None, date_from: date | None = None, dat
     if user.role.tier != "manager":
         view["supervisor"] = _supervisor_extras(db, user, now, location_id, allowed, chosen)
     return _limit_to_permissions(view, allowed, chosen)
+
+
+COMPLIANCE_DEFAULT_DAYS = 7
+
+
+@router.get("/compliance")
+def compliance_view(location_id: int | None = None, days: int = Query(COMPLIANCE_DEFAULT_DAYS, ge=1, le=DASHBOARD_DAYS),
+                    date_from: date | None = None, date_to: date | None = None, user: User = Depends(require("dashboard.view")), db: Session = Depends(get_db)):
+    """How each outlet in the user's scope kept up over the period (`days`, default the last 7): on-time work, failed readings, what is open now."""
+    if user.role.tier == STEWARD:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "The compliance view is for managers and supervisors")
+    now = timeutil.utc_now()
+    if location_id is not None:
+        check_location(user, db, location_id)
+    scope = scoped_locations(user, db)
+    shown = _sections(permissions_of(user), None if user.role.tier == "manager" else user.role.dashboard)
+    try:
+        first = metrics.windows_by(db, now, scope, location_id, lambda t: (t, t))
+        end = date_to or (first[0].today if first else timeutil.local_date(now, "UTC"))
+        start = date_from or end - timedelta(days=days - 1)
+        if (end - start).days >= DASHBOARD_DAYS:
+            raise ValueError(f"The compliance view covers at most {DASHBOARD_DAYS} days; use the reports for longer periods")
+        wins = metrics.windows(db, now, scope, location_id, start, end)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    outlets = compliance.outlet_compliance(db, wins, now, hidden_templates(db, user), hidden_points(db, user),
+                                           checklists="checklists" in shown, monitoring="monitoring" in shown)
+    return {"range": {"date_from": start.isoformat(), "date_to": end.isoformat()}, "sections": [p for p in shown if p in ("checklists", "monitoring")],
+            "outlets": outlets}
