@@ -207,30 +207,45 @@ def pending_entries(db: Session, equipment: list[Equipment], now: datetime) -> l
     if not points:
         return []
     lead: dict[int, set[int]] = {}  # a point can have a time in at several times a day
-    has_finish: set[int] = set()
-    for equipment_id, schedule_id, phase in db.execute(select(EquipmentSchedule.equipment_id, EquipmentSchedule.id, EquipmentSchedule.phase).where(
+    finish: dict[int, list[tuple[int, int | None]]] = defaultdict(list)  # a time out's checks, with the minutes after the time in each is due
+    for equipment_id, schedule_id, phase, due_in in db.execute(select(EquipmentSchedule.equipment_id, EquipmentSchedule.id, EquipmentSchedule.phase, EquipmentSchedule.max_open_minutes).where(
             EquipmentSchedule.equipment_id.in_(points), EquipmentSchedule.active.is_(True), EquipmentSchedule.phase.is_not(None)).order_by(EquipmentSchedule.id)):
         if phase == "start":
             lead.setdefault(equipment_id, set()).add(schedule_id)
         else:
-            has_finish.add(equipment_id)
-    lead_ids = [schedule_id for equipment_id, ids in lead.items() if equipment_id in has_finish for schedule_id in ids]
+            finish[equipment_id].append((schedule_id, due_in))
+    lead_ids = [schedule_id for equipment_id, ids in lead.items() if equipment_id in finish for schedule_id in ids]
     if not lead_ids:
         return []
-    closed = select(TemperatureReading.start_reading_id).where(TemperatureReading.start_reading_id.is_not(None))
+    # a cooling log has stages, each with its own deadline: the entry closes with the last stage (the longest deadline); other logs close with any time out
+    closing: set[int] = set()
+    stages: dict[int, list[tuple[int, int]]] = {}
+    for equipment_id, checks in finish.items():
+        timed = sorted((due_in, schedule_id) for schedule_id, due_in in checks if due_in)
+        stages[equipment_id] = [(schedule_id, due_in) for due_in, schedule_id in timed]
+        last = timed[-1][0] if timed else None
+        closing |= {schedule_id for schedule_id, due_in in checks if not timed or due_in == last}
+    closed = select(TemperatureReading.start_reading_id).where(TemperatureReading.start_reading_id.is_not(None), TemperatureReading.schedule_id.in_(closing))
     entries = db.scalars(select(TemperatureReading).where(
         TemperatureReading.schedule_id.in_(lead_ids), TemperatureReading.retest_of_id.is_(None), TemperatureReading.rejected_at.is_(None),
         TemperatureReading.id.not_in(closed)).order_by(TemperatureReading.recorded_at).limit(200))
     entries = list(entries)
     own = dict(db.execute(select(EquipmentSchedule.id, EquipmentSchedule.max_open_minutes).where(EquipmentSchedule.id.in_({r.schedule_id for r in entries} or {0}))).all())
+    recorded: dict[int, set[int]] = defaultdict(set)
+    for start_id, schedule_id in db.execute(select(TemperatureReading.start_reading_id, TemperatureReading.schedule_id).where(
+            TemperatureReading.start_reading_id.in_([r.id for r in entries] or [0]), TemperatureReading.rejected_at.is_(None))):
+        recorded[start_id].add(schedule_id)
     global_hours = get_setting(db, "temp.pending_alert_hours")
     out = []
     for r in entries:
         open_minutes = int((now - r.recorded_at).total_seconds() // 60)
-        limit = r.expected_minutes or own.get(r.schedule_id) or (global_hours * 60 if global_hours else None)  # this item's own time, else the check's, else the general setting
+        next_stage = next(((sid, due_in) for sid, due_in in stages.get(r.equipment_id, []) if sid not in recorded[r.id]), None)
+        limit = (next_stage[1] if next_stage else None) or r.expected_minutes or own.get(r.schedule_id) or (global_hours * 60 if global_hours else None)  # the stage's own deadline, else this item's own time, else the check's, else the general setting
+        next_check = next_stage[0] if next_stage else finish[r.equipment_id][0][0]
         out.append({"start_reading_id": r.id, "equipment_id": r.equipment_id, "equipment": points[r.equipment_id].name,
                     "location_id": r.location_id, "item": r.reference, "started_at": r.recorded_at.isoformat() + "Z", "started_by": r.recorded_by,
-                    "minutes_open": open_minutes, "limit_minutes": limit, "minutes_left": limit - open_minutes if limit else None})
+                    "minutes_open": open_minutes, "limit_minutes": limit, "minutes_left": limit - open_minutes if limit else None,
+                    "next_schedule_id": next_check, "stage": db.scalar(select(EquipmentSchedule.stage).where(EquipmentSchedule.id == next_check)) if next_stage else None})
     return out
 
 

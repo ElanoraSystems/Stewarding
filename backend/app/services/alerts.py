@@ -216,9 +216,11 @@ def pending_time_outs(db: Session, now: datetime) -> int:
             who = approvers.audience(db, point, who) if point else who
             if entry["started_by"] and entry["started_by"] not in who:
                 who = [*who, entry["started_by"]]  # the person who started it is told too
+            level = point.control_level if point else "prp"
+            label = f"{entry['stage']} missed" if entry["stage"] else "Time out due"  # a cooling stage not recorded in time
             created += notify(db, who, "time_out_missing",
-                              f"Time out due: {entry['item'] or entry['equipment']} ({entry['equipment']}), open {hours} h {minutes:02d} m, limit {entry['limit_minutes'] // 60} h {entry['limit_minutes'] % 60:02d} m",
-                              key=f"pending_out:{entry['start_reading_id']}", priority="high", location_id=entry["location_id"],
+                              f"{LEVEL_LABEL[level] + ' ' if level in LEVEL_LABEL else ''}{label}: {entry['item'] or entry['equipment']} ({entry['equipment']}), open {hours} h {minutes:02d} m, limit {entry['limit_minutes'] // 60} h {entry['limit_minutes'] % 60:02d} m",
+                              key=f"pending_out:{entry['start_reading_id']}" + (f":{entry['next_schedule_id']}" if entry["stage"] else ""), priority="critical" if level == "ccp" else "high", location_id=entry["location_id"],
                               link="/monitoring", requires_ack=True)
     return created
 

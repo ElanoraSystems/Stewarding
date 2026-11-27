@@ -202,6 +202,14 @@ def _entry_started(db: Session, eq: Equipment, sched: EquipmentSchedule, start_r
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose the entry this time out belongs to")
     if db.scalar(select(TemperatureReading.id).where(TemperatureReading.start_reading_id == start.id, TemperatureReading.schedule_id == sched.id)):
         raise HTTPException(status.HTTP_409_CONFLICT, "The time out is already recorded for this entry")
+    if sched.max_open_minutes:  # a stage of a cooling log: the earlier stages come first
+        earlier = db.scalars(select(EquipmentSchedule).where(
+            EquipmentSchedule.equipment_id == eq.id, EquipmentSchedule.active.is_(True), EquipmentSchedule.phase == "finish",
+            EquipmentSchedule.max_open_minutes < sched.max_open_minutes))
+        for stage in earlier:
+            if not db.scalar(select(TemperatureReading.id).where(TemperatureReading.start_reading_id == start.id, TemperatureReading.schedule_id == stage.id,
+                                                                 TemperatureReading.rejected_at.is_(None))):
+                raise HTTPException(status.HTTP_409_CONFLICT, f"Record \"{stage.stage}\" first")
     return start
 
 
@@ -320,7 +328,7 @@ def _require_whole_cycle(db: Session, user: User, body: "BatchIn") -> None:
     now = timeutil.utc_now()
 
     def when(s: EquipmentSchedule) -> tuple:
-        return (s.timing, s.time_of_day, s.interval_minutes, s.weekdays, s.day_of_month, s.phase)
+        return (s.timing, s.time_of_day, s.interval_minutes, s.weekdays, s.day_of_month, s.phase, s.max_open_minutes)
 
     groups = {when(s) for s in active if s.id in sent}
     missing = [s.stage for s in active if when(s) in groups and s.required and s.id not in sent and not already_recorded(db, eq, s, now)]

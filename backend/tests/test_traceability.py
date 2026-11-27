@@ -477,14 +477,14 @@ def test_a_lot_timeline_follows_it_through_thaw_defrost_cooling_and_reheating(cl
     done = client.post("/api/monitoring/readings", headers=steward, json={"equipment_id": reheating["id"], "schedule_id": reheating["schedules"][0]["id"], "value": 80, "lot_ids": [lot["id"]]})
     assert done.status_code == 201
     line = client.get(f"{LOTS}/{lot['id']}", headers=m).json()["timeline"]
-    assert [i["title"] for i in line] == ["Received", "Thawed", "Time in", "Time out", "Time out", "Time in", "Time out", "Core temperature after reheating"]
+    assert [i["title"] for i in line] == ["Received", "Thawed", "Time in", "Time out", "Time out", "Time in", "Within 2 hours", "Within 6 hours", "Core temperature after reheating"]
     assert [i["at"] for i in line] == sorted(i["at"] for i in line)
     assert {i["lot_code"] for i in line} == {lot["code"]} and {i["tone"] for i in line[2:]} == {"ok"}
-    assert [i["detail"].split(":")[0] for i in line[2:]] == [defrost["name"]] * 3 + [cooling["name"]] * 2 + [reheating["name"]]
+    assert [i["detail"].split(":")[0] for i in line[2:]] == [defrost["name"]] * 3 + [cooling["name"]] * 3 + [reheating["name"]]
     clock.advance(hours=1)
     child = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part(condition="thawed")]}).json()["lots"][0]
     from_child = [i["title"] for i in client.get(f"{LOTS}/{child['id']}", headers=m).json()["timeline"]]
-    assert from_child[:2] == ["Received", "Thawed"] and from_child[-2:] == ["Split", "Portioned"] and len(from_child) == 10
+    assert from_child[:2] == ["Received", "Thawed"] and from_child[-2:] == ["Split", "Portioned"] and len(from_child) == 11
 
 
 def test_a_cut_takes_a_size_and_a_count_and_works_out_its_total_and_the_waste(client, login, db, clock):
