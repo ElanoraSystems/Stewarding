@@ -230,6 +230,19 @@ def test_assign_task_notifies_employee_and_checks_location(client, login, db, cl
     assert db.scalar(select(Notification.id).where(Notification.kind == "task_assigned"))
 
 
+def test_someone_tied_to_no_outlet_can_be_given_a_task_at_any_outlet(client, login, db, clock):
+    from app.models import EmployeeLocation
+    generate(client, login, db)
+    sup = login(SUP)
+    emps = {e["employee_code"]: e["id"] for e in client.get("/api/employees?size=50", headers=login(MGR)).json()["items"]}
+    task = find(client, sup, "Clean drains")
+    url = f"/api/checklists/instances/{task['id']}/assign"
+    assert client.post(url, json={"employee_id": emps["E006"]}, headers=sup).status_code == 400  # tied to another outlet
+    db.query(EmployeeLocation).filter(EmployeeLocation.employee_id == emps["E006"]).delete()
+    db.commit()
+    assert client.post(url, json={"employee_id": emps["E006"]}, headers=sup).json()["assigned_employee_id"] == emps["E006"]  # no outlet: works anywhere
+
+
 def test_starter_templates_are_not_duplicated(client, login, db):
     m = login(MGR)
     r = client.post("/api/checklists/starter", json={"location_id": loc_id(db, "MK")}, headers=m)
