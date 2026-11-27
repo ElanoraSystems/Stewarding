@@ -50,7 +50,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
       stage: form.stage, parameter: form.parameter, unit: isNumber ? form.unit || null : null, value_type: form.value_type,
       require_reference: form.require_reference, trace_lots: form.trace_lots, required: form.required, reference_label: form.require_reference ? form.reference_label.trim() || null : null,
       phase: form.phase || null, source: form.source, timing: form.timing,
-      max_open_minutes: form.phase === 'start' && form.max_open_hours !== '' ? Math.round(Number(form.max_open_hours) * 60) : null,
+      max_open_minutes: (form.phase === 'start' || form.phase === 'finish') && form.max_open_hours !== '' ? Math.round(Number(form.max_open_hours) * 60) : null,
       time_of_day: form.time_of_day && !manual ? `${form.time_of_day}:00` : null,
       interval_minutes: form.timing === 'interval' ? Number(form.interval_minutes) : null,
       weekdays: form.weekdays.length && !manual ? form.weekdays : null, day_of_month: form.day_of_month && !manual ? Number(form.day_of_month) : null,
@@ -165,6 +165,12 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
               <option value="finish">Time out (closes an entry)</option>
             </Select>
           </Field>
+          {form.phase === 'finish' && (
+            <Field label="Due within (hours of the time in, optional)">
+              <Input type="number" min={0.5} step="0.5" placeholder="For example 2" value={form.max_open_hours} onChange={(e) => set('max_open_hours', e.target.value)} />
+              <p className="mt-1 text-xs text-ink-muted">For a log with stages, such as cooling: this stage must be recorded this long after the time in, or an alert goes out. Stages are recorded in order, shortest first. Leave empty for a single time out.</p>
+            </Field>
+          )}
           {form.phase === 'start' && (
             <Field label="Time out due within (hours, optional)">
               <Input type="number" min={0.5} step="0.5" placeholder="For example 24" value={form.max_open_hours} onChange={(e) => set('max_open_hours', e.target.value)} />

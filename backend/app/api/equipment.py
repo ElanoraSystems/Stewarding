@@ -84,15 +84,15 @@ class ScheduleIn(BaseModel):
     shift_id: int | None = None
     min_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
     max_value: Decimal | None = Field(default=None, ge=-100000, le=100000)
-    max_open_minutes: int | None = Field(default=None, ge=1, le=20160)  # time in only: the time out is due this many minutes later
+    max_open_minutes: int | None = Field(default=None, ge=1, le=20160)  # time in: the time out is due this many minutes later; a time out: this stage is due this long after the time in
     warn_min: Decimal | None = Field(default=None, ge=-100000, le=100000)  # amber from here down (still a pass)
     warn_max: Decimal | None = Field(default=None, ge=-100000, le=100000)  # amber from here up (still a pass)
     active: bool = True
 
     @model_validator(mode="after")
     def _check(self):
-        if self.phase != "start":
-            self.max_open_minutes = None  # only a time in has a time out to wait for
+        if self.phase is None:
+            self.max_open_minutes = None  # only a time in or a time out has a deadline
         if self.value_type != "number":
             self.min_value = self.max_value = self.unit = self.warn_min = self.warn_max = None
         if self.value_type != "choice":
@@ -346,8 +346,8 @@ def _next_code(db: Session, prefix: str, location_code: str) -> str:
 def list_templates(user: User = Depends(require("equipment.manage"))):
     return [{"key": t["key"], "name": t["name"], "type": t["type"], "checks": [
         {"stage": c["stage"], "parameter": c["parameter"], "unit": c["unit"], "value_type": c["value_type"],
-         "min_value": c.get("min_value"), "max_value": c.get("max_value"), "timing": c["timing"], "phase": c.get("phase")}
-        for c in t["checks"]], "times": [x.strftime("%H:%M") for x in default_times(t) or []] or None, "startup": starts_up(t)}
+         "min_value": c.get("min_value"), "max_value": c.get("max_value"), "timing": c["timing"], "phase": c.get("phase"), "max_open_minutes": c.get("max_open_minutes")}
+        for c in t["checks"]], "control_level": t.get("level", "prp"), "times": [x.strftime("%H:%M") for x in default_times(t) or []] or None, "startup": starts_up(t)}
         for t in TEMPLATES]
 
 
@@ -361,7 +361,7 @@ def create_from_template(body: FromTemplateIn, user: User = Depends(require("equ
     _validate_refs(db, body.supervisor_id)
     location = db.get(Location, body.location_id)
     eq = Equipment(code=_next_code(db, preset["prefix"], location.code), name=body.name or f"{location.name} {preset['name']}",
-                   kind=preset["type"], location_id=location.id, supervisor_id=body.supervisor_id)
+                   kind=preset["type"], location_id=location.id, supervisor_id=body.supervisor_id, control_level=preset.get("level", "prp"))
     db.add(eq)
     db.flush()
     checks = preset["checks"]
