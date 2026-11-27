@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..audit import audit
 from ..db import get_db
-from ..deps import check_location, require, scoped_locations
+from ..deps import check_location, permissions_of, require, scoped_locations
 from ..models import Employee, User
 from ..services import exporters
+from ..services.inspector_pack import build_pack
 from ..services.organization import report_identity, stamp
 from ..services.records import KINDS, MOVEMENTS, Filters, build_record
 from ..services.reports import PERIODS, REPORTS, build_report
@@ -99,6 +100,26 @@ def export_record(kind: str, fmt: Literal["csv", "xlsx", "pdf"] = "pdf", date_fr
     db.commit()
     filename = f"{kind}-record-{doc['period']['from']}-to-{doc['period']['to']}.{fmt}"
     return Response(RECORD_RENDER[fmt](doc), media_type=MEDIA[fmt], headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/inspector-pack")
+def inspector_pack(date_from: date, date_to: date, location_id: int | None = None,
+                   user: User = Depends(require("report.export")), db: Session = Depends(get_db)):
+    """One PDF with the records a food-safety inspector asks for, for a period and (optionally) one location."""
+    if location_id is not None:
+        check_location(user, db, location_id)
+    now = timeutil.utc_now()
+    name, position = _author(db, user)
+    try:
+        doc = build_pack(db, now, scoped_locations(user, db), date_from, date_to, location_id, name, "lot.view" in permissions_of(user))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    identity = report_identity(db)
+    doc = {**doc, "prepared_position": position, "generated_at": stamp(now, identity["timezone"]), "organization": identity}
+    audit(db, user, "report.export", "inspector_pack", None, None, {"format": "pdf", "from": doc["period"]["from"], "to": doc["period"]["to"], "location_id": location_id})
+    db.commit()
+    filename = f"inspector-pack-{doc['period']['from']}-to-{doc['period']['to']}.pdf"
+    return Response(exporters.record_to_pdf(doc), media_type=MEDIA["pdf"], headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.get("")

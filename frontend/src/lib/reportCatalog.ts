@@ -7,6 +7,7 @@ export interface ReportDef {
   filters: ExtraFilter[]
   statuses?: [string, string][]
   summary?: boolean
+  pack?: boolean
 }
 
 export const REPORTS: ReportDef[] = [
@@ -18,6 +19,7 @@ export const REPORTS: ReportDef[] = [
     statuses: [['approved', 'Approved'], ['rejected', 'Rejected']] },
   { key: 'checklists', title: 'Checklist record', section: 'Checklists', filters: ['checklist', 'frequency', 'employee', 'status'],
     statuses: [['pending', 'Not done'], ['completed', 'Done'], ['pending_verification', 'Awaiting approval'], ['verified', 'Approved'], ['failed', 'Rejected'], ['waived', 'Waived']] },
+  { key: 'inspector_pack', title: 'Inspector pack', section: 'Food safety', filters: [], pack: true },
   { key: 'monitoring', title: 'Monitoring record', section: 'Food safety', filters: ['monitoringType', 'monitoringPoint', 'status', 'readingLayout'],
     statuses: [['failed', 'Failed'], ['passed', 'Passed'], ['awaiting', 'Awaiting approval']] },
   { key: 'calibration', title: 'Probe calibration record', section: 'Food safety', filters: ['status'],
