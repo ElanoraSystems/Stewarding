@@ -68,7 +68,6 @@ export function MonitoringPage() {
   const due = useApi<Due[]>(locationId ? `/monitoring/due${qs({ location_id: locationId, k: refreshKey })}` : null)
   const pending = useApi<Pending[]>(locationId ? `/monitoring/pending${qs({ location_id: locationId, k: refreshKey })}` : null)
   const items = equipment.data ?? []
-  const overdue = (due.data ?? []).filter((d) => d.status === 'overdue')
   const refresh = () => setRefreshKey((k) => k + 1)
   const startRecording = (next: Prefill | null) => {
     setPrefill(next)
@@ -115,6 +114,7 @@ export function MonitoringPage() {
     return [...out.entries()]
   })()
   const todo = cards.filter(([, card]) => card.status !== 'done')
+  const lateCards = cards.filter(([, card]) => card.status === 'overdue').length  // counted as the board counts them: checks due together at one point are one card
 
   // arriving from a scanned code opens the first check that is due at that point
   useEffect(() => {
@@ -147,9 +147,9 @@ export function MonitoringPage() {
         </div>
       </div>
 
-      {overdue.length > 0 && (
+      {lateCards > 0 && (
         <div role="alert" className="flex items-center gap-2 rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-4 py-3 text-sm font-medium text-danger">
-          <AlertTriangle className="h-4 w-4" aria-hidden /> {overdue.length} check(s) overdue
+          <AlertTriangle className="h-4 w-4" aria-hidden /> {lateCards} check(s) overdue
         </div>
       )}
 

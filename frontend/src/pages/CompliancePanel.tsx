@@ -54,6 +54,18 @@ export function MissedByHour({ title, hours }: { title: string; hours: number[] 
   )
 }
 
+/** The strip of 24 hour boxes is only worth its space when something was missed; otherwise one line says so. */
+function Missed({ title, hours }: { title: string; hours: number[] }) {
+  if (hours.some((n) => n > 0)) return <MissedByHour title={title} hours={hours} />
+  return <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm"><span className="font-medium">{title}</span><span className="text-xs text-ink-muted">none missed</span></p>
+}
+
+/** An outlet with nothing due in the period and nothing open has nothing to show, so it is listed on one line instead of a card. */
+const idle = (o: Outlet) => (!o.checklists || o.checklists.due === 0) && (!o.monitoring || o.monitoring.due === 0) && !o.failed_readings && !o.open_actions && !o.overdue_now && !o.probes?.needs_calibration
+
+/** The worst outlet first: lowest on-time percentage, then most failed readings. */
+const worst = (o: Outlet) => Math.min(...[o.checklists?.percent, o.monitoring?.percent, o.ccp?.due ? o.ccp.percent : null].map((p) => p ?? 101))
+
 function OutletCard({ o }: { o: Outlet }) {
   const c = o.checklists
   const m = o.monitoring
@@ -73,8 +85,8 @@ function OutletCard({ o }: { o: Outlet }) {
             <KpiCard icon={Wrench} label={`Probes needing calibration${o.probes.due_soon ? ` (${o.probes.due_soon} more due soon)` : ''}`} value={o.probes.needs_calibration} tone={o.probes.needs_calibration ? 'critical' : 'default'} />
           )}
         </div>
-        {m && <MissedByHour title="Monitoring checks missed, by hour they were due" hours={o.missed_by_hour.monitoring} />}
-        {c && <MissedByHour title="Tasks not done on time, by hour they were due" hours={o.missed_by_hour.tasks} />}
+        {m && <Missed title="Monitoring checks missed, by hour they were due" hours={o.missed_by_hour.monitoring} />}
+        {c && <Missed title="Tasks not done on time, by hour they were due" hours={o.missed_by_hour.tasks} />}
       </CardContent>
     </Card>
   )
@@ -98,7 +110,12 @@ export function CompliancePanel({ locationId }: { locationId: number | null }) {
       {data && (
         <>
           <p className="text-xs text-ink-muted">From {data.range.date_from} to {data.range.date_to}. Work still waiting for its deadline is not counted.</p>
-          <div className="grid gap-4 xl:grid-cols-2">{data.outlets.map((o) => <OutletCard key={o.location_id} o={o} />)}</div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {[...data.outlets].filter((o) => !idle(o)).sort((a, b) => worst(a) - worst(b) || (b.failed_readings ?? 0) - (a.failed_readings ?? 0)).map((o) => <OutletCard key={o.location_id} o={o} />)}
+          </div>
+          {data.outlets.some(idle) && (
+            <p className="text-sm text-ink-muted">Nothing scheduled in this period: {data.outlets.filter(idle).map((o) => o.location).join(', ')}.</p>
+          )}
         </>
       )}
     </section>

@@ -7,6 +7,7 @@ import { BarList, ColumnChart, TrendLine } from '@/components/charts'
 import { KpiCard } from '@/components/KpiCard'
 import { CompliancePanel } from '@/pages/CompliancePanel'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -76,6 +77,23 @@ function KpiGroup({ title, link, children }: { title: string; link: string; chil
   )
 }
 
+/** Points below this share of checks done, or with a failure, are shown; the rest sit behind "Show all" so a few weak ones are not lost among many fine ones. */
+const FINE = 95
+
+function PointCompliance({ points }: { points: Dashboard['charts']['monitoring_compliance'] }) {
+  const [all, setAll] = useState(false)
+  const weak = points.filter((e) => e.failed > 0 || (e.percent !== null && e.percent < FINE))
+  const shown = all || weak.length === 0 ? points : weak
+  return (
+    <div className="space-y-2">
+      <BarList items={shown.map((e) => ({ label: `${e.equipment} (${e.location})`, value: e.percent, sub: `${e.done} of ${e.due} checks, ${e.failed} failed` }))} />
+      {weak.length > 0 && points.length > weak.length && (
+        <Button variant="outline" size="sm" onClick={() => setAll((v) => !v)}>{all ? `Show only the ${weak.length} below ${FINE}%` : `Show all ${points.length} points (${points.length - weak.length} are at ${FINE}% or better)`}</Button>
+      )}
+    </div>
+  )
+}
+
 export function ManagerDashboard() {
   const { me } = useAuth()
   const [locationId, setLocationId] = useState<number | null>(null)
@@ -84,6 +102,8 @@ export function ManagerDashboard() {
   const [employeeId, setEmployeeId] = useState('')
   const [equipmentId, setEquipmentId] = useState('')
   const [taskStatus, setTaskStatus] = useState('')
+  const chosenFilters = [from, to, employeeId, equipmentId, taskStatus].filter(Boolean).length
+  const [moreFilters, setMoreFilters] = useState(false)  // the date, person, equipment and status filters stay out of the way until wanted
 
   const { data, loading, error } = useApi<Dashboard>(
     `/dashboard${qs({ location_id: locationId, date_from: from, date_to: to, employee_id: employeeId, equipment_id: equipmentId, task_status: taskStatus })}`,
@@ -103,7 +123,7 @@ export function ManagerDashboard() {
         title={`${greeting()}, ${(me?.employee?.name ?? '').split(' ')[0] || 'there'}`}
         chips={k ? [
           ...(show('people') ? [{ label: `${k.checked_in} of ${k.scheduled_today} checked in` }] : []),
-          ...(show('checklists') ? [{ label: `Daily checklists ${pct(k.daily_completion)}` }] : []),
+          ...(show('checklists') ? [{ label: `Today's checklists ${pct(k.daily_completion)}` }] : []),
           ...(show('monitoring') ? [{ label: `${k.monitoring_checks.done} of ${k.monitoring_checks.due} checks recorded` }] : []),
           ...(k.failed_checks > 0 ? [{ label: `${k.failed_checks} failed check(s)`, urgent: true }] : []),
           ...(k.overdue_tasks > 0 ? [{ label: `${k.overdue_tasks} overdue task(s)`, urgent: true }] : []),
@@ -112,6 +132,11 @@ export function ManagerDashboard() {
 
       <div className="filter-bar">
         <LocationSelect allowAll value={locationId} onChange={setLocationId} />
+        <Button variant="outline" aria-expanded={moreFilters} onClick={() => setMoreFilters((v) => !v)}>
+          {moreFilters ? 'Fewer filters' : `More filters${chosenFilters ? ` (${chosenFilters})` : ''}`}
+        </Button>
+      </div>
+      {moreFilters && <div className="filter-bar">
         <Input aria-label="From date" type="date" className="w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
         <Input aria-label="To date" type="date" className="w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
         {show('people') && (
@@ -132,7 +157,7 @@ export function ManagerDashboard() {
             {['completed', 'verified', 'pending_verification', 'overdue', 'failed', 'waived', 'upcoming'].map((s) => <option key={s} value={s}>{label(s)}</option>)}
           </Select>
         )}
-      </div>
+      </div>}
 
       {error && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}
 
@@ -167,14 +192,14 @@ export function ManagerDashboard() {
           </KpiGroup>)}
           {(show('checklists')) && (
           <KpiGroup title="Checklists" link="/checklists">
-            <KpiCard icon={ClipboardCheck} label="Daily completion" value={pct(k.daily_completion)} />
-            <KpiCard icon={ClipboardList} label="Weekly completion" value={pct(k.weekly_completion)} />
-            <KpiCard icon={Clock} label="Overdue tasks" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
+            <KpiCard icon={ClipboardCheck} label="Today's completion" value={pct(k.daily_completion)} />
+            <KpiCard icon={ClipboardList} label="This week's completion" value={pct(k.weekly_completion)} />
+            <KpiCard icon={Clock} label="Overdue tasks now" value={k.overdue_tasks} tone={k.overdue_tasks ? 'critical' : 'default'} />
           </KpiGroup>)}
           {(show('monitoring')) && (
           <KpiGroup title="Food safety monitoring" link="/monitoring">
-            <KpiCard icon={Thermometer} label="Checks recorded" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} />
-            <KpiCard icon={TriangleAlert} label="Failed checks" value={k.failed_checks} tone={k.failed_checks ? 'critical' : 'default'} />
+            <KpiCard icon={Thermometer} label="Checks recorded today" value={`${k.monitoring_checks.done} / ${k.monitoring_checks.due}`} />
+            <KpiCard icon={TriangleAlert} label="Failed checks today" value={k.failed_checks} tone={k.failed_checks ? 'critical' : 'default'} />
             <KpiCard icon={Wrench} label="Points needing attention" value={k.equipment_attention} tone={k.equipment_attention ? 'warn' : 'default'} />
           </KpiGroup>)}
           {(show('stock') || show('breakage')) && (
@@ -204,7 +229,7 @@ export function ManagerDashboard() {
           <Card>
             <CardHeader><CardTitle>Monitoring compliance by point</CardTitle></CardHeader>
             <CardContent>
-              <BarList items={data.charts.monitoring_compliance.map((e) => ({ label: `${e.equipment} (${e.location})`, value: e.percent, sub: `${e.done} of ${e.due} checks, ${e.failed} failed` }))} />
+              <PointCompliance points={data.charts.monitoring_compliance} />
             </CardContent>
           </Card>)}
           {show('breakage') && (
