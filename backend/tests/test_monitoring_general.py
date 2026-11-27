@@ -133,6 +133,8 @@ def test_every_template_check_can_be_recorded(client, login, db, clock):
             if sched["value_type"] in ("text", "date", "choice"):  # written, date and dropdown answers instead of a number
                 value = None
                 extra["answer"] = {"text": "Sample", "date": "2026-03-01"}.get(sched["value_type"]) or next(o for o in sched["options"] if o not in (sched["fail_options"] or []))
+            if sched.get("food_limits"):  # a check with limits by type of food needs the type
+                extra["food_type"] = sched["food_limits"][0]["name"]
             if sched["trace_lots"] and sched["phase"] != "finish":
                 extra["lot_ids"] = [make_lot(made["location_id"])]
             if sched["phase"] == "finish":

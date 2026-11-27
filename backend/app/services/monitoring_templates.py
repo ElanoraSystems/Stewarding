@@ -9,6 +9,16 @@ START = {"phase": "start"}
 FINISH = {"phase": "finish"}
 
 
+# Core cooking limits by type of food (°C): poultry, mince and anything unlisted need 75; whole cuts of meat, fish and seafood 63. Each can be changed on the check.
+FOOD_LIMITS = [
+    {"name": "Poultry", "min_value": 75, "max_value": 120},
+    {"name": "Minced or rolled meat", "min_value": 75, "max_value": 120},
+    {"name": "Whole cuts of meat", "min_value": 63, "max_value": 120},
+    {"name": "Fish and seafood", "min_value": 63, "max_value": 120},
+    {"name": "Other dishes", "min_value": 75, "max_value": 120},
+]
+
+
 def at(hour: int, minute: int = 0) -> dict:
     return {"timing": "checkpoint", "time_of_day": time(hour, minute)}
 
@@ -36,8 +46,8 @@ TEMPLATES = [
         {"stage": "Time out", **YES_NO, "parameter": "Fully defrosted", "timing": "checkpoint", **FINISH},
         {"stage": "Time out", **TEMP, "timing": "checkpoint", **FINISH, "min_value": 0, "max_value": 5, "source": "independent_probe"}]},
     {"key": "cooking", "name": "Cooking core temperature", "prefix": "CK", "type": "Cooking", "checks": [
-        {"stage": "Lunch core temperature", **TEMP, **at(12), **ITEM, "min_value": 75, "max_value": 120, "source": "independent_probe"},
-        {"stage": "Dinner core temperature", **TEMP, **at(18), **ITEM, "min_value": 75, "max_value": 120, "source": "independent_probe"}]},
+        {"stage": "Lunch core temperature", **TEMP, **at(12), **ITEM, "min_value": 75, "max_value": 120, "food_limits": FOOD_LIMITS, "source": "independent_probe"},
+        {"stage": "Dinner core temperature", **TEMP, **at(18), **ITEM, "min_value": 75, "max_value": 120, "food_limits": FOOD_LIMITS, "source": "independent_probe"}]},
     {"key": "reheating", "name": "Reheating", "prefix": "RH", "type": "Reheating", "checks": [
         {"stage": "Core temperature after reheating", **TEMP, **at(12), **LOTS, "min_value": 75, "max_value": 120,
          "source": "independent_probe"}]},

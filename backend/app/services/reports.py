@@ -119,7 +119,7 @@ def sec_monitoring_log(c: Ctx) -> dict:
     for w, r in _readings(c):
         rows.append({"location": w.loc.name, "time": local(r.recorded_at, w.loc.timezone), "equipment": eq.get(r.equipment_id),
                      "parameter": r.parameter, "stage": r.stage, "source": r.source,
-                     "value": describe(r), "reference": r.reference,
+                     "value": describe(r), "reference": f"{r.reference} ({r.food_type})" if r.reference and r.food_type else r.reference or r.food_type,
                      "limits": f"{r.min_limit if r.min_limit is not None else '-'} to {r.max_limit if r.max_limit is not None else '-'}",
                      "result": "Pass" if r.passed else "FAIL", "retest": "Yes" if r.retest_of_id else "",
                      "recorded_by": c.names_by_user.get(r.recorded_by), "action": actions.get(r.id)})

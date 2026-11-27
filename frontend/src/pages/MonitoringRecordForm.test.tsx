@@ -110,4 +110,22 @@ describe('MonitoringRecordForm check choice', () => {
     expect(sent.body.probe_id).toBe(7)
     mocks.api.mockImplementation(async () => ({}))
   })
+  it('judges a core temperature by the type of food chosen, and sends the type', async () => {
+    const user = userEvent.setup()
+    mocks.geofence = false
+    mocks.api.mockClear()
+    mocks.api.mockImplementation(async () => ({}))
+    const cooking = { ...check(1, 'lunch_core', '08:00:00'), min_value: 75, max_value: 120, food_limits: [{ name: 'Poultry', min_value: 75, max_value: 120 }, { name: 'Fish and seafood', min_value: 63, max_value: 120 }] }
+    render(<MonitoringRecordForm equipment={[chiller([cooking as unknown as ReturnType<typeof check>])]} prefill={null} onSaved={() => {}} onClearRetest={() => {}} />)
+    await user.selectOptions(screen.getByLabelText('Monitoring point'), '1')
+    await user.type(screen.getByLabelText('Temperature'), '65')
+    expect((screen.getByRole('button', { name: 'Record check' }) as HTMLButtonElement).disabled).toBe(true)  // no type of food yet
+    await user.selectOptions(screen.getByLabelText('Type of food'), 'Poultry')
+    expect(screen.getByText('Out of range')).toBeTruthy()
+    await user.selectOptions(screen.getByLabelText('Type of food'), 'Fish and seafood')
+    expect(screen.getByText('Within limits')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Record check' }))
+    const call = mocks.api.mock.calls.find((c) => String(c[0]).includes('/readings/batch')) as unknown as [string, { body: { readings: { food_type: string }[] } }]
+    expect(call[1].body.readings[0].food_type).toBe('Fish and seafood')
+  })
 })

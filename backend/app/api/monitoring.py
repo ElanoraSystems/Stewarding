@@ -22,7 +22,7 @@ from ..services.traceability import usable
 from ..services.approvals import record_decision
 from ..services.work_area import enforce_work_area
 from ..services.visibility import hidden_points
-from ..services.monitoring import (CLOSED_ACTIONS, LEVEL_LABEL, warns, may_record, already_recorded, closed_until, describe, due_checks, failure_count, judge, pending_entries,
+from ..services.monitoring import (CLOSED_ACTIONS, LEVEL_LABEL, warns, may_record, already_recorded, closed_until, describe, due_checks, failure_count, food_limits_for, judge, pending_entries,
                                   resolve_alerts, resolve_chain)
 from .equipment import serialize as serialize_equipment
 from .uploads import is_valid_evidence
@@ -30,7 +30,7 @@ from .uploads import is_valid_evidence
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 READING_FIELDS = ("id", "equipment_id", "schedule_id", "location_id", "recorded_at", "stage", "source", "parameter", "unit",
-                  "value_type", "value", "reference", "min_limit", "max_limit", "passed", "warning", "recorded_by", "comment", "evidence_path", "retest_of_id",
+                  "value_type", "value", "reference", "food_type", "min_limit", "max_limit", "passed", "warning", "recorded_by", "comment", "evidence_path", "retest_of_id",
                   "reviewed_by", "reviewed_at", "start_reading_id", "rejected_by", "rejected_at", "reject_reason", "probe_id")
 ACTION_FIELDS = ("id", "reading_id", "action", "taken_by", "taken_at", "retest_due_at", "status", "resolved_at",
                  "escalated_at")
@@ -42,6 +42,7 @@ class ReadingIn(BaseModel):
     value: Decimal | None = Field(default=None, ge=-100000, le=100000)
     answer: str | None = Field(default=None, max_length=500)
     reference: str | None = Field(default=None, max_length=120)
+    food_type: str | None = Field(default=None, max_length=40)  # a check with limits by food type: which type
     lot_ids: list[int] = Field(default_factory=list, max_length=20)
     comment: str | None = Field(default=None, max_length=1000)
     evidence_path: str | None = None
@@ -69,6 +70,7 @@ class BatchItem(BaseModel):
     value: Decimal | None = Field(default=None, ge=-100000, le=100000)
     answer: str | None = Field(default=None, max_length=500)
     reference: str | None = Field(default=None, max_length=120)
+    food_type: str | None = Field(default=None, max_length=40)
     lot_ids: list[int] = Field(default_factory=list, max_length=20)
     comment: str | None = Field(default=None, max_length=1000)
     evidence_path: str | None = None
@@ -254,7 +256,8 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     if sched.value_type == "number" and sched.min_value is None and sched.max_value is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Limits are not configured for this check")
     try:
-        value, answer, passed = judge(sched, body.value.quantize(Decimal("0.01")) if body.value is not None else None, body.answer)
+        limits = food_limits_for(sched, body.food_type)
+        value, answer, passed = judge(sched, body.value.quantize(Decimal("0.01")) if body.value is not None else None, body.answer, limits)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{sched.stage}: {exc}") from None
     start = _entry_started(db, eq, sched, body.start_reading_id)
@@ -287,7 +290,7 @@ def _record(db: Session, user: User, body: ReadingIn) -> TemperatureReading:
     reading = TemperatureReading(
         equipment_id=eq.id, schedule_id=sched.id, location_id=eq.location_id, recorded_at=now, stage=sched.stage,
         source=sched.source, parameter=sched.parameter, unit=sched.unit, value_type=sched.value_type, value=value,
-        answer=answer, reference=reference, min_limit=sched.min_value, max_limit=sched.max_value, passed=passed, warning=warns(sched, value, passed),
+        answer=answer, reference=reference, food_type=body.food_type if limits else None, min_limit=limits[0] if limits else sched.min_value, max_limit=limits[1] if limits else sched.max_value, passed=passed, warning=warns(sched, value, passed),
         recorded_by=user.id, comment=body.comment, evidence_path=body.evidence_path, probe_id=probe.id if probe else None, retest_of_id=body.retest_of_id,
         start_reading_id=start.id if start else None, expected_minutes=body.ready_after_minutes if sched.phase == "start" else None)
     db.add(reading)

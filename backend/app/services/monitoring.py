@@ -43,7 +43,7 @@ def describe(reading) -> str:
     return f"{value} {reading.unit}".strip() if reading.unit else value
 
 
-def judge(sched, value, answer) -> tuple[Decimal | None, str | None, bool]:
+def judge(sched, value, answer, limits: tuple | None = None) -> tuple[Decimal | None, str | None, bool]:
     """Checks an answer against the field's rules and returns the value to store, the answer to store and whether it passed.
 
     Raises ValueError with a message for the person when the answer is not acceptable.
@@ -51,7 +51,8 @@ def judge(sched, value, answer) -> tuple[Decimal | None, str | None, bool]:
     if sched.value_type == "number":
         if value is None:
             raise ValueError("Enter a number")
-        return value, None, evaluate(value, sched.min_value, sched.max_value)
+        low, high = limits or (sched.min_value, sched.max_value)  # limits: those of the type of food chosen
+        return value, None, evaluate(value, low, high)
     if sched.value_type == "yes_no":
         if value not in (0, 1):
             raise ValueError("Answer yes or no")
@@ -72,6 +73,17 @@ def judge(sched, value, answer) -> tuple[Decimal | None, str | None, bool]:
     if len(text) > (sched.max_length or 500):
         raise ValueError(f"The answer can be at most {sched.max_length or 500} characters")
     return None, text, True
+
+
+def food_limits_for(sched, food_type: str | None) -> tuple[Decimal | None, Decimal | None] | None:
+    """The limits of the food type chosen on a check that has them; none for a check without. Raises ValueError when no listed type is chosen."""
+    if not sched.food_limits:
+        return None
+    pick = next((f for f in sched.food_limits if f["name"] == food_type), None)
+    if pick is None:
+        raise ValueError("Choose the type of food")
+    to = lambda v: None if v is None else Decimal(str(v))  # noqa: E731
+    return to(pick.get("min_value")), to(pick.get("max_value"))
 
 
 def applies_on(schedule: EquipmentSchedule, day) -> bool:
