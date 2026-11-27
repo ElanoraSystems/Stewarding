@@ -12,6 +12,8 @@ import { FieldRestrictions } from '@/pages/FieldEditor'
 import type { Schedule } from '@/pages/MonitoringRecordForm'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+// the same list the cooking template starts with (backend monitoring_templates.FOOD_LIMITS)
+const DEFAULT_FOODS = [['Poultry', '75'], ['Minced or rolled meat', '75'], ['Whole cuts of meat', '63'], ['Fish and seafood', '63'], ['Other dishes', '75']]
 const MEASURES = [['Temperature', '°C'], ['Concentration', 'ppm'], ['pH', ''], ['Time', 'min'], ['Humidity', '%']]
 
 interface CheckFormProps {
@@ -33,6 +35,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
     max_open_hours: schedule?.max_open_minutes ? String(schedule.max_open_minutes / 60) : '',
     require_reference: schedule?.require_reference ?? false, trace_lots: schedule?.trace_lots ?? false, required: schedule?.required ?? true, reference_label: schedule?.reference_label ?? '', phase: schedule?.phase ?? '',
   })
+  const [foods, setFoods] = useState<string[][]>((schedule?.food_limits ?? []).map((f) => [f.name, String(f.min_value ?? ''), String(f.max_value ?? '')]))
   const [extra, setExtra] = useState({ options: (schedule?.options ?? []).join('\n'), fail: schedule?.fail_options ?? [], maxLength: String(schedule?.max_length ?? 200) })
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
   const isNumber = form.value_type === 'number'
@@ -58,6 +61,7 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
       max_value: isNumber && form.max_value !== '' ? Number(form.max_value) : null,
       warn_min: isNumber && form.warn_min !== '' ? Number(form.warn_min) : null,
       warn_max: isNumber && form.warn_max !== '' ? Number(form.warn_max) : null,
+      food_limits: isNumber && foods.some(([name]) => name.trim()) ? foods.filter(([name]) => name.trim()).map(([name, min, max]) => ({ name: name.trim(), min_value: min !== '' ? Number(min) : null, max_value: max !== '' ? Number(max) : null })) : null,
       options: form.value_type === 'choice' ? optionList(extra.options) : null,
       fail_options: form.value_type === 'choice' ? extra.fail.filter((o) => optionList(extra.options).includes(o)) : null,
       max_length: form.value_type === 'text' ? Number(extra.maxLength) : null,
@@ -120,6 +124,24 @@ export function CheckFormModal({ equipmentId, schedule, onClose, onSaved }: Chec
             {isNumber && <Field label="Amber warning from (optional)"><SignedNumberInput placeholder="Passes, but is flagged at or above this" value={form.warn_max} onChange={(v) => set('warn_max', v)} /></Field>}
             {isNumber && <Field label="Amber warning down to (optional)"><SignedNumberInput placeholder="Passes, but is flagged at or below this" value={form.warn_min} onChange={(v) => set('warn_min', v)} /></Field>}
           </div>
+          {isNumber && (
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <p className="text-sm font-medium">Limits by type of food (optional)</p>
+              <p className="text-xs text-ink-muted">When set, the person recording chooses the type of food and the reading is judged against that type's limits instead of the minimum and maximum above.</p>
+              {foods.map((f, i) => (
+                <div key={i} className="flex flex-wrap items-end gap-2">
+                  <Field label="Food type"><Input maxLength={40} value={f[0]} onChange={(e) => setFoods((l) => l.map((x, j) => (j === i ? [e.target.value, x[1], x[2]] : x)))} /></Field>
+                  <Field label="Minimum"><SignedNumberInput className="w-24" value={f[1]} onChange={(v) => setFoods((l) => l.map((x, j) => (j === i ? [x[0], v, x[2]] : x)))} /></Field>
+                  <Field label="Maximum"><SignedNumberInput className="w-24" value={f[2]} onChange={(v) => setFoods((l) => l.map((x, j) => (j === i ? [x[0], x[1], v] : x)))} /></Field>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setFoods((l) => l.filter((_, j) => j !== i))}>Remove</Button>
+                </div>
+              ))}
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setFoods((l) => [...l, ['', '', '']])}>Add a food type</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setFoods(DEFAULT_FOODS.map(([n, min]) => [n, min, '120']))}>Use the default list</Button>
+              </div>
+            </div>
+          )}
           {(form.value_type === 'text' || form.value_type === 'choice') && (
             <FieldRestrictions value={{ ...blankField(), type: form.value_type, ...extra }} onChange={(v) => setExtra({ options: v.options, fail: v.fail, maxLength: v.maxLength })} />
           )}

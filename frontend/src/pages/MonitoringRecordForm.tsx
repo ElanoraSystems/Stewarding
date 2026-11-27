@@ -27,6 +27,7 @@ export interface Schedule {
   max_length: number | null
   require_reference: boolean
   trace_lots?: boolean
+  food_limits?: { name: string; min_value: number | null; max_value: number | null }[] | null  // limits by type of food: the person recording chooses the type
   required: boolean
   reference_label: string | null
   phase: 'start' | 'finish' | null
@@ -119,6 +120,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const [scheduleId, setScheduleId] = useState('')
   const [values, setValues] = useState<Record<number, string>>({})
   const [reference, setReference] = useState('')
+  const [foodType, setFoodType] = useState('')
   const [lots, setLots] = useState<LotChoice[]>([])
   const [readyHours, setReadyHours] = useState('')  // a time in: how long this item takes, empty for the check's standard
   const [comment, setComment] = useState('')
@@ -142,7 +144,10 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
   const outstanding = prefill?.retestOf || prefill?.startReadingId ? fullCycle : fullCycle.filter((s) => !doneSchedules?.has(s.id))
   const cycle = outstanding.length > 0 ? outstanding : fullCycle
   const cycles = availableCycles(schedules)
-  const results = cycle.map((s) => verdict(values[s.id] ?? '', s))
+  const foods = cycle.find((s) => s.food_limits?.length)?.food_limits ?? null
+  const pick = foods?.find((f) => f.name === foodType)
+  const judgedBy = (s: Schedule): Schedule | undefined => (s.food_limits?.length ? (pick ? { ...s, min_value: pick.min_value, max_value: pick.max_value, warn_min: null, warn_max: null } : undefined) : s)  // the limits of the food type chosen; none until one is
+  const results = cycle.map((s) => verdict(values[s.id] ?? '', judgedBy(s)))
   const anyFail = results.includes('fail')
   const filled = (s: Schedule) => (values[s.id] ?? '') !== '' && (s.value_type !== 'number' || !Number.isNaN(Number(values[s.id])))  // a lone minus sign is not an answer
   const complete = cycle.length > 0 && cycle.every((s) => !s.required || filled(s))
@@ -199,7 +204,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
     const ok = await run(async () => {
       const evidence = file ? await uploadFile(file) : null
       const where = me?.geofence ? await currentPosition() : {}  // logs are made inside the organization's work area, so the server needs the position
-      const common = { ...where, comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null, lot_ids: lots.map((l) => l.id) }
+      const common = { ...where, comment: comment || null, evidence_path: evidence, corrective_action: action || null, reference: reference || null, food_type: foods ? foodType : null, lot_ids: lots.map((l) => l.id) }
       const body = { equipment_id: Number(equipmentId), start_reading_id: prefill?.startReadingId ?? null, probe_id: chosenProbe?.id ?? null }
       if (prefill?.retestOf) {
         await api('/monitoring/readings', { body: { equipment_id: Number(equipmentId), schedule_id: Number(scheduleId), ...answerOf(schedule, values[Number(scheduleId)]), retest_of_id: prefill.retestOf, probe_id: chosenProbe?.id ?? null, ...common } })
@@ -266,6 +271,14 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
       {prefill?.startReadingId && <p className="rounded-md bg-surface-muted px-3 py-2 text-sm">Time out for <span className="font-medium">{prefill.item ?? 'this entry'}</span>. The time out is stamped when you save.</p>}
       {alreadyDone && <p role="alert" className="rounded-md bg-ok-soft px-3 py-2 text-sm text-ok">This check is already recorded for this time. It is due again at the next scheduled time.</p>}
       <div className="space-y-3">
+        {foods && (
+          <Field label="Type of food">
+            <Select required className="w-64" value={foodType} onChange={(e) => setFoodType(e.target.value)}>
+              <option value="">Choose the type of food</option>
+              {foods.map((f) => <option key={f.name} value={f.name}>{f.name} (min {f.min_value ?? '-'} °C)</option>)}
+            </Select>
+          </Field>
+        )}
         {cycle.map((s, i) => (
           <div key={s.id} className="flex flex-wrap items-end gap-3">
             {s.value_type === 'yes_no' ? (
@@ -298,7 +311,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
                 <Input required={s.required} maxLength={s.max_length ?? 200} className="w-72" value={values[s.id] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))} />
               </Field>
             ) : (
-              <Field label={`${fullCycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}${limitsText(s)}`}>
+              <Field label={`${fullCycle.length > 1 ? `${label(s.stage)}: ` : ''}${s.parameter}${s.unit ? ` (${s.unit})` : ''}${limitsText(judgedBy(s) ?? {})}`}>
                 <SignedNumberInput required={s.required} className="w-44" aria-label={s.parameter} value={values[s.id] ?? ''} onChange={(value) => setValues((v) => ({ ...v, [s.id]: value }))} />
               </Field>
             )}
@@ -347,7 +360,7 @@ export function MonitoringRecordForm({ equipment, prefill, onSaved, onClearRetes
         <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </Field>
       <div className="sticky -bottom-5 -mx-6 -mb-5 border-t border-border bg-surface px-6 py-4">
-        <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (needsReference && reference.trim() === '' && lots.length === 0) || (needsLots && lots.length === 0 && reference.trim() === '')}>
+        <Button type="submit" className="w-full sm:w-auto" disabled={busy || alreadyDone || !complete || (foods !== null && !pick) || (needsReference && reference.trim() === '' && lots.length === 0) || (needsLots && lots.length === 0 && reference.trim() === '')}>
           {busy ? 'Saving...' : prefill?.retestOf ? 'Record retest' : cycle.length > 1 ? 'Record all' : 'Record check'}
         </Button>
       </div>

@@ -27,7 +27,7 @@ EQUIPMENT_FIELDS = ("id", "code", "name", "kind", "location_id", "manufacturer",
                     "supervisor_id", "status", "procedure_reference", "maintenance_notes", "active", "visible_to", "approvers", "control_level")
 SCHEDULE_FIELDS = ("id", "equipment_id", "stage", "parameter", "unit", "value_type", "require_reference", "source", "timing",
                    "time_of_day", "interval_minutes", "weekdays", "day_of_month", "shift_id", "min_value", "max_value", "warn_min", "warn_max", "max_open_minutes", "options",
-                   "fail_options", "max_length", "required", "reference_label", "phase", "trace_lots", "active")
+                   "fail_options", "max_length", "required", "reference_label", "phase", "trace_lots", "food_limits", "active")
 
 
 class EquipmentIn(BaseModel):
@@ -62,6 +62,21 @@ class EquipmentUpdate(BaseModel):
     control_level: str | None = Field(default=None, pattern="^(prp|oprp|ccp)$")
 
 
+class FoodLimit(BaseModel):
+    name: str = Field(min_length=2, max_length=40)
+    min_value: float | None = Field(default=None, ge=-100000, le=100000)
+    max_value: float | None = Field(default=None, ge=-100000, le=100000)
+
+    @model_validator(mode="after")
+    def _limits(self):
+        self.name = " ".join(self.name.split())
+        if self.min_value is None and self.max_value is None:
+            raise ValueError(f"{self.name}: give a minimum or a maximum")
+        if None not in (self.min_value, self.max_value) and self.min_value > self.max_value:
+            raise ValueError(f"{self.name}: the minimum cannot exceed the maximum")
+        return self
+
+
 class ScheduleIn(BaseModel):
     stage: str = Field(min_length=2, max_length=60)
     parameter: str = Field(default="Temperature", min_length=2, max_length=60)
@@ -73,6 +88,7 @@ class ScheduleIn(BaseModel):
     max_length: int | None = Field(default=None, ge=1, le=500)
     require_reference: bool = False
     trace_lots: bool = False
+    food_limits: list[FoodLimit] | None = Field(default=None, max_length=15)  # limits by type of food; the person recording chooses the type
     reference_label: str | None = Field(default=None, max_length=40)
     phase: Literal["start", "finish"] | None = None
     source: str = Field(default="machine_display", pattern="^(machine_display|independent_probe)$")
@@ -95,6 +111,10 @@ class ScheduleIn(BaseModel):
             self.max_open_minutes = None  # only a time in or a time out has a deadline
         if self.value_type != "number":
             self.min_value = self.max_value = self.unit = self.warn_min = self.warn_max = None
+        if self.value_type != "number" or not self.food_limits:
+            self.food_limits = None
+        elif len({f.name.lower() for f in self.food_limits}) != len(self.food_limits):
+            raise ValueError("Two food types have the same name")
         if self.value_type != "choice":
             self.options = self.fail_options = None
         if self.value_type != "text":

@@ -150,6 +150,7 @@ class EquipmentSchedule(Base):
     max_open_minutes: Mapped[int | None] = mapped_column(Integer)  # a time-in check: how long it may stay open before the time out is due
     warn_min: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # a number at or below this still passes but shows an amber warning
     warn_max: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # a number at or above this still passes but shows an amber warning
+    food_limits: Mapped[list | None] = mapped_column(JSON)  # limits by type of food, e.g. poultry 75, fish 63: [{"name", "min_value", "max_value"}]; the person recording picks the type
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -168,6 +169,7 @@ class TemperatureReading(Base):
     value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # a yes/no answer is stored as 1 or 0; none for text and choice
     answer: Mapped[str | None] = mapped_column(String(500))  # the written or chosen answer
     reference: Mapped[str | None] = mapped_column(String(120))
+    food_type: Mapped[str | None] = mapped_column(String(40))  # the type of food the limits were taken from
     min_limit: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     max_limit: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     passed: Mapped[bool] = mapped_column(Boolean)
