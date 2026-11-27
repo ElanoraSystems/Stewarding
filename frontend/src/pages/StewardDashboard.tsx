@@ -1,18 +1,17 @@
-import { AlertTriangle, ThermometerSun } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { greeting, HeroCard } from '@/components/HeroCard'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { StatusBadge } from '@/components/ui/status-badge'
-import { EmptyState, Skeleton } from '@/components/ui/table'
+import { Skeleton } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth'
 import { fmtTime } from '@/lib/format'
 import { useApi } from '@/lib/useApi'
 import { MyShiftCard } from '@/pages/MyShiftCard'
+import { MyWorkList, type MyWork } from '@/pages/MyWorkList'
 
 interface StewardData {
   sections?: string[]
   checked_in: boolean
+  check_in_at?: string | null
   tasks: { total: number; done: number; overdue: number; outstanding: { id: number; description: string; status: string; due_at: string | null }[] }
   monitoring_checks: { due: number; overdue: number }
   unresolved_issues: number
@@ -20,9 +19,14 @@ interface StewardData {
 
 export function StewardDashboard() {
   const { me } = useAuth()
-  const { data, loading, reload } = useApi<StewardData>('/dashboard')
+  const { data, reload } = useApi<StewardData>('/dashboard')
+  const work = useApi<MyWork>('/dashboard/my-work')
   const shows = (part: string) => !data?.sections || data.sections.includes(part)  // older answers carry no list: show everything
-  const percent = data && data.tasks.total ? Math.round((data.tasks.done / data.tasks.total) * 100) : 0
+
+  const shift = <MyShiftCard onChange={() => { reload(); work.reload() }} />
+  const list = work.loading && !work.data ? <Skeleton className="h-40 w-full" /> : work.data && (
+    <MyWorkList work={work.data} timezoneOf={(id) => me?.locations.find((l) => l.id === id)?.timezone} showPlace={(me?.locations.length ?? 0) > 1} />
+  )
 
   return (
     <div className="space-y-4">
@@ -30,64 +34,21 @@ export function StewardDashboard() {
         eyebrow={new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}
         title={`${greeting()}, ${(me?.employee?.name ?? '').split(' ')[0] || 'there'}`}
         chips={data ? [
+          data.checked_in ? { label: `On duty since ${fmtTime(data.check_in_at)}` } : { label: 'Not checked in', urgent: true },
           ...(shows('checklists') ? [{ label: `${data.tasks.done} of ${data.tasks.total} tasks done` }] : []),
           ...(shows('checklists') && data.tasks.overdue > 0 ? [{ label: `${data.tasks.overdue} overdue`, urgent: true }] : []),
           ...(shows('monitoring') && data.monitoring_checks.due > 0 ? [{ label: `${data.monitoring_checks.due} checks due` }] : []),
         ] : []}
       />
 
-      <MyShiftCard onChange={reload} />
+      {/* on duty: the list comes first, the card below it; not yet in: the big Check in button comes first */}
+      {data?.checked_in ? <>{list}{shift}</> : <>{shift}{list}</>}
 
-      {loading && !data ? <Skeleton className="h-40 w-full" /> : data && (
-        <>
-          {shows('monitoring') && (data.monitoring_checks.overdue > 0 || data.unresolved_issues > 0) && (
-            <div role="alert" className="rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-4 py-3 text-sm text-danger">
-              <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden /> Safety checks need you</p>
-              <ul className="mt-1 list-inside list-disc">
-                {data.monitoring_checks.overdue > 0 && <li><Link className="underline" to="/monitoring">{data.monitoring_checks.overdue} check(s) overdue</Link></li>}
-                {data.unresolved_issues > 0 && <li><Link className="underline" to="/monitoring">{data.unresolved_issues} failed check(s) still open</Link></li>}
-              </ul>
-            </div>
-          )}
-
-          {shows('checklists') && <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                Checklist progress
-                <span className="text-sm font-normal text-ink-muted">{data.tasks.done} of {data.tasks.total} done</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="h-2 overflow-hidden rounded bg-border" role="img" aria-label={`${percent}% of tasks done`}>
-                <div className="h-full bg-brand" style={{ width: `${percent}%` }} />
-              </div>
-              {data.tasks.outstanding.length === 0 ? <EmptyState title="All tasks are done" /> : (
-                <ul className="divide-y divide-border">
-                  {data.tasks.outstanding.map((t) => (
-                    <li key={t.id}>
-                      <Link to="/checklists" className="flex items-center justify-between gap-2 py-3 text-sm">
-                        <span><span className="block font-medium">{t.description}</span><span className="text-xs text-ink-muted">Due {fmtTime(t.due_at)}</span></span>
-                        <StatusBadge status={t.status} />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>}
-
-          {shows('monitoring') && <Link to="/monitoring" className="block">
-            <Card className={data.monitoring_checks.overdue ? 'border-danger/50' : undefined}>
-              <CardContent className="flex items-center justify-between gap-3 py-4">
-                <span className="flex items-center gap-2 font-medium"><ThermometerSun className="h-5 w-5 text-brand" aria-hidden /> Monitoring</span>
-                <span className="flex gap-2">
-                  <Badge tone={data.monitoring_checks.due ? 'warn' : 'neutral'}>{data.monitoring_checks.due} due</Badge>
-                  <Badge tone={data.monitoring_checks.overdue ? 'critical' : 'neutral'}>{data.monitoring_checks.overdue} overdue</Badge>
-                </span>
-              </CardContent>
-            </Card>
-          </Link>}
-        </>
+      {data && shows('monitoring') && data.unresolved_issues > 0 && (
+        <div role="alert" className="rounded-xl border border-danger/20 border-l-4 border-l-danger bg-danger-soft px-4 py-3 text-sm text-danger">
+          <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden /> Safety checks need you</p>
+          <p className="mt-1"><Link className="underline" to="/monitoring">{data.unresolved_issues} failed check(s) still open</Link></p>
+        </div>
       )}
     </div>
   )
