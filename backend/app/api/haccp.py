@@ -19,22 +19,41 @@ router = APIRouter(prefix="/api/haccp", tags=["haccp"])
 
 
 class HazardIn(BaseModel):
-    step: str = Field(min_length=2, max_length=80)
     hazard: str = Field(min_length=2, max_length=400)
     kind: Literal["Biological", "Chemical", "Physical", "Allergen"]
     significant: bool = False
     control: str = Field(min_length=2, max_length=600)
-    process: str = Field(default="", max_length=60)  # the kind of food it applies to; empty means all of them
+    basis: str = Field(default="", max_length=300)  # why it is or is not significant: how severe, how likely
 
 
-class FlowStepIn(BaseModel):
-    name: str = Field(min_length=2, max_length=80)
+class StepIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)  # a decision's name is its question
+    kind: Literal["step", "decision"] = "step"
     control: Literal["", "CCP", "OPRP"] = ""
+    no_action: str = Field(default="", max_length=120)  # a decision: what happens when the answer is no ('yes' goes on to the next step)
+    hazards: list[HazardIn] = Field(default_factory=list, max_length=10)
+    no_hazard: str = Field(default="", max_length=200)  # why a step with no hazard has none
+
+    @model_validator(mode="after")
+    def _agree(self):
+        """The flow and the hazard analysis are one list, so a step cannot be in the flow without being analysed."""
+        if self.kind == "decision" and len(self.no_action.strip()) < 3:
+            raise ValueError(f"'{self.name}' is a decision: say what happens when the answer is no")
+        if self.kind == "step":
+            self.no_action = ""
+        if not self.hazards and len(self.no_hazard.strip()) < 3:
+            raise ValueError(f"'{self.name}' needs at least one hazard, or a note saying why it has none")
+        if self.control and not any(h.significant for h in self.hazards):
+            raise ValueError(f"'{self.name}' is a {self.control} step, so it needs a significant hazard that it controls")
+        return self
 
 
 class ProcessIn(BaseModel):
     name: str = Field(min_length=2, max_length=60)
-    steps: list[FlowStepIn] = Field(default_factory=list, max_length=40)  # in order; the chart wraps after five to a row and continues on the next page
+    references: str = Field(default="", max_length=300)  # the Codex texts and local rules this flow was written against
+    confirmed_on: str = Field(default="", max_length=30)  # the flow checked against the real operation, on site
+    confirmed_by: str = Field(default="", max_length=120)
+    steps: list[StepIn] = Field(default_factory=list, max_length=60)  # in order; the chart wraps after five to a row and continues on the next page
 
 
 class PlanIn(BaseModel):
@@ -43,8 +62,7 @@ class PlanIn(BaseModel):
     scope: str = Field(default="", max_length=2000)
     products: str = Field(default="", max_length=2000)
     review: str = Field(default="", max_length=1000)
-    processes: list[ProcessIn] = Field(default_factory=list, max_length=12)  # one flow per kind of food: hot food, salads, stocks, sushi and so on
-    hazards: list[HazardIn] = Field(default_factory=list, max_length=60)
+    processes: list[ProcessIn] = Field(default_factory=list, max_length=12)  # one flow, with its hazard analysis, per kind of food
     new_version: bool = False  # the old version is kept exactly as it was and this one is numbered one higher
     note: str = Field(default="", max_length=200)  # what changed, required with a new version
 
@@ -99,7 +117,7 @@ def save_plan(body: PlanIn, user: User = Depends(require("equipment.manage")), d
     if body.new_version and len(body.note.strip()) < 3:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Say what changed in this version")
     content = {"owner": body.owner.strip(), "team": body.team.strip(), "scope": body.scope.strip(), "products": body.products.strip(), "review": body.review.strip() or haccp.REVIEW,
-               "processes": [{"name": " ".join(p.name.split()), "steps": [s.model_dump() for s in p.steps]} for p in body.processes], "hazards": [h.model_dump() for h in body.hazards]}
+               "processes": [{**p.model_dump(exclude={"steps", "name"}), "name": " ".join(p.name.split()), "steps": [st.model_dump() for st in p.steps]} for p in body.processes]}
     return _write(db, user, content, body.new_version, body.note, "haccp.save")
 
 
@@ -134,7 +152,7 @@ def restore(version: int, user: User = Depends(require("equipment.manage")), db:
     current = haccp.load(db)[1] or 1
     if number == current:
         raise HTTPException(status.HTTP_409_CONFLICT, "That is already the current version")
-    body = {k: content[k] for k in ("owner", "team", "scope", "products", "review", "processes", "hazards")}
+    body = {k: content[k] for k in ("owner", "team", "scope", "products", "review", "processes")}
     return _write(db, user, body, True, f"Restored from version {number}", "haccp.restore")
 
 

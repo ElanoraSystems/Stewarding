@@ -7,69 +7,47 @@ from sqlalchemy.orm import Session
 
 from ..models import Equipment, EquipmentSchedule, HaccpPlan, HaccpPlanVersion, Probe
 from . import approvers, calibration
+from .haccp_starter import starter_processes
 from .records import _locations
 
 KINDS = ("Biological", "Chemical", "Physical", "Allergen")
 SHORT_LEVEL = {"ccp": "CCP", "oprp": "OPRP", "prp": "PRP"}
 REVIEW = "This plan is reviewed at least once a year, and whenever a menu, process, supplier or piece of equipment changes, or after a food safety incident."
 
-# A starting point written in general terms; the food safety lead edits it to the kitchen's own menu and processes.
-STARTER_HAZARDS = [
-    {"step": "Receiving", "hazard": "Food arrives too warm, damaged or past its date; contamination in transit", "kind": "Biological", "significant": True,
-     "control": "Check delivery temperature, packaging, labels and dates at the door; reject what is out of limit."},
-    {"step": "Cold storage", "hazard": "Bacteria grow if storage is too warm; raw food contaminates ready-to-eat food", "kind": "Biological", "significant": True,
-     "control": "Chillers checked at set times against their limits; raw food stored below ready-to-eat food."},
-    {"step": "Frozen storage", "hazard": "Food thaws and refreezes if a freezer is too warm", "kind": "Biological", "significant": False,
-     "control": "Freezers checked at set times against their limits."},
-    {"step": "Defrosting", "hazard": "Bacteria grow while food thaws", "kind": "Biological", "significant": True,
-     "control": "Time in and time out recorded; food defrosts under refrigeration within the time allowed."},
-    {"step": "Cooking", "hazard": "Pathogens survive if the core does not reach the limit", "kind": "Biological", "significant": True,
-     "control": "Core temperature measured with a calibrated probe and judged against the limit for the type of food."},
-    {"step": "Cooling", "hazard": "Spores and bacteria grow while cooked food cools", "kind": "Biological", "significant": True,
-     "control": "Cooling log with a temperature and a time limit at each stage; failures are acted on and recorded."},
-    {"step": "Reheating", "hazard": "Pathogens survive if food is not reheated through", "kind": "Biological", "significant": True,
-     "control": "Core temperature after reheating measured against the limit."},
-    {"step": "Hot holding", "hazard": "Bacteria grow if hot food falls below the holding temperature", "kind": "Biological", "significant": True,
-     "control": "Holding temperature checked at regular intervals against the limit."},
-    {"step": "Cleaning and sanitising", "hazard": "Surviving bacteria on surfaces and equipment; chemical residue", "kind": "Chemical", "significant": False,
-     "control": "Sanitiser strength and dishwasher temperatures checked; cleaning checklists completed and approved."},
-    {"step": "Allergens", "hazard": "Allergen cross-contact or wrong information to the guest", "kind": "Allergen", "significant": True,
-     "control": "Separate utensils and storage, clear labelling and staff training. Add the kitchen's own allergen controls here."},
-]
-
-
-# One flow per kind of food, every step from the supplier to the guest; the control tags match the cooling and hot-holding templates and are edited on the plan.
-_PROCESSES = {
-    "Hot food": ["Supplier approval and ordering", "Receiving: temperature, packaging, labels and dates checked", "Accept, or reject and return non-conforming goods",
-                 "Label with received date and lot", "Dry, chilled or frozen storage", "Issue from store, oldest stock first", "Defrosting", "Washing fruit and vegetables",
-                 "Preparing raw meat, poultry and fish in a separate area", "Portioning, marinating and assembly", "Cooking", "Core temperature check after cooking", "Hot holding",
-                 "Plating and service", "Transport to other outlets or events", "Cooling of leftovers", "Storing cooked food chilled, labelled and dated", "Reheating"],
-    "Cold food and salads": ["Supplier approval and ordering", "Receiving chilled food and produce: temperature, condition and dates", "Label with received date and lot", "Chilled storage",
-                             "Washing and sanitising fruit and vegetables", "Cutting and preparing ready-to-eat food on clean, separate boards", "Dressing, mixing and assembly",
-                             "Portioning and labelling with the use-by date", "Cold holding", "Cold display and service", "Discarding food at the end of its shelf life"],
-    "Stocks, soups and sauces": ["Supplier approval and ordering", "Receiving ingredients: temperature, packaging and dates", "Storage", "Preparing bones, meat and vegetables",
-                                 "Cooking and simmering", "Skimming and straining", "Cooling", "Storing chilled, labelled and dated", "Reheating to a rolling boil", "Hot holding",
-                                 "Service"],
-    "Sushi and raw fish": ["Approved fish supplier; parasite-control certificate or freezing record checked", "Receiving fish: temperature, smell and appearance",
-                           "Chilled storage, raw fish kept apart", "Cooking sushi rice", "Adding vinegar to the rice and holding it", "Preparing raw fish on its own board and knife",
-                           "Rolling and assembly", "Cold holding", "Display and service within the time allowed", "Discarding what is left at the end of service"],
-    "Cleaning, hygiene and waste (all areas)": ["Staff hygiene, handwashing and health checks", "Cleaning and sanitising surfaces and equipment", "Dishwashing and glass washing",
-                                                "Leftovers and food waste", "Pest control and waste removal"],
-}
-STARTER_PROCESSES = [{"name": name, "steps": [{"name": n, "control": "CCP" if n.startswith("Cooling") or n == "Hot holding" else ""} for n in steps]} for name, steps in _PROCESSES.items()]
-
-
 def default_content() -> dict:
-    return {"owner": "", "team": "", "scope": "", "products": "", "review": REVIEW, "processes": [{"name": p["name"], "steps": [dict(s) for s in p["steps"]]} for p in STARTER_PROCESSES],
-            "hazards": [{**h, "process": ""} for h in STARTER_HAZARDS], "revisions": []}
+    return {"owner": "", "team": "", "scope": "", "products": "", "review": REVIEW, "processes": starter_processes(), "revisions": []}
+
+
+def _step(old: dict) -> dict:
+    """A step as it is now: a flow step that carries its own hazards, with a decision's 'no' outcome."""
+    return {"name": old.get("name", ""), "kind": old.get("kind", "step"), "control": old.get("control", ""), "no_action": old.get("no_action", ""),
+            "hazards": [{"hazard": h.get("hazard", ""), "kind": h.get("kind", "Biological"), "significant": bool(h.get("significant")), "control": h.get("control", ""), "basis": h.get("basis", "")}
+                        for h in old.get("hazards", [])], "no_hazard": old.get("no_hazard", "")}
 
 
 def _upgraded(content: dict) -> dict:
-    """A plan saved with one flow becomes one process, so nothing written is lost when the plan grew separate flows per kind of food."""
+    """A plan saved in an earlier shape (one flow, or flows with a separate hazard list) is brought to the current one without losing what was written:
+    each old hazard moves to the step with its name, and any that match no step are collected on a step of their own so they are seen and placed."""
     merged = {**default_content(), **content}
-    if "processes" not in content and content.get("flow"):
-        merged["processes"] = [{"name": "All food", "steps": content["flow"]}]
+    old_flow, old_hazards = content.get("flow"), content.get("hazards")
+    if "processes" not in content and old_flow:
+        merged["processes"] = [{"name": "All food", "steps": old_flow}]
     merged.pop("flow", None)
+    merged.pop("hazards", None)
+    merged["processes"] = [{"name": p.get("name", ""), "references": p.get("references", ""), "confirmed_on": p.get("confirmed_on", ""), "confirmed_by": p.get("confirmed_by", ""),
+                            "steps": [_step(x) for x in p.get("steps", [])]} for p in merged["processes"]]
+    unplaced = []
+    for h in old_hazards or []:
+        targets = [p for p in merged["processes"] if not h.get("process") or p["name"] == h["process"]] or merged["processes"][:1]
+        word = (h.get("step") or "").casefold()
+        found = [s for p in targets for s in p["steps"] if word and (word in s["name"].casefold() or s["name"].casefold() in word)]
+        entry = _step({"hazards": [h]})["hazards"][0]
+        if found:
+            found[0]["hazards"].append(entry)
+        else:
+            unplaced.append(entry)
+    if unplaced and merged["processes"]:
+        merged["processes"][0]["steps"].append({"name": "Hazards not yet linked to a step", "kind": "step", "control": "", "no_action": "", "hazards": unplaced, "no_hazard": ""})
     return merged
 
 
@@ -145,6 +123,23 @@ def _probe_rows(db: Session, location_ids: list[int], now: datetime) -> list[dic
     return rows
 
 
+def _hazard_group(process: dict, index: int) -> dict:
+    """The hazard analysis of one flow: a row per hazard, steps numbered as in the flow chart, so the two always agree."""
+    rows = []
+    for n, st in enumerate(process["steps"], 1):
+        level = st["control"] or "PRP"
+        label = f"{n}. {st['name']}"
+        for k, hz in enumerate(st["hazards"]):
+            rows.append({"step": label if k == 0 else "", "hazard": hz["hazard"], "kind": hz["kind"], "significant": "Yes" if hz["significant"] else "No", "basis": hz.get("basis") or "",
+                         "control": hz["control"], "level": level if k == 0 else ""})
+        if not st["hazards"]:
+            rows.append({"step": label, "hazard": f"No significant hazard: {st['no_hazard']}", "kind": "", "significant": "No", "basis": "", "control": "", "level": level})
+    return {"title": process["name"] if index == 0 else f"Hazard analysis: {process['name']}", "meta": [("Control level", "CCP critical control point, OPRP operational prerequisite programme, PRP managed by prerequisite programmes")],
+            "columns": [("step", "Step"), ("hazard", "Hazard"), ("kind", "Type"), ("significant", "Significant"), ("basis", "Basis for the decision"), ("control", "Control measure"), ("level", "Control")],
+            "rows": rows, "totals": [("Steps", len(process["steps"])), ("Significant hazards", sum(1 for st in process["steps"] for hz in st["hazards"] if hz["significant"]))],
+            "empty": "No steps written yet."}
+
+
 def build_plan(db: Session, now: datetime, scope: set[int] | None, location_id: int | None, prepared_by: str, version: int | None = None) -> dict:
     """The plan as a document: the current one, or an earlier version when `version` names one (the control points always show today's monitoring points)."""
     content, version = content_of(db, version)
@@ -155,11 +150,11 @@ def build_plan(db: Session, now: datetime, scope: set[int] | None, location_id: 
                "columns": [("item", "Item"), ("text", "Details")], "totals": [],
                "rows": [{"item": "HACCP team", "text": text(content["team"])}, {"item": "Scope", "text": text(content["scope"])},
                         {"item": "Products and intended use", "text": text(content["products"])}]}
-    flows = [{"title": p["name"] if i == 0 else f"Process flow: {p['name']}", "meta": [], "columns": [("name", "Step")], "rows": [], "totals": [], "flow": p["steps"],
-              "empty": "No process steps written yet."} for i, p in enumerate(content["processes"] if content["processes"] else [{"name": "Process", "steps": []}])]
-    hazards = {"title": "Hazard analysis", "meta": [], "columns": [("process", "Applies to"), ("step", "Process step"), ("hazard", "Hazard"), ("kind", "Type"), ("significant", "Significant"), ("control", "Control measure")],
-               "rows": [{**h, "process": h.get("process") or "All processes", "significant": "Yes" if h.get("significant") else "No"} for h in content["hazards"]], "totals": [],
-               "empty": "No hazards written yet."}
+    processes = content["processes"] or [{"name": "Process", "references": "", "confirmed_on": "", "confirmed_by": "", "steps": []}]
+    flows = [{"title": p["name"] if i == 0 else f"Process flow: {p['name']}",
+              "meta": [("Reference texts", p.get("references") or "-"), ("Flow confirmed on site", f"{p['confirmed_on']} by {p['confirmed_by']}".strip() if p.get("confirmed_on") else "Not yet confirmed")],
+              "columns": [("name", "Step")], "rows": [], "totals": [], "flow": p["steps"], "empty": "No process steps written yet."} for i, p in enumerate(processes)]
+    hazard_groups = [_hazard_group(p, i) for i, p in enumerate(processes)]
     controls = _control_rows(db, ids)
     cp = {"title": "Control points and limits", "meta": [("Outlets", ", ".join(loc.name for loc in locations) or "-"),
                                                           ("Levels", "CCP critical control point; OPRP operational prerequisite programme; PRP prerequisite programme")],
@@ -176,7 +171,7 @@ def build_plan(db: Session, now: datetime, scope: set[int] | None, location_id: 
                     "empty": "No thermometers are registered for these outlets."}
     revisions = {"title": "Revision history", "meta": [], "columns": [("version", "Version"), ("date", "Date"), ("by", "By"), ("note", "What changed")],
                  "rows": list(reversed(content["revisions"])), "totals": [], "empty": "No revisions recorded yet."}
-    chapters = [("Plan details", [details]), ("Process flow", flows), ("Hazard analysis", [hazards]), ("Control points and limits", [cp]), ("Corrective action and verification", [corrective, thermometers]),
+    chapters = [("Plan details", [details]), ("Process flow", flows), ("Hazard analysis", hazard_groups), ("Control points and limits", [cp]), ("Corrective action and verification", [corrective, thermometers]),
                 ("Revision history", [revisions])]
     groups, contents = [], []
     for number, (title, found) in enumerate(chapters, 1):

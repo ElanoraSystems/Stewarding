@@ -357,7 +357,7 @@ FLOW_PER_PAGE = 20  # four rows of five: what fits under a heading on a landscap
 class FlowChart(Flowable):
     """A process flow: numbered boxes joined by arrows, left to right and wrapping to the next row; critical and operational control steps are tinted. `first` is the number of the first box, for a chart continued on another page."""
 
-    BOX_W, BOX_H, GAP, ROW_GAP = 128, 36, 26, 30
+    BOX_W, BOX_H, GAP, ROW_GAP, NO_H = 128, 36, 26, 56, 24  # the gap between rows also holds a decision's "no" box
     TINT = {"CCP": (colors.HexColor("#fde8e8"), colors.HexColor("#c0392b")), "OPRP": (colors.HexColor("#fff4dc"), colors.HexColor("#b7791f"))}
 
     def __init__(self, steps: list[dict], first: int = 1):
@@ -367,7 +367,8 @@ class FlowChart(Flowable):
     def wrap(self, avail_w, avail_h):
         self.per_row = max(1, int((avail_w + self.GAP) // (self.BOX_W + self.GAP)))
         rows = -(-len(self.steps) // self.per_row)
-        self.width, self.height = avail_w, rows * self.BOX_H + max(0, rows - 1) * self.ROW_GAP
+        pad = self.NO_H + 14 if any(st.get("kind") == "decision" for st in self.steps[-self.per_row:]) else 0  # room under the last row for a "no" box
+        self.width, self.height = avail_w, rows * self.BOX_H + max(0, rows - 1) * self.ROW_GAP + pad
         return self.width, self.height
 
     def _arrow(self, x, y, dx, dy):
@@ -383,10 +384,15 @@ class FlowChart(Flowable):
             row, col = divmod(i, self.per_row)
             x, top = col * step_w, self.height - row * (self.BOX_H + self.ROW_GAP)
             fill, line = self.TINT.get(step.get("control"), (BRAND_SOFT, BRAND))
+            decision = step.get("kind") == "decision"
+            if decision:  # a yes/no question: white, dashed, with a "no" box under it
+                fill = colors.white
             c.setFillColor(fill)
             c.setStrokeColor(line)
             c.setLineWidth(0.9)
+            c.setDash(3, 2) if decision else c.setDash()
             c.roundRect(x, top - self.BOX_H, self.BOX_W, self.BOX_H, 4, stroke=1, fill=1)
+            c.setDash()
             c.setFillColor(INK)
             c.setFont("Helvetica-Bold", 7.5)
             words, lines, cur = f"{self.first + i}. {step['name']}".split(), [], ""
@@ -404,6 +410,27 @@ class FlowChart(Flowable):
                 c.setFont("Helvetica-Bold", 7.5)
             for n, text in enumerate(lines):
                 c.drawString(x + 5, top - 13 - n * 9 if len(lines) > 1 else top - self.BOX_H / 2 - 2.5, text)
+            if decision:
+                bx, by = x + 6, top - self.BOX_H - 14 - self.NO_H
+                c.setStrokeColor(MUTED)
+                c.setLineWidth(0.8)
+                c.line(x + 16, top - self.BOX_H, x + 16, by + self.NO_H + 8)
+                self._arrow(x + 16, by + self.NO_H, 0, -1)
+                c.setFillColor(MUTED)
+                c.setFont("Helvetica-Bold", 6.5)
+                c.drawString(x + 19, top - self.BOX_H - 9, "No")
+                c.setFillColor(colors.HexColor("#f3f4f6"))
+                c.roundRect(bx, by, self.BOX_W - 12, self.NO_H, 3, stroke=1, fill=1)
+                c.setFillColor(INK)
+                c.setFont("Helvetica", 6.5)
+                words, rows, cur = step.get("no_action", "").split(), [], ""
+                for w in words:
+                    if c.stringWidth(f"{cur} {w}".strip(), "Helvetica", 6.5) <= self.BOX_W - 22:
+                        cur = f"{cur} {w}".strip()
+                    else:
+                        rows, cur = rows + [cur], w
+                for n, text in enumerate((rows + [cur])[:3]):
+                    c.drawString(bx + 4, by + self.NO_H - 9 - n * 8, text)
             centres.append((x, top))
         c.setStrokeColor(MUTED)
         c.setLineWidth(0.8)
@@ -412,10 +439,23 @@ class FlowChart(Flowable):
             if ntop == top:
                 c.line(x + self.BOX_W, top - self.BOX_H / 2, nx - 9, top - self.BOX_H / 2)
                 self._arrow(nx, top - self.BOX_H / 2, 1, 0)
+                if self.steps[i].get("kind") == "decision":
+                    c.setFillColor(MUTED)
+                    c.setFont("Helvetica-Bold", 6.5)
+                    c.drawString(x + self.BOX_W + 5, top - self.BOX_H / 2 + 3, "Yes")
             else:  # wrap: down from this box, back along the gap, down into the first box of the next row
-                mid = top - self.BOX_H - self.ROW_GAP / 2
-                bx, nxm = x + self.BOX_W / 2, nx + self.BOX_W / 2
-                c.line(bx, top - self.BOX_H, bx, mid)
+                mid = top - self.BOX_H - self.ROW_GAP + 10  # below any "no" box in this row
+                nxm = nx + self.BOX_W / 2
+                if self.steps[i].get("kind") == "decision":  # leave by the right edge so the line clears the "no" box under it
+                    bx, edge = x + self.BOX_W + 10, top - self.BOX_H / 2
+                    c.line(x + self.BOX_W, edge, bx, edge)
+                    c.line(bx, edge, bx, mid)
+                    c.setFillColor(MUTED)
+                    c.setFont("Helvetica-Bold", 6.5)
+                    c.drawString(x + self.BOX_W + 3, edge + 3, "Yes")
+                else:
+                    bx = x + self.BOX_W / 2
+                    c.line(bx, top - self.BOX_H, bx, mid)
                 c.line(bx, mid, nxm, mid)
                 c.line(nxm, mid, nxm, ntop + 9)
                 self._arrow(nxm, ntop, 0, -1)
@@ -555,7 +595,7 @@ def _render(*, title: str, subtitle: str, org: dict | None, meta: list, sections
                     story += [PageBreak(), Paragraph(_esc(f"{sec['title']} (continued)"), st["section"]), Spacer(1, 8), chart_piece]
                 else:
                     story.append(KeepTogether([*head, chart_piece]))  # the heading never sits alone at the foot of a page
-            story += [Spacer(1, 6), Paragraph(_esc("Shaded steps are control steps: red for critical control points (CCP), amber for operational prerequisite programmes (OPRP)."), st["small"])]
+            story += [Spacer(1, 6), Paragraph(_esc("Shaded steps are control steps: red for critical control points (CCP), amber for operational prerequisite programmes (OPRP). A dashed box is a yes/no question: yes carries on to the next step, no follows the box under it."), st["small"])]
             continue
         chart = sec.get("layout") == "chart"
         weights = [(8 if key == "task" else 1) if chart else w for (key, _), w in zip(sec["columns"], _weights(sec))]
