@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth'
 import { FoodItemsTab } from '@/pages/trace/FoodItemsTab'
 import { LotsTab } from '@/pages/trace/LotsTab'
 import { PortionNamesTab } from '@/pages/trace/PortionNamesTab'
+import { RecallTab } from '@/pages/trace/RecallTab'
 import { PrintersTab } from '@/pages/trace/PrintersTab'
 import { ReceiveLotForm } from '@/pages/trace/ReceiveLotForm'
 import { RulesTab } from '@/pages/trace/RulesTab'
@@ -12,6 +13,7 @@ import { SplitLotForm } from '@/pages/trace/SplitLotForm'
 
 const TABS = [
   ['lots', 'Lots', 'lot.view'],
+  ['recall', 'Recall trace', 'lot.view'],
   ['receive', 'Receive food', 'lot.receive'],
   ['split', 'Split a lot', 'lot.split'],
   ['rules', 'Shelf life', 'lot.view'],
@@ -23,7 +25,7 @@ const TABS = [
 type Tab = (typeof TABS)[number][0]
 
 const GROUPS: { title: string; keys: Tab[] }[] = [
-  { title: 'Lots', keys: ['lots', 'receive', 'split'] },
+  { title: 'Lots', keys: ['lots', 'recall', 'receive', 'split'] },
   { title: 'Setup', keys: ['rules', 'items', 'portions', 'printers'] },
 ]
 
@@ -44,6 +46,7 @@ export function TraceabilityPage() {
       <h1 className="text-2xl font-semibold">Food Traceability</h1>
       <SectionTabs label="Traceability" groups={groups} active={tab} onSelect={(key) => setParams({ tab: key })} />
       {tab === 'lots' && <LotsTab key={version} />}
+      {tab === 'recall' && <RecallTab initialCode={params.get('lot') ?? ''} />}
       {tab === 'receive' && <ReceiveLotForm onSaved={refresh} />}
       {tab === 'split' && <SplitLotForm onSaved={refresh} />}
       {tab === 'rules' && <RulesTab />}

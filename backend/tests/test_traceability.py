@@ -575,3 +575,59 @@ def test_a_food_item_is_deleted_unless_a_lot_was_received_of_it(client, login, d
     r = client.delete(f"{LOTS}/food-items/{used}", headers=m)
     assert r.status_code == 409 and "food lots" in r.json()["detail"] and "make it inactive instead" in r.json()["detail"]
     assert client.delete(f"{LOTS}/food-items/99999", headers=m).status_code == 404
+
+
+def recall_setup(client, login, db):
+    m, sup = login(MGR), login(SUP)
+    item = food(client, m)
+    rule(client, m)
+    cook = butcher(client, db, m)
+    lot = receive(client, sup, db, item, qty=10, unit="kg").json()
+    child = client.post(f"{LOTS}/{lot['id']}/split", headers=cook, json={"parts": [part()]}).json()["lots"][0]
+    return m, sup, cook, lot, child
+
+
+def test_a_recall_trace_gathers_the_supply_the_portions_the_checks_and_the_failures(client, login, db, clock):
+    m, sup, cook, lot, child = recall_setup(client, login, db)
+    point, check = point_with_lots(client, m, db)
+    steward = login(STEWARD)
+    record = {"equipment_id": point["id"], "schedule_id": check["id"], "lot_ids": [child["id"]]}
+    assert client.post("/api/monitoring/readings", headers=steward, json={**record, "value": 82}).status_code == 201
+    bad = client.post("/api/monitoring/readings", headers=steward, json={**record, "value": 40})
+    assert bad.status_code == 201
+    assert client.post(f"{LOTS}/{child['id']}/status", headers=cook, json={"status": "discarded", "note": "Left out of the fridge"}).status_code == 200
+    doc = client.get(f"{LOTS}/{lot['id']}/recall", headers=m).json()
+    titles = [g["title"] for g in doc["groups"]]
+    assert titles[0].endswith("summary") and doc["groups"][0]["rows"][0]["received"] == "10 kg" and doc["groups"][0]["rows"][0]["failed"] == 1
+    origin = doc["groups"][1]["rows"][0]
+    assert origin["supplier_lot"] == "B2610-884" and origin["supplier"] and origin["arrival_temp"] == "2.5 C"
+    went = doc["groups"][3]["rows"]
+    assert [r["what"] for r in went][:2] == ["Received", "Made into portions"] and any(r["what"] == "Status changed" and r["lot"] == child["code"] for r in went)
+    checks = doc["groups"][5]["rows"]
+    assert [(r["lot"], r["result"]) for r in checks] == [(child["code"], "PASS"), (child["code"], "FAIL")]
+    for fmt, magic in (("pdf", b"%PDF"), ("xlsx", b"PK"), ("csv", b"")):
+        got = client.get(f"{LOTS}/{lot['id']}/recall/export?fmt={fmt}", headers=m)
+        assert got.status_code == 200 and got.content.startswith(magic)
+    # backward from the portion reaches the supplier delivery
+    back = client.get(f"{LOTS}/{child['id']}/recall", headers=m).json()["groups"][1]["rows"]
+    assert [r["lot"] for r in back] == [lot["code"], child["code"]]
+
+
+def test_a_recall_trace_is_only_for_people_who_can_see_the_lot(client, login, db, clock):
+    m, sup, cook, lot, child = recall_setup(client, login, db)
+    assert client.get(f"{LOTS}/{lot['id']}/recall", headers=login(SUP_RB)).status_code == 403
+    assert client.get(f"{LOTS}/{lot['id']}/recall", headers=login(STEWARD)).status_code == 403
+
+
+def test_the_recall_record_finds_a_lot_by_code_or_a_suppliers_deliveries_in_a_period(client, login, db, clock):
+    m, sup, cook, lot, child = recall_setup(client, login, db)
+    url = "/api/reports/records/recall"
+    one = client.get(f"{url}?q=b2610-884", headers=m)
+    assert one.status_code == 200 and one.json()["title"] == "Lot Recall Trace" and one.json()["groups"][0]["rows"][0]["received"] == "10 kg"
+    assert client.get(f"{url}?q=NOPE", headers=m).status_code == 400
+    assert client.get(url, headers=m).status_code == 400                      # neither a code nor a supplier
+    supplier_id = db.scalar(select(Lot.supplier_id).where(Lot.id == lot["id"]))
+    many = client.get(f"{url}?supplier_id={supplier_id}&date_from=2026-01-01&date_to=2026-12-31", headers=m)
+    assert many.status_code == 200 and many.json()["groups"][0]["title"] == "Deliveries traced" and many.json()["groups"][0]["rows"][0]["lot"] == lot["code"]
+    assert client.get(f"{url}?q={lot['code']}", headers=login(SUP_RB)).status_code == 400    # not at their location: not found, nothing leaks
+    assert client.get(f"{url}/export?q={lot['code']}&fmt=xlsx", headers=m).content.startswith(b"PK")

@@ -1,4 +1,4 @@
-export type ExtraFilter = 'employee' | 'frequency' | 'monitoringPoint' | 'supplier' | 'movement' | 'item' | 'status' | 'foodGroup' | 'monitoringType' | 'checklist' | 'costView' | 'readingLayout'
+export type ExtraFilter = 'employee' | 'frequency' | 'monitoringPoint' | 'supplier' | 'movement' | 'item' | 'status' | 'foodGroup' | 'monitoringType' | 'checklist' | 'costView' | 'readingLayout' | 'lotCode'
 
 export interface ReportDef {
   key: string
@@ -24,6 +24,7 @@ export const REPORTS: ReportDef[] = [
     statuses: [['passed', 'Passed'], ['failed', 'Failed']] },
   { key: 'lots', title: 'Lot register', section: 'Food safety', filters: ['supplier', 'foodGroup', 'status'],
     statuses: [['active', 'Active'], ['on_hold', 'On hold'], ['used_up', 'Used up'], ['discarded', 'Discarded']] },
+  { key: 'recall', title: 'Lot recall trace', section: 'Food safety', filters: ['lotCode', 'supplier'] },
   // receipts and stock movements are downloaded from the Receiving and Transactions lists, with the filters shown there
   { key: 'stock_cost', title: 'Stock cost report', section: 'Stock', filters: ['costView'] },
   { key: 'inventory_detail', title: 'Detailed inventory report (by location and item)', section: 'Stock', filters: [] },
