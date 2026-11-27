@@ -269,3 +269,27 @@ def test_a_probe_that_failed_its_check_says_so_instead_of_a_date(client, login, 
     client.post(f"/api/calibration/probes/{made['id']}/calibrations", json={"method": "ice_point", "reading_c": 4, "comment": "Taken out of use"}, headers=login(SUP))
     probe = next(i for i in work(client, login(STEWARD))["items"] if i["kind"] == "calibration")
     assert probe["state"] == "overdue" and probe["due_at"] is None and probe["note"] == "Failed its last check"
+
+
+def test_the_waiting_counts_leave_out_what_someone_else_is_named_to_approve(client, login, db, clock):
+    from sqlalchemy import select
+
+    from app.models import User
+    from .test_approvals import complete
+    from .test_checklists import SUP, find
+    from .test_monitoring import mk_stage, record
+    generate(client, login, db)
+    steward, m, sup = login(STEWARD), login(MGR), login(SUP)
+    task = find(client, steward, "Clean drains")
+    complete(client, steward, task)
+    eq, wash = mk_stage(client, steward)
+    record(client, steward, eq, wash, 60)
+    ids = lambda email: db.scalar(select(User.id).where(User.email == email))  # noqa: E731
+    waiting = lambda h: dash(client, h)["kpis"]["awaiting_approval"]  # noqa: E731
+    assert waiting(sup) == {"tasks": 1, "readings": 1, "breakage": 0}  # nobody is named: the supervisor waits on both
+    from .test_named_approvers import template_of
+    tid = template_of(client, m, task)
+    client.put(f"/api/checklists/templates/{tid}", json={"approvers": [ids(MGR)]}, headers=m)
+    client.put(f"/api/equipment/{eq['id']}", json={"approvers": [ids(MGR)]}, headers=m)
+    assert waiting(sup) == {"tasks": 0, "readings": 0, "breakage": 0}  # the manager is named: not the supervisor's to wait on
+    assert waiting(m) == {"tasks": 1, "readings": 1, "breakage": 0}

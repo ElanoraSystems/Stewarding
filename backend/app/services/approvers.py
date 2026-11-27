@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Employee, Equipment, Role, RolePermission, User
+from ..models import ChecklistTemplate, Employee, Equipment, Role, RolePermission, User
 from ..permissions import MANAGER
 from .visibility import norm_title, title_of
 
@@ -15,6 +15,20 @@ MONITORING = "temp.review"
 def may_decide(user: User, approvers: list[int] | None) -> bool:
     """True when nobody is named, the person is one of those named, or they are a manager."""
     return user.role.tier == MANAGER or not approvers or user.id in approvers
+
+
+def not_mine_templates(db: Session, user: User) -> set[int]:
+    """The checklists someone else is named to approve, so this person's waiting-for-approval numbers leave them out."""
+    if user.role.tier == MANAGER:
+        return set()
+    return {t.id for t in db.scalars(select(ChecklistTemplate).where(ChecklistTemplate.approvers.is_not(None))) if not may_decide(user, t.approvers)}
+
+
+def not_mine_points(db: Session, user: User) -> set[int]:
+    """The monitoring points someone else is named to review."""
+    if user.role.tier == MANAGER:
+        return set()
+    return {e.id for e in db.scalars(select(Equipment).where(Equipment.approvers.is_not(None))) if not may_decide(user, e.approvers)}
 
 
 def candidates(db: Session, permission: str) -> list[dict]:

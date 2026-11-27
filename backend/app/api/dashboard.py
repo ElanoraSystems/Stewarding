@@ -11,7 +11,7 @@ from ..deps import check_location, permissions_of, require, role_names, scoped_l
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Equipment,
                       InventoryTransfer, Location, Probe, TemperatureReading, User)
 from ..permissions import STEWARD
-from ..services import calibration, compliance, metrics
+from ..services import approvers, calibration, compliance, metrics
 from ..services.checklists import OPEN, effective_status, overdue_after
 from ..services.settings import get_setting
 from ..services.summary import grouped, pending_items
@@ -77,6 +77,8 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
     daily = _sum_compliance([metrics.checklist_stats(db, w, now, not_frequency="weekly", hidden=no_templates) for w in today_wins])
     weekly = _sum_compliance([metrics.checklist_stats(db, w, now, frequency="weekly", hidden=no_templates) for w in week_wins])
     skipped_tasks = select(ChecklistTask.id).where(ChecklistTask.template_id.in_(no_templates or {0}))
+    not_mine_t, not_mine_p = approvers.not_mine_templates(db, user), approvers.not_mine_points(db, user)  # waiting for approval counts only what this person may decide
+    awaiting_skipped = select(ChecklistTask.id).where(ChecklistTask.template_id.in_((no_templates | not_mine_t) or {0}))
     overdue_stmt = select(func.count()).select_from(ChecklistInstance).where(
         ChecklistInstance.status.in_(OPEN + ("overdue",)), ChecklistInstance.due_at < overdue_after(db, now),
         ChecklistInstance.task_id.not_in(skipped_tasks))
@@ -90,10 +92,10 @@ def _manager_view(db: Session, user: User, now: datetime, location_id: int | Non
         return stmt.where(column.in_(scope)) if scope is not None else stmt
 
     awaiting_tasks = db.scalar(scoped(select(func.count()).select_from(ChecklistInstance).where(
-        ChecklistInstance.status == "pending_verification", ChecklistInstance.task_id.not_in(skipped_tasks)), ChecklistInstance.location_id))
+        ChecklistInstance.status == "pending_verification", ChecklistInstance.task_id.not_in(awaiting_skipped)), ChecklistInstance.location_id))
     awaiting_readings = db.scalar(scoped(select(func.count()).select_from(TemperatureReading).where(
         TemperatureReading.reviewed_at.is_(None), TemperatureReading.rejected_at.is_(None), TemperatureReading.retest_of_id.is_(None),
-        TemperatureReading.recorded_at >= now - timedelta(days=14), TemperatureReading.equipment_id.not_in(no_points or {0})), TemperatureReading.location_id))
+        TemperatureReading.recorded_at >= now - timedelta(days=14), TemperatureReading.equipment_id.not_in((no_points | not_mine_p) or {0})), TemperatureReading.location_id))
     awaiting_breakage = db.scalar(scoped(select(func.count()).select_from(BreakageIncident).where(
         BreakageIncident.status.in_(("reported", "pending_approval"))), BreakageIncident.location_id))
     temp_today = [metrics.monitoring_stats(db, w, now, hidden=no_points) for w in today_wins]

@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from .. import timeutil
 from ..models import (AttendanceRecord, BreakageIncident, ChecklistInstance, ChecklistTask, CorrectiveAction, Employee,
                       Equipment, InventoryTransfer, Location, Shift, TemperatureReading)
+from . import approvers
 from .checklists import OPEN, overdue_after
+from .visibility import hidden_points
 from .inventory import shortage_rows
 from .settings import get_setting
 from .monitoring import CLOSED_ACTIONS, describe, due_checks, may_record
@@ -48,6 +50,8 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime, hid
                       "responsible": responsible, "description": description,
                       "overdue_minutes": _minutes(now, since), "link": link})
 
+    not_mine_t = approvers.not_mine_templates(db, viewer) if viewer is not None else set()  # what someone else is named to approve is not this person's to wait on
+    not_mine_p = (approvers.not_mine_points(db, viewer) | hidden_points(db, viewer)) if viewer is not None else set()
     since = now - timedelta(days=PENDING_DAYS)
     rows = db.execute(
         select(ChecklistInstance.location_id, ChecklistInstance.status, ChecklistInstance.completed_at, ChecklistInstance.due_at,
@@ -59,6 +63,8 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime, hid
     for loc_id, state, completed_at, due_at, assignee, description, priority, role, template_id in rows:
         if hidden and template_id in hidden:
             continue  # a checklist this role is not allowed to see
+        if state == "pending_verification" and template_id in not_mine_t:
+            continue
         if state == "pending_verification":
             add("verification", loc_id, "normal", "Supervisor", f"Verify: {description}", completed_at, "/checklists")
         else:
@@ -86,7 +92,7 @@ def pending_items(db: Session, location_ids: set[int] | None, now: datetime, hid
             select(TemperatureReading.location_id, func.count(), func.min(TemperatureReading.recorded_at))
             .join(Equipment, Equipment.id == TemperatureReading.equipment_id)
             .where(Equipment.active.is_(True), TemperatureReading.location_id.in_(locations), TemperatureReading.reviewed_at.is_(None), TemperatureReading.rejected_at.is_(None),
-                   TemperatureReading.retest_of_id.is_(None), TemperatureReading.recorded_at >= cutoff)
+                   TemperatureReading.retest_of_id.is_(None), TemperatureReading.recorded_at >= cutoff, Equipment.id.not_in(not_mine_p or {0}))
             .group_by(TemperatureReading.location_id)):
         add("monitoring_review", loc_id, "normal", "Supervisor or manager", f"{count} monitoring reading(s) awaiting approval",
             oldest, "/monitoring")

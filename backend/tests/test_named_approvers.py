@@ -76,3 +76,20 @@ def test_a_monitoring_log_is_reviewed_only_by_the_people_named_on_it(client, log
     client.put(f"/api/equipment/{eq}", json={"approvers": [uid(db, SUP), uid(db, MGR)]}, headers=m)
     assert [r["id"] for r in client.get("/api/approvals", headers=sup).json()["readings"]] == [reading["id"]]
     assert client.post(f"/api/monitoring/readings/{reading['id']}/review", json={}, headers=sup).status_code == 200
+
+
+def listed(client, h, eq):
+    return eq["id"] in [e["id"] for e in client.get("/api/monitoring/equipment", headers=h).json()]
+
+
+def test_a_supervisor_not_named_on_a_limited_log_no_longer_sees_it_but_a_named_one_does(client, login, db, clock):
+    equipment, _ = mk_stage(client, login(STEWARD))
+    m, sup = login(MGR), login(SUP)
+    assert listed(client, sup, equipment)
+    client.put(f"/api/equipment/{equipment['id']}", json={"visible_to": ["Steward"]}, headers=m)
+    assert listed(client, sup, equipment)  # nobody named to review: anyone whose role can review still reaches it
+    client.put(f"/api/equipment/{equipment['id']}", json={"approvers": [uid(db, MGR)]}, headers=m)
+    assert not listed(client, sup, equipment)  # someone else is named: the supervisor's role alone is not enough
+    assert listed(client, m, equipment)
+    client.put(f"/api/equipment/{equipment['id']}", json={"approvers": [uid(db, MGR), uid(db, SUP)]}, headers=m)
+    assert listed(client, sup, equipment)
