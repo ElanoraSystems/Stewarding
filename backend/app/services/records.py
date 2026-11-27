@@ -14,6 +14,7 @@ from ..models import (ApprovalRecord, ChecklistInstance, ChecklistTask, Checklis
 from . import metrics
 from .traceability import CONDITIONS, GROUPS
 from .receipt_search import apply_search
+from .recall import recall_groups
 from .costing import MEASURES, category_rows, cost_report
 from .monitoring import LEVEL_LABEL, LEVEL_NAME, describe
 from .reference import user_names
@@ -21,7 +22,7 @@ from .settings import get_setting
 
 KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
          "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements",
-         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register", "approvals": "Approvals and Rejections", "calibration": "Probe Calibration Record"}
+         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register", "approvals": "Approvals and Rejections", "calibration": "Probe Calibration Record", "recall": "Lot Recall Trace"}
 STATUS_FILTERS = {"monitoring": ("passed", "failed", "awaiting"),
                   "checklists": ("pending", "completed", "pending_verification", "verified", "failed", "waived"),
                   "attendance": ("present", "late", "absent", "leave", "week_off"),
@@ -820,6 +821,8 @@ def build_record(db: Session, now: datetime, scope: set[int] | None, kind: str, 
         groups = _monitoring_groups(db, locations, day_from, day_to, f.equipment_id, f.status, f.equipment_kind, f.layout)
     elif kind == "calibration":
         groups = _calibration_groups(db, locations, day_from, day_to, f.status)
+    elif kind == "recall":  # one lot by its code (q), or every delivery from a supplier in the period
+        groups = recall_groups(db, locations, scope, f.q, f.supplier_id, day_from, day_to)
     elif kind == "lots":
         groups = _lot_groups(db, locations, f, day_from, day_to)
     elif kind == "approvals":

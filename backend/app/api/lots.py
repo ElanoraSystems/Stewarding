@@ -18,6 +18,7 @@ from ..pagination import iso, paginate
 from ..services import exporters, labels
 from ..services.monitoring import describe
 from ..services.organization import report_identity, stamp
+from ..services.recall import lot_groups
 from ..services.traceability import (COLD_CHAIN_KEY, CONDITIONS, GROUPS, STATUSES, LotError, ancestors, balance, child_code, cold_chain_limits,
                                      descendants, lot_code, received_code, usable, use_by_for)
 
@@ -740,6 +741,34 @@ def export_trace(lot_id: int, user: User = Depends(require("lot.view")), db: Ses
     audit(db, user, "lot.trace_export", "lot", lot.id, None, {"code": lot.code})
     db.commit()
     return Response(exporters.record_to_pdf(doc), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="trace-{lot.code}.pdf"'})
+
+
+def _recall_doc(db: Session, user: User, lot: Lot) -> dict:
+    now = timeutil.utc_now()
+    identity = report_identity(db)
+    employee = user.employee
+    groups = lot_groups(db, lot, scoped_locations(user, db))[0]
+    return {"kind": "recall", "title": f"Lot Recall Trace - {lot.code}", "period": {"from": now.date().isoformat(), "to": now.date().isoformat(), "label": f"Traced {stamp(now, identity['timezone'])}"},
+            "locations": [db.get(Location, lot.location_id).name], "prepared_by": employee.full_name if employee else user.email,
+            "prepared_position": employee.job_title if employee else (user.role.label or user.role.name), "generated_at": stamp(now, identity["timezone"]),
+            "organization": identity, "groups": groups}
+
+
+@router.get("/{lot_id}/recall")
+def recall(lot_id: int, user: User = Depends(require("lot.view")), db: Session = Depends(get_db)):
+    """The recall trace of one lot: where it came from, where it went, the checks that named it and what is left."""
+    return _recall_doc(db, user, _get(db, user, lot_id))
+
+
+@router.get("/{lot_id}/recall/export")
+def export_recall(lot_id: int, fmt: Literal["pdf", "xlsx", "csv"] = "pdf", user: User = Depends(require("lot.view")), db: Session = Depends(get_db)):
+    lot = _get(db, user, lot_id)
+    doc = _recall_doc(db, user, lot)
+    audit(db, user, "lot.recall_export", "lot", lot.id, None, {"code": lot.code, "format": fmt})
+    db.commit()
+    render = {"pdf": exporters.record_to_pdf, "xlsx": exporters.record_to_xlsx, "csv": exporters.record_to_csv}[fmt]
+    media = {"pdf": "application/pdf", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "csv": "text/csv"}[fmt]
+    return Response(render(doc), media_type=media, headers={"Content-Disposition": f'attachment; filename="recall-{lot.code}.{fmt}"'})
 
 
 @router.delete("/food-items/{item_id}")

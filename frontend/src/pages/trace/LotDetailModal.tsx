@@ -1,5 +1,6 @@
 import { FileText } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -71,6 +72,7 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
   const toast = useToast()
   const [id, setId] = useState(initialId)
   const [note, setNote] = useState('')
+  const navigate = useNavigate()
   const { data, reload } = useApi<Trace>(`/lots/${id}`)
   const can = (permission: string) => me?.permissions.includes(permission) ?? false
   const lot = data?.lot
@@ -124,6 +126,7 @@ export function LotDetailModal({ initialId, onClose, onChanged }: Props) {
           <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg bg-surface-muted p-3">
             <LabelActions ids={[lot.id]} packs={lot.kind === 'portion' ? lot.pack_count ?? 0 : 0} />
             <Button type="button" variant="outline" onClick={exportTrace}><FileText className="h-4 w-4" aria-hidden /> Trace report (PDF)</Button>
+            <Button type="button" variant="outline" onClick={() => navigate(`/traceability?tab=recall&lot=${encodeURIComponent(lot.code)}`)}>Recall trace</Button>
           </div>
 
           {(can('lot.split') || can('lot.manage')) && (

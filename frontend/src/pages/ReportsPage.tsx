@@ -14,6 +14,7 @@ import { FOOD_GROUPS, MOVEMENTS, REPORTS, SECTIONS, type ReportDef } from '@/lib
 import { useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { InspectorPack } from '@/pages/InspectorPack'
 import { OperationsSummary } from '@/pages/OperationsSummary'
 import { ReportPreview, type RecordDoc } from '@/pages/ReportPreview'
 
@@ -52,10 +53,10 @@ export function ReportsPage() {
     date_from: range[0], date_to: range[1], location_id: locationId, employee_id: extra.employee, frequency: extra.frequency,
     equipment_id: point, equipment_kind: kindFilter, template_id: checklist, supplier_id: extra.supplier,
     movement: extra.movement, item_id: extra.item, status: extra.status, food_group: extra.foodGroup,
-    layout: extra.layout === 'lines' ? 'lines' : '',
+    layout: extra.layout === 'lines' ? 'lines' : '', q: key === 'recall' ? extra.lotCode : '',
   }
   const record = key === 'stock_cost' && extra.costView === 'category' ? 'stock_cost_category' : key  // one report, shown by item or by category
-  const preview = useApi<RecordDoc>(def.summary ? null : `/reports/records/${record}${qs(params)}`)
+  const preview = useApi<RecordDoc>(def.summary || def.pack ? null : `/reports/records/${record}${qs(params)}`)
   const setFilter = (name: string, value: string) => setExtra((e) => ({ ...e, [name]: value }))
   const choose = (next: string) => { setKey(next); setExtra({}) }
   const pickPoint = (value: string) => {
@@ -83,7 +84,7 @@ export function ReportsPage() {
           <h2 className="text-xl font-semibold">{def.title}</h2>
         </div>
 
-        {def.summary ? <OperationsSummary /> : (
+        {def.summary ? <OperationsSummary /> : def.pack ? <InspectorPack canExport={canExport} /> : (
           <>
             <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap gap-2" role="group" aria-label="Quick date ranges">
@@ -143,6 +144,9 @@ export function ReportsPage() {
                       {suppliers.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </Select>
                   </Field>
+                )}
+                {has('lotCode') && (
+                  <Field label="Lot code (or choose a supplier to trace all their deliveries in the dates)"><Input value={extra.lotCode ?? ''} onChange={(e) => setFilter('lotCode', e.target.value)} /></Field>
                 )}
                 {has('costView') && (
                   <Field label="Show cost">

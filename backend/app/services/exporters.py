@@ -462,16 +462,20 @@ def _furniture(org_name: str | None, title: str, note: str):
 
 
 def _render(*, title: str, subtitle: str, org: dict | None, meta: list, sections: list[dict], prepared_by: str | None,
-            generated: str, note: str) -> bytes:
+            generated: str, note: str, contents: list[str] | None = None) -> bytes:
     st, width, org = _styles(), PAGE[0] - 2 * MARGIN, org or {}
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=PAGE, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=40, bottomMargin=36, title=title,
                             author=prepared_by or "")
     story = _masthead(org, st, width) + [Paragraph(_esc(title), st["title"]), Paragraph(_esc(subtitle), st["subtitle"]), Spacer(1, 10), _panel(st, meta, width)]
+    if contents:  # an inspector pack lists its chapters on the cover
+        story += [Spacer(1, 16), Paragraph("Contents", st["section"]), Spacer(1, 4), *[Paragraph(_esc(line), st["cell"]) for line in contents]]
     if not sections:
         story += [Spacer(1, 16), Paragraph("No records for this period.", st["small"])]
     for number, sec in enumerate(sections):
-        if sec.get("page_break") and number:
+        if sec.get("chapter"):  # a chapter starts on a new page under its own heading
+            story += [PageBreak(), Paragraph(_esc(sec["chapter"]), st["title"])]
+        elif sec.get("page_break") and number:
             story.append(PageBreak())
         chart = sec.get("layout") == "chart"
         weights = [(8 if key == "task" else 1) if chart else w for (key, _), w in zip(sec["columns"], _weights(sec))]
@@ -513,4 +517,5 @@ def record_to_pdf(doc: dict) -> bytes:
     org = doc.get("organization") or {}
     meta = [(label, value) for label, value in _record_meta(doc) if label not in ("Generated", "Period")]
     return _render(title=doc["title"], subtitle=doc["period"]["label"], org=org, meta=meta, sections=doc["groups"], prepared_by=doc.get("prepared_by"),
-                   generated=str(doc["generated_at"]), note=_footer_note(org, f"{doc['title']} - {doc['period']['label']}"))
+                   generated=str(doc["generated_at"]), note=_footer_note(org, f"{doc['title']} - {doc['period']['label']}"),
+                   contents=doc.get("contents"))
