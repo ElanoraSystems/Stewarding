@@ -186,7 +186,7 @@ export function ChecklistTaskCard({ item, timezone, staff, onChanged, selection 
           <Field label="Employee">
             <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}>
               <option value="">Select</option>
-              {staff.filter((s) => s.location_ids.includes(item.location_id)).map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+              {staff.filter((s) => s.location_ids.length === 0 || s.location_ids.includes(item.location_id)).map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
             </Select>
           </Field>
           <div className="flex justify-end gap-2">

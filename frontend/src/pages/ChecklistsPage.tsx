@@ -61,7 +61,7 @@ export function ChecklistsPage() {
   const canAssign = me?.permissions.includes('task.assign') ?? false
   const canWaive = me?.permissions.includes('checklist.verify') ?? false
   const selectable = items.filter((i) => !['verified', 'waived'].includes(i.effective_status)).map((i) => i.id)
-  const people = (staff.data?.items ?? []).filter((e) => e.location_ids.includes(locationId ?? -1))
+  const people = (staff.data?.items ?? []).filter((e) => e.location_ids.length === 0 || e.location_ids.includes(locationId ?? -1))
   const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
 
   async function afterBulk(path: string, body: Record<string, unknown>, done: (r: Record<string, number>) => string) {

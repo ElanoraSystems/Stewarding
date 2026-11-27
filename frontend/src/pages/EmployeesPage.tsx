@@ -159,7 +159,7 @@ export function EmployeesPage() {
             </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <div><dt className="text-xs text-ink-muted">Job title</dt><dd>{e.job_title}{e.company && <span className="block text-xs text-ink-muted">{e.company}</span>}</dd></div>
-              <div><dt className="text-xs text-ink-muted">Locations</dt><dd>{e.location_ids.map((id) => locationNames.get(id) ?? id).join(', ')}</dd></div>
+              <div><dt className="text-xs text-ink-muted">Locations</dt><dd>{e.location_ids.length ? e.location_ids.map((id) => locationNames.get(id) ?? id).join(', ') : 'All outlets'}</dd></div>
               {canManage && <div><dt className="text-xs text-ink-muted">Joined</dt><dd>{fmtDate(e.date_joined)}</dd></div>}
               {canManage && <div><dt className="text-xs text-ink-muted">Last sign-in</dt><dd>{e.account?.change_required ? <Badge tone="warn">Temporary password</Badge> : e.account?.last_login_at ? fmtDateTime(e.account.last_login_at) : 'Never'}</dd></div>}
             </dl>
@@ -198,7 +198,7 @@ export function EmployeesPage() {
                 </Td>
                 <Td>{e.job_title}{e.company && <span className="block text-xs text-ink-muted">{e.company}</span>}</Td>
                 <Td><StatusBadge status={e.status} /></Td>
-                <Td>{e.location_ids.map((id) => locationNames.get(id) ?? id).join(', ')}</Td>
+                <Td>{e.location_ids.length ? e.location_ids.map((id) => locationNames.get(id) ?? id).join(', ') : 'All outlets'}</Td>
                 {canManage && (
                   <Td>{e.account?.change_required ? <Badge tone="warn">Temporary password</Badge> : e.account?.last_login_at ? fmtDateTime(e.account.last_login_at) : <span className="text-ink-muted">Never</span>}</Td>
                 )}

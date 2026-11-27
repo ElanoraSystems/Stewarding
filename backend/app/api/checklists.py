@@ -480,14 +480,14 @@ def _many(db: Session, user: User, ids: list[int]) -> list[ChecklistInstance]:
 
 @router.post("/instances/assign-many")
 def assign_many(body: AssignManyIn, user: User = Depends(require("task.assign")), db: Session = Depends(get_db)):
-    """Gives the chosen unfinished tasks to one employee; tasks at a location they do not work at, or already finished, are skipped."""
+    """Gives the chosen unfinished tasks to one employee; tasks at a location they do not work at (someone with no outlet works anywhere), or already finished, are skipped."""
     emp = db.get(Employee, body.employee_id)
     if not emp or emp.status != "active":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Employee is not active")
     places = set(db.scalars(select(EmployeeLocation.location_id).where(EmployeeLocation.employee_id == emp.id)))
     now, given = timeutil.utc_now(), []
     for inst in _many(db, user, body.instance_ids):
-        if inst.location_id not in places or inst.status in DONE:
+        if (places and inst.location_id not in places) or inst.status in DONE:  # no outlet set: works anywhere
             continue
         db.add(TaskAssignment(instance_id=inst.id, employee_id=emp.id, assigned_by=user.id))
         inst.assigned_employee_id = emp.id
@@ -538,9 +538,8 @@ def assign(instance_id: int, body: AssignIn, user: User = Depends(require("task.
            db: Session = Depends(get_db)):
     inst, task, template = _load(db, user, instance_id)
     emp = db.get(Employee, body.employee_id)
-    works_here = emp and db.scalar(select(EmployeeLocation.employee_id).where(
-        EmployeeLocation.employee_id == emp.id, EmployeeLocation.location_id == inst.location_id))
-    if not works_here or emp.status != "active":
+    places = set(db.scalars(select(EmployeeLocation.location_id).where(EmployeeLocation.employee_id == emp.id))) if emp else set()
+    if not emp or (places and inst.location_id not in places) or emp.status != "active":  # no outlet set: works anywhere
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Employee is not active at this location")
     if inst.status in DONE:
         raise HTTPException(status.HTTP_409_CONFLICT, "Task is already finished")
