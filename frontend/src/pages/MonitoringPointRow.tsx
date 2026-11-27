@@ -1,11 +1,12 @@
-import { ChevronDown, Pencil, Plus } from 'lucide-react'
-import { useId } from 'react'
+import { ChevronDown, Pencil, Plus, TrendingUp } from 'lucide-react'
+import { useId, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ActionMenu } from '@/components/ui/action-menu'
 import { Select } from '@/components/ui/select'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { cn } from '@/lib/utils'
+import { PointTrend } from '@/pages/PointTrend'
 import type { EquipmentItem, Schedule } from '@/pages/MonitoringRecordForm'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -57,6 +58,7 @@ interface Props {
 export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onStatus, onRename, onWho, onApprovers, onPointActive, onLevel, onDeletePoint, onEditCheck, onCheckActive, onDeleteCheck }: Props) {
   const body = useId()
   const limited = eq.visible_to && eq.visible_to.length > 0
+  const [trendOf, setTrendOf] = useState<number | null>(null)  // the check whose readings-over-time chart is open
   return (
     <section aria-label={eq.name} className={cn('overflow-hidden rounded-2xl border bg-surface', eq.needs_attention ? 'border-warn/60' : 'border-border', !eq.active && 'opacity-75')}>
       <button type="button" aria-expanded={open} aria-controls={body} onClick={onToggle}
@@ -121,6 +123,11 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
                     <p className="mt-0.5 text-sm text-ink-muted">{when(s)}</p>
                   </div>
                   <p className="rounded-lg bg-surface-muted px-3 py-1.5 text-sm font-medium tabular-nums">{limits(s)}</p>
+                  {s.value_type === 'number' && !s.phase && (
+                    <Button size="sm" variant="outline" aria-expanded={trendOf === s.id} onClick={() => setTrendOf(trendOf === s.id ? null : s.id)}>
+                      <TrendingUp className="h-3.5 w-3.5" /> {trendOf === s.id ? 'Hide trend' : 'Trend'}
+                    </Button>
+                  )}
                   {canManage && (
                     <div className="flex items-center gap-1">
                       <Button size="sm" variant="outline" onClick={() => onEditCheck(s)}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
@@ -130,6 +137,7 @@ export function MonitoringPointRow({ point: eq, open, onToggle, canManage, onSta
                       ]} />
                     </div>
                   )}
+                  {trendOf === s.id && <PointTrend equipmentId={eq.id} scheduleId={s.id} name={s.stage} />}
                 </li>
               ))}
             </ul>

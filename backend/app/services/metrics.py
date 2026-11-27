@@ -259,7 +259,7 @@ def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | N
     out: dict[int, dict] = {}
     for eq in points:
         entry = {"equipment_id": eq.id, "equipment": eq.name, "location": win.loc.name, "due": 0, "done": 0, "missed": 0,
-                 "failed": 0, "readings": 0}
+                 "failed": 0, "readings": 0, "missed_hours": []}  # missed_hours: the local hour of each missed check
         mine = readings[eq.id]
         entry["readings"] = sum(1 for r in mine if win.start <= r.recorded_at < win.end)
         entry["failed"] = sum(1 for r in mine if not r.passed and win.start <= r.recorded_at < win.end)
@@ -285,6 +285,7 @@ def monitoring_stats(db: Session, win: Win, now: datetime, equipment_id: int | N
                             entry["done"] += 1
                         elif now > slot + grace:
                             entry["missed"] += 1
+                            entry["missed_hours"].append(timeutil.to_local(slot, win.loc.timezone).hour)
         out[eq.id] = entry
     due = sum(e["due"] for e in out.values())
     done = sum(e["done"] for e in out.values())
