@@ -22,6 +22,7 @@ from ..services.notify import notify, recipients
 from ..services.scan import require_scan
 from ..services.settings import get_setting
 from ..services.starter import apply_starter
+from ..services.work_area import enforce_work_area
 from ..services.visibility import clean_titles, hidden_templates, may_see
 from .uploads import is_valid_evidence
 
@@ -85,6 +86,9 @@ class CompleteIn(BaseModel):
     reading: Decimal | None = None
     evidence_path: str | None = None
     late_reason: str | None = Field(default=None, max_length=500)  # required when the task is already overdue
+    latitude: float | None = Field(default=None, ge=-90, le=90)  # where it was done; checked against the work area when one is set
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracy: float | None = Field(default=None, ge=0, le=100000)
 
 
 class VerifyIn(BaseModel):
@@ -372,6 +376,7 @@ def complete(instance_id: int, body: CompleteIn, user: User = Depends(require("c
     now = timeutil.utc_now()
     location = db.get(Location, inst.location_id)
     require_scan(db, user, "location", location.id, "scan.checklists_required", location.name)
+    enforce_work_area(db, body.latitude, body.longitude, body.accuracy, "complete checklist tasks")  # not from home
     if inst.local_date > timeutil.local_date(now, location.timezone):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This task is scheduled for a future date")
     if task.requires_reading and body.reading is None:

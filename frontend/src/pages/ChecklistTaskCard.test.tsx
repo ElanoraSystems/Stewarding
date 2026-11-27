@@ -3,10 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChecklistTaskCard, type Instance } from '@/pages/ChecklistTaskCard'
 
-const mocks = vi.hoisted(() => ({ calls: [] as { path: string; body: unknown }[] }))
+const mocks = vi.hoisted(() => ({ calls: [] as { path: string; body: unknown }[], geofence: false }))
 
 vi.mock('@/lib/api', () => ({ api: vi.fn(async (path: string, init: { body: unknown }) => { mocks.calls.push({ path, body: init.body }); return {} }), uploadFile: vi.fn() }))
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ me: { id: 1, permissions: ['checklist.complete'] } }) }))
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ me: { id: 1, geofence: mocks.geofence, permissions: ['checklist.complete'] } }) }))
+vi.mock('@/lib/geo', () => ({ currentPosition: async () => ({ latitude: 29.376, longitude: 47.9775, accuracy: 12 }) }))
 vi.mock('@/lib/toast', () => ({ useRun: () => async (action: () => Promise<unknown>) => { await action(); return true } }))
 
 const task = (extra: Partial<Instance>) => ({
@@ -16,7 +17,7 @@ const task = (extra: Partial<Instance>) => ({
 }) as Instance
 
 describe('ChecklistTaskCard late tasks', () => {
-  beforeEach(() => { mocks.calls.length = 0 })
+  beforeEach(() => { mocks.calls.length = 0; mocks.geofence = false })
 
   it('asks why an overdue task is late and will not submit without a reason', async () => {
     const user = userEvent.setup()
@@ -45,5 +46,17 @@ describe('ChecklistTaskCard late tasks', () => {
     render(<ChecklistTaskCard item={task({ status: 'verified', effective_status: 'verified', late_minutes: 75, late_reason: 'Delivery kept the team busy' })} staff={[]} onChanged={() => undefined} timezone="UTC" />)
     expect(screen.getByText('Late by 1 h 15 min')).toBeTruthy()
     expect(screen.getByText(/Delivery kept the team busy/)).toBeTruthy()
+  })
+  it('sends where the task was completed when the organization has a work area, and not when it has none', async () => {
+    const user = userEvent.setup()
+    for (const geofence of [true, false]) {
+      mocks.calls.length = 0
+      mocks.geofence = geofence
+      const { unmount } = render(<ChecklistTaskCard item={task({ effective_status: 'in_progress' })} staff={[]} onChanged={() => undefined} timezone="UTC" />)
+      await user.click(screen.getByRole('button', { name: /Complete/ }))
+      await user.click(screen.getByRole('button', { name: 'Submit' }))
+      expect((mocks.calls[0].body as { latitude?: number }).latitude).toBe(geofence ? 29.376 : undefined)
+      unmount()
+    }
   })
 })
