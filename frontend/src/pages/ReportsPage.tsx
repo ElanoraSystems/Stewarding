@@ -14,6 +14,7 @@ import { FOOD_GROUPS, MOVEMENTS, REPORTS, SECTIONS, type ReportDef } from '@/lib
 import { useToast } from '@/lib/toast'
 import { qs, useApi } from '@/lib/useApi'
 import { useAllItems } from '@/lib/useItems'
+import { InspectorPack } from '@/pages/InspectorPack'
 import { OperationsSummary } from '@/pages/OperationsSummary'
 import { ReportPreview, type RecordDoc } from '@/pages/ReportPreview'
 
@@ -55,7 +56,7 @@ export function ReportsPage() {
     layout: extra.layout === 'lines' ? 'lines' : '',
   }
   const record = key === 'stock_cost' && extra.costView === 'category' ? 'stock_cost_category' : key  // one report, shown by item or by category
-  const preview = useApi<RecordDoc>(def.summary ? null : `/reports/records/${record}${qs(params)}`)
+  const preview = useApi<RecordDoc>(def.summary || def.pack ? null : `/reports/records/${record}${qs(params)}`)
   const setFilter = (name: string, value: string) => setExtra((e) => ({ ...e, [name]: value }))
   const choose = (next: string) => { setKey(next); setExtra({}) }
   const pickPoint = (value: string) => {
@@ -83,7 +84,7 @@ export function ReportsPage() {
           <h2 className="text-xl font-semibold">{def.title}</h2>
         </div>
 
-        {def.summary ? <OperationsSummary /> : (
+        {def.summary ? <OperationsSummary /> : def.pack ? <InspectorPack canExport={canExport} /> : (
           <>
             <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap gap-2" role="group" aria-label="Quick date ranges">
