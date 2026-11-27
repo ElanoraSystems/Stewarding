@@ -194,3 +194,78 @@ def test_whoever_approves_the_work_sees_all_of_it_whatever_their_job_title(clien
     after = dash(client, sup)
     assert after["kpis"] == before["kpis"] and before["kpis"]["monitoring_checks"]["due"] > 0
     assert client.get("/api/monitoring/equipment", headers=sup).json()
+
+
+def work(client, h):
+    r = client.get("/api/dashboard/my-work", headers=h)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_my_work_lists_overdue_first_then_by_due_time(client, login, db, clock):
+    generate(client, login, db)
+    h = login(STEWARD)
+    clock.set(2026, 3, 2, 10, 0)  # 14:00 Dubai: the 13:30 tasks are late, the later ones are not
+    body = work(client, h)
+    items = body["items"]
+    assert items and {i["kind"] for i in items} >= {"task", "check"}
+    states = [i["state"] for i in items]
+    assert states == sorted(states, key=lambda s: s != "overdue")  # every overdue row comes before the rest
+    for state in ("overdue", "due_soon"):
+        times = [i["due_at"] for i in items if i["state"] == state and i["due_at"]]
+        assert times == sorted(times)
+    late = next(i for i in items if i["kind"] == "task" and i["state"] == "overdue")
+    assert late["late_minutes"] and late["location"] and late["due_at"]
+
+
+def test_my_work_drops_finished_tasks_and_keeps_to_my_own(client, login, db, clock):
+    generate(client, login, db)
+    h = login(STEWARD)
+    task = client.get("/api/checklists/instances?size=200", headers=h).json()["items"][0]
+    before = work(client, h)["items"]
+    assert f"task-{task['id']}" in {i["key"] for i in before}
+    client.post(f"/api/checklists/instances/{task['id']}/complete", json={}, headers=h)
+    after = work(client, h)["items"]
+    assert f"task-{task['id']}" not in {i["key"] for i in after}
+    other = work(client, login("steward.rb@example.test"))["items"]  # another location sees none of this one's work
+    assert not {i["location"] for i in other} & {i["location"] for i in after}
+
+
+def test_my_work_respects_the_dashboard_parts_a_job_title_is_given(client, login, db, clock):
+    generate(client, login, db)
+    from app.models import Role
+    role = db.scalar(select(Role).where(Role.name == "steward"))
+    role.dashboard = ["monitoring"]
+    db.commit()
+    kinds = {i["kind"] for i in work(client, login(STEWARD))["items"]}
+    assert "task" not in kinds
+
+
+def test_my_work_offers_probe_calibration_only_to_people_who_record(client, login, db, clock):
+    h = login(STEWARD)
+    assert not [i for i in work(client, h)["items"] if i["kind"] == "calibration"]
+    client.post("/api/calibration/probes", json={"code": "TH-MK-9", "name": "Probe nine", "location_id": loc_id(db, "MK")}, headers=login(MGR))
+    probe = [i for i in work(client, h)["items"] if i["kind"] == "calibration"]
+    assert len(probe) == 1 and probe[0]["state"] == "overdue" and probe[0]["note"] == "Never checked"
+
+
+def test_my_work_requires_authentication(client):
+    assert client.get("/api/dashboard/my-work").status_code == 401
+
+
+def test_a_steward_tied_to_no_outlet_works_at_every_location(client, login, db, clock):
+    from app.models import EmployeeLocation, User
+    generate(client, login, db)
+    h = login(STEWARD)
+    steward = db.scalar(select(User).where(User.email == STEWARD))
+    db.query(EmployeeLocation).filter(EmployeeLocation.employee_id == steward.employee.id).delete()
+    db.commit()
+    assert dash(client, h)["tasks"]["total"] > 0
+    assert any(i["kind"] == "task" for i in work(client, h)["items"])
+
+
+def test_a_probe_that_failed_its_check_says_so_instead_of_a_date(client, login, db, clock):
+    made = client.post("/api/calibration/probes", json={"code": "TH-MK-8", "name": "Probe eight", "location_id": loc_id(db, "MK")}, headers=login(MGR)).json()
+    client.post(f"/api/calibration/probes/{made['id']}/calibrations", json={"method": "ice_point", "reading_c": 4, "comment": "Taken out of use"}, headers=login(SUP))
+    probe = next(i for i in work(client, login(STEWARD))["items"] if i["kind"] == "calibration")
+    assert probe["state"] == "overdue" and probe["due_at"] is None and probe["note"] == "Failed its last check"
