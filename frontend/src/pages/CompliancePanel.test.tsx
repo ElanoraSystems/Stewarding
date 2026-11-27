@@ -100,3 +100,20 @@ describe('LimitTrend', () => {
     expect(screen.getByText('No readings in this period.')).toBeTruthy()
   })
 })
+
+describe('CompliancePanel tidy layout', () => {
+  it('lists an outlet with nothing due on one line, puts the worst outlet first and draws the hour strip only where something was missed', () => {
+    const quiet = { checklists: { due: 0, on_time: 0, percent: null }, monitoring: { done: 0, due: 0, missed: 0, failed: 0, percent: null }, ccp: null, failed_readings: 0, open_actions: 0, overdue_now: 0, probes: null, missed_by_hour: { monitoring: hours({}), tasks: hours({}) } }
+    mocks.data = { range: { date_from: 'a', date_to: 'b' }, sections: ['checklists', 'monitoring'], outlets: [
+      outlet({ location_id: 1, location: 'Good Kitchen', checklists: { due: 10, on_time: 10, percent: 100 }, monitoring: { done: 5, due: 5, missed: 0, failed: 0, percent: 100 }, failed_readings: 0, open_actions: 0, overdue_now: 0, probes: null, missed_by_hour: { monitoring: hours({}), tasks: hours({}) } }),
+      outlet({ location_id: 2, location: 'Bad Kitchen', checklists: { due: 10, on_time: 5, percent: 50 } }),
+      outlet({ location_id: 3, location: 'Empty Bar', ...quiet }),
+    ] }
+    render(<CompliancePanel locationId={null} />)
+    expect(screen.queryByRole('heading', { name: 'Empty Bar' })).toBeNull()
+    expect(screen.getByText(/Nothing scheduled in this period: Empty Bar/)).toBeTruthy()
+    const names = screen.getAllByText(/^(Good|Bad) Kitchen$/).map((n) => n.textContent)
+    expect(names).toEqual(['Bad Kitchen', 'Good Kitchen'])
+    expect(screen.getAllByText('none missed').length).toBe(2)  // the good outlet's two lines; the bad one has strips
+  })
+})
