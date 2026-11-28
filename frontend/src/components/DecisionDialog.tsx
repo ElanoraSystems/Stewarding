@@ -62,7 +62,7 @@ function Dialog({ open, title, subject, initial = 'approved', approveOnly = fals
           <textarea value={comment} maxLength={300} rows={3} onChange={(e) => setComment(e.target.value)}
             className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-base font-normal outline-none focus:border-brand focus:ring-2 focus:ring-brand/30" />
         </label>
-        <p className="text-xs text-ink-muted">Your decision and comment are kept and shown in the Approvals and Rejections report.</p>
+        <p className="text-xs text-ink-muted">Your decision and comment are kept and shown in the Approval decisions report.</p>
       </div>
     </Modal>
   )
