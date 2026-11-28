@@ -358,6 +358,8 @@ class FlowChart(Flowable):
     """A process flow: numbered boxes joined by arrows, left to right and wrapping to the next row; critical and operational control steps are tinted. `first` is the number of the first box, for a chart continued on another page."""
 
     BOX_W, BOX_H, GAP, ROW_GAP, NO_H = 128, 36, 26, 56, 24  # the gap between rows also holds a decision's "no" box
+    PLAIN = (BRAND_SOFT, BRAND)  # an ordinary step; a subclass restyles the chart by replacing PLAIN and TINT
+    FONT = 7.5
     TINT = {"CCP": (colors.HexColor("#fde8e8"), colors.HexColor("#c0392b")), "OPRP": (colors.HexColor("#fff4dc"), colors.HexColor("#b7791f"))}
 
     def __init__(self, steps: list[dict], first: int = 1):
@@ -383,7 +385,7 @@ class FlowChart(Flowable):
         for i, step in enumerate(self.steps):
             row, col = divmod(i, self.per_row)
             x, top = col * step_w, self.height - row * (self.BOX_H + self.ROW_GAP)
-            fill, line = self.TINT.get(step.get("control"), (BRAND_SOFT, BRAND))
+            fill, line = self.TINT.get(step.get("control"), self.PLAIN)
             decision = step.get("kind") == "decision"
             if decision:  # a yes/no question: white, dashed, with a "no" box under it
                 fill = colors.white
@@ -394,10 +396,10 @@ class FlowChart(Flowable):
             c.roundRect(x, top - self.BOX_H, self.BOX_W, self.BOX_H, 4, stroke=1, fill=1)
             c.setDash()
             c.setFillColor(INK)
-            c.setFont("Helvetica-Bold", 7.5)
+            c.setFont("Helvetica-Bold", self.FONT)
             words, lines, cur = f"{self.first + i}. {step['name']}".split(), [], ""
             for w in words:  # three short lines at most, longer names are cut
-                if c.stringWidth(f"{cur} {w}".strip(), "Helvetica-Bold", 7.5) <= self.BOX_W - 10:
+                if c.stringWidth(f"{cur} {w}".strip(), "Helvetica-Bold", self.FONT) <= self.BOX_W - 10:
                     cur = f"{cur} {w}".strip()
                 else:
                     lines, cur = lines + [cur], w
@@ -407,9 +409,9 @@ class FlowChart(Flowable):
                 c.setFillColor(line)
                 c.drawRightString(x + self.BOX_W - 4, top - 8, step["control"])
                 c.setFillColor(INK)
-                c.setFont("Helvetica-Bold", 7.5)
+                c.setFont("Helvetica-Bold", self.FONT)
             for n, text in enumerate(lines):
-                c.drawString(x + 5, top - 13 - n * 9 if len(lines) > 1 else top - self.BOX_H / 2 - 2.5, text)
+                c.drawString(x + 5, top - 13 - n * (self.FONT + 1.5) if len(lines) > 1 else top - self.BOX_H / 2 - self.FONT / 3, text)
             if decision:
                 bx, by = x + 6, top - self.BOX_H - 14 - self.NO_H
                 c.setStrokeColor(MUTED)
@@ -634,6 +636,10 @@ def to_pdf(report: dict) -> bytes:
 
 
 def record_to_pdf(doc: dict) -> bytes:
+    if doc.get("kind") == "haccp_plan":  # the plan has its own controlled-document layout
+        from .haccp_pdf import haccp_to_pdf
+
+        return haccp_to_pdf(doc)
     org = doc.get("organization") or {}
     meta = [(label, value) for label, value in _record_meta(doc) if label not in ("Generated", "Period")]
     return _render(title=doc["title"], subtitle=doc["period"]["label"], org=org, meta=meta, sections=doc["groups"], prepared_by=doc.get("prepared_by"),
