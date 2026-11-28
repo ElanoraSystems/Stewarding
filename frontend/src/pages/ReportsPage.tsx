@@ -82,6 +82,7 @@ export function ReportsPage() {
       <section className="min-w-0 space-y-4" aria-label={def.title}>
         <div>
           <h2 className="text-xl font-semibold">{def.title}</h2>
+          {def.about && <p className="mt-1 max-w-3xl text-sm text-ink-muted">{def.about}</p>}
         </div>
 
         {def.summary ? <OperationsSummary /> : def.pack ? <InspectorPack canExport={canExport} /> : (

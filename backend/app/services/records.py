@@ -20,9 +20,9 @@ from .monitoring import LEVEL_LABEL, LEVEL_NAME, describe
 from .reference import user_names
 from .settings import get_setting
 
-KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Completion Chart",
+KINDS = {"monitoring": "Monitoring Record", "checklists": "Checklist Record", "checklist_chart": "Checklist Sign-off Sheet",
          "attendance": "Attendance Record", "attendance_sheet": "Employee Attendance Sheet", "receipts": "Receipts and Invoices", "movements": "Stock Issues and Movements",
-         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register", "approvals": "Approvals and Rejections", "calibration": "Probe Calibration Record", "recall": "Lot Recall Trace"}
+         "stock_cost": "Stock Cost Report", "stock_cost_category": "Stock Cost by Category", "inventory_detail": "Detailed Inventory Report", "lots": "Lot Register", "approvals": "Approval Decisions", "calibration": "Probe Calibration Record", "recall": "Lot Recall Trace"}
 STATUS_FILTERS = {"monitoring": ("passed", "failed", "awaiting"),
                   "checklists": ("pending", "completed", "pending_verification", "verified", "failed", "waived"),
                   "attendance": ("present", "late", "absent", "leave", "week_off"),
@@ -460,7 +460,7 @@ def _approval_groups(db: Session, locations: list[Location], day_from: date, day
                          "decision": rec.decision.capitalize(), "by": names.get(rec.decided_by, ""), "comment": rec.reason or ""})
         if rows or by_location:
             groups.append({
-                "title": f"{loc.name} - Approvals and rejections", "meta": [("Location", loc.name)],
+                "title": f"{loc.name} - Approval decisions", "meta": [("Location", loc.name)],
                 "columns": [("when", "Decided at"), ("kind", "Type"), ("what", "What"), ("decision", "Decision"), ("by", "By"), ("comment", "Comment")],
                 "rows": rows,
                 "totals": [("Decisions", len(rows)), ("Approved", sum(1 for r in rows if r["decision"] == "Approved")),
